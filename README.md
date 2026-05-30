@@ -1,0 +1,121 @@
+# MQTT Trust Gateway
+
+MQTT Trust Gateway is a secure MQTT broker stack for VPS deployments.
+
+It provides:
+
+- Mosquitto with public TLS using Let's Encrypt
+- device authentication with mutual TLS
+- a Smallstep `step-ca` certificate authority for device certificates
+- an Admin Web interface protected by passkeys/WebAuthn
+- Nginx for the public HTTPS admin endpoint
+- a setup wizard for DNS, firewall, certificates, and container startup
+
+## Layout
+
+```text
+https://<MQTT_DOMAIN>          -> Admin Web with passkey login
+mqtts://<MQTT_DOMAIN>:8883     -> MQTT TLS with device mTLS
+wss://<MQTT_DOMAIN>:8443       -> MQTT over secure WebSocket with device mTLS
+https://<STEP_CA_DOMAIN>:9000  -> step-ca API
+```
+
+## Requirements
+
+On the VPS:
+
+- Ubuntu 24.04 LTS or similar Linux server
+- Docker Compose or Podman Compose
+- DNS records for `<MQTT_DOMAIN>` and `<STEP_CA_DOMAIN>` pointing to the VPS public IP
+- inbound ports `80/tcp`, `443/tcp`, `8883/tcp`, `8443/tcp`, and `9000/tcp`
+
+Port usage:
+
+- `80/tcp`: Let's Encrypt HTTP challenge
+- `443/tcp`: Admin Web HTTPS
+- `8883/tcp`: MQTT TLS
+- `8443/tcp`: MQTT over secure WebSocket
+- `9000/tcp`: step-ca API, preferably restricted to trusted networks
+
+## Setup
+
+Run the wizard from the project root:
+
+```bash
+chmod +x setup-wizard.sh
+sudo ./setup-wizard.sh
+```
+
+The wizard:
+
+- writes `broker.env`
+- checks container engine, DNS, firewall, and ports
+- initializes `step-ca`
+- exports the MQTT client CA
+- saves the root CA fingerprint
+- generates an Admin Web first-registration setup token
+- starts `step-ca`, Certbot, Mosquitto, Admin Web, and Nginx
+
+After startup, open:
+
+```text
+https://<MQTT_DOMAIN>
+```
+
+Use the setup token printed by the wizard to register the first passkey.
+
+## Device Credentials
+
+Create device credentials from an operator/provisioning machine, not on the VPS when possible.
+
+First time on the operator machine:
+
+```bash
+export MQTT_DOMAIN="<mqtt-domain>"
+export STEP_CA_URL="https://<step-ca-domain>:<step-ca-port>"
+export STEP_CA_PROVISIONER="<step-ca-provisioner>"
+export STEP_CA_FINGERPRINT="<root-ca-fingerprint-from-broker-env>"
+export STEP_CA_DEVICE_CERT_TTL="<device-certificate-ttl>"
+export MQTT_TOPIC_PREFIX="<mqtt-topic-prefix>"
+
+step ca bootstrap \
+  --ca-url "${STEP_CA_URL}" \
+  --fingerprint "${STEP_CA_FINGERPRINT}"
+```
+
+Create one device credential:
+
+```bash
+export DEVICE_ID="<device-id>"
+DEVICE_DIR=./devices/${DEVICE_ID}
+mkdir -p "${DEVICE_DIR}"
+
+openssl genrsa -out "${DEVICE_DIR}/${DEVICE_ID}.key" 2048
+chmod 600 "${DEVICE_DIR}/${DEVICE_ID}.key"
+
+openssl req \
+  -new \
+  -key "${DEVICE_DIR}/${DEVICE_ID}.key" \
+  -out "${DEVICE_DIR}/${DEVICE_ID}.csr" \
+  -subj "/CN=${DEVICE_ID}" \
+  -addext "subjectAltName=DNS:${DEVICE_ID},URI:urn:mqtt-trust-gateway:device:${DEVICE_ID}"
+
+step ca sign \
+  "${DEVICE_DIR}/${DEVICE_ID}.csr" \
+  "${DEVICE_DIR}/${DEVICE_ID}.crt" \
+  --provisioner "${STEP_CA_PROVISIONER}" \
+  --not-after "${STEP_CA_DEVICE_CERT_TTL}"
+```
+
+The private key stays on the operator machine or device. The CA receives only the CSR.
+
+You can also paste the CSR into the Admin Web and sign it there.
+
+## Security Notes
+
+- Do not commit `runtime/`, private keys, passwords, issued device keys, or production `broker.env` secrets.
+- Restrict `9000/tcp` where practical.
+- Prefer generating device private keys on a trusted provisioning workstation or directly on the device.
+- Protect the step-ca provisioner password.
+- Use passkeys for Admin Web access and remove stale admin data before handing the VPS to another operator.
+

@@ -1,0 +1,12 @@
+runtime/
+devices/
+*.key
+*.csr
+*.crt
+*.pem
+*.p12
+*.pfx
+*.log
+node_modules/
+.env
+

@@ -1,0 +1,10 @@
+services:
+  step-ca:
+    image: docker.io/smallstep/step-ca:latest
+    container_name: ${CONTAINER_NAME:-mqtt-trust-gateway}-step-ca
+    env_file:
+      - ../broker.env
+    network_mode: host
+    volumes:
+      - "${BASE_DIR:-./runtime}/step-ca:/home/step:z"
+    restart: unless-stopped
