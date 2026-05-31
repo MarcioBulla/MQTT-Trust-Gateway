@@ -92,6 +92,17 @@ https://<MQTT_DOMAIN>
 
 Use the setup token printed by the wizard to register the first passkey.
 
+## Uninstall
+
+Run the uninstall wizard from the project root:
+
+```bash
+chmod +x uninstall-wizard.sh
+sudo ./uninstall-wizard.sh
+```
+
+The uninstall wizard stops and removes the containers first. It asks separately before deleting runtime data, certificates, CA files, admin data, local images, local iptables rules, or `broker.env`.
+
 ## Device Credentials
 
 Create device credentials from an operator/provisioning machine, not on the VPS when possible.

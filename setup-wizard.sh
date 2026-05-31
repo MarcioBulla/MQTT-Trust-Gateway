@@ -239,6 +239,11 @@ env_value() {
   printf "%s" "$1" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/"
 }
 
+env_file_has_key() {
+  env_key="$1"
+  [ -f "${ENV_FILE}" ] && grep -q "^${env_key}=" "${ENV_FILE}"
+}
+
 read_line() {
   prompt_text="$1"
   default_value="${2:-}"
@@ -261,7 +266,11 @@ prompt_default() {
   prompt_text="$2"
   default_value="$3"
   prompt_value="$(printf "%s? %s%s%s [%s%s%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_YELLOW}" "${default_value}" "${C_RESET}")"
-  read_line "${prompt_value}" "${default_value}"
+  if env_file_has_key "${var_name}" && [ -n "${default_value}" ]; then
+    read_line "${prompt_value}" "${default_value}"
+  else
+    read_line "${prompt_value}"
+  fi
   if [ -z "${input_value}" ]; then
     printf -v "${var_name}" "%s" "${default_value}"
   else
@@ -297,7 +306,11 @@ prompt_domain_or_public_ip() {
     prompt_value="$(printf "%s? %sDomain%s [%spublic IP%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "${C_RESET}" "${C_YELLOW}" "${C_RESET}")"
   fi
 
-  read_line "${prompt_value}"
+  if env_file_has_key "MQTT_DOMAIN" && [ -n "${current_domain}" ]; then
+    read_line "${prompt_value}" "${current_domain}"
+  else
+    read_line "${prompt_value}"
+  fi
   if [ -n "${input_value}" ]; then
     MQTT_DOMAIN="${input_value}"
     MQTT_USE_PUBLIC_IP="no"
@@ -356,19 +369,13 @@ prompt_yes_no() {
   prompt_text="$2"
   default_value="$3"
   case "${default_value}" in
-    yes)
-      prompt_suffix="Y/n"
-      input_default="y"
-      ;;
-    no)
-      prompt_suffix="y/N"
-      input_default="n"
-      ;;
+    yes) prompt_suffix="Y/n" ;;
+    no) prompt_suffix="y/N" ;;
     *) err "Invalid yes/no default: ${default_value}"; exit 1 ;;
   esac
   while :; do
     prompt_value="$(printf "%s? %s%s%s [%s%s%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_YELLOW}" "${prompt_suffix}" "${C_RESET}")"
-    read_line "${prompt_value}" "${input_default}"
+    read_line "${prompt_value}"
     yn="${input_value}"
     if [ -z "${yn}" ]; then
       case "${default_value}" in
