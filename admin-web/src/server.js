@@ -178,17 +178,17 @@ app.get('/', async (_req, res) => {
     <h2>Register Passkey</h2>
     <input id="setupToken" placeholder="Setup token">
     <input id="username" placeholder="Admin username" value="admin">
-    <button onclick="registerPasskey()">Register passkey</button>
+    <button id="registerPasskeyButton" type="button">Register passkey</button>
   </section>
   <section id="login">
     <h2>Login</h2>
     <input id="loginUsername" placeholder="Admin username" value="admin">
-    <button onclick="loginPasskey()">Login with passkey</button>
+    <button id="loginPasskeyButton" type="button">Login with passkey</button>
   </section>
   <section id="app" hidden>
     <div class="row">
-      <button onclick="loadStatus()">Refresh status</button>
-      <button onclick="logout()">Logout</button>
+      <button id="refreshStatusButton" type="button">Refresh status</button>
+      <button id="logoutButton" type="button">Logout</button>
     </div>
     <h2>Status</h2>
     <pre id="status"></pre>
@@ -196,7 +196,7 @@ app.get('/', async (_req, res) => {
     <input id="deviceId" placeholder="device-id">
     <input id="provisionerPassword" placeholder="Provisioner password" type="password">
     <textarea id="csr" placeholder="Paste CSR PEM here"></textarea>
-    <button onclick="signCsr()">Sign CSR</button>
+    <button id="signCsrButton" type="button">Sign CSR</button>
     <pre id="cert"></pre>
   </section>
 </main>
@@ -310,6 +310,17 @@ async function logout() {
   await post('/api/logout', {});
   location.reload();
 }
+window.addEventListener('error', (event) => {
+  setNotice(event.message || 'Browser script error.', 'error');
+});
+window.addEventListener('unhandledrejection', (event) => {
+  setNotice(event.reason?.message || String(event.reason || 'Unhandled browser error.'), 'error');
+});
+document.getElementById('registerPasskeyButton').addEventListener('click', registerPasskey);
+document.getElementById('loginPasskeyButton').addEventListener('click', () => loginPasskey());
+document.getElementById('refreshStatusButton').addEventListener('click', loadStatus);
+document.getElementById('logoutButton').addEventListener('click', logout);
+document.getElementById('signCsrButton').addEventListener('click', signCsr);
 </script>
 </body>
 </html>`);
