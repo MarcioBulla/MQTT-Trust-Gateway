@@ -5,6 +5,7 @@ set -eu
 : "${MQTT_TOPIC_PREFIX:=devices}"
 : "${MQTT_TLS_PORT:=8883}"
 : "${MQTT_WS_TLS_PORT:=8443}"
+: "${ADMIN_MQTT_CLIENT_ID:=mqtt-trust-admin}"
 
 CERT_DIR="/etc/letsencrypt/live/${MQTT_DOMAIN}"
 CONFIG_FILE="/mosquitto/config/mosquitto.conf"
@@ -37,6 +38,9 @@ chmod 640 "${FULLCHAIN_FILE}" "${PRIVKEY_FILE}" "${CLIENT_CA_FILE}"
 cat > "${ACL_FILE}" <<EOF
 pattern readwrite %u/#
 pattern readwrite ${MQTT_TOPIC_PREFIX}/%u/#
+
+user ${ADMIN_MQTT_CLIENT_ID}
+topic readwrite #
 EOF
 
 chown mosquitto:mosquitto "${ACL_FILE}"

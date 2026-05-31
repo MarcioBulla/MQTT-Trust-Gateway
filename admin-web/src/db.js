@@ -13,10 +13,11 @@ export async function loadDb() {
     db.sessions ||= {};
     db.challenges ||= {};
     db.certificates ||= [];
+    db.mqttTopics ||= [];
     return db;
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    return { users: [], sessions: {}, challenges: {}, certificates: [] };
+    return { users: [], sessions: {}, challenges: {}, certificates: [], mqttTopics: [] };
   }
 }
 

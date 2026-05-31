@@ -305,6 +305,7 @@ defaults() {
   ADMIN_RP_NAME="${ADMIN_RP_NAME:-MQTT_Trust_Gateway}"
   ADMIN_SETUP_TOKEN="${ADMIN_SETUP_TOKEN:-$(random_secret)}"
   ADMIN_SESSION_SECRET="${ADMIN_SESSION_SECRET:-$(random_secret)}"
+  ADMIN_MQTT_CLIENT_ID="${ADMIN_MQTT_CLIENT_ID:-mqtt-trust-admin}"
 }
 
 wt_msg() {
@@ -539,6 +540,7 @@ run_compose() {
     ADMIN_ORIGIN="${ADMIN_ORIGIN}" \
     ADMIN_SETUP_TOKEN="${ADMIN_SETUP_TOKEN}" \
     ADMIN_SESSION_SECRET="${ADMIN_SESSION_SECRET}" \
+    ADMIN_MQTT_CLIENT_ID="${ADMIN_MQTT_CLIENT_ID}" \
     "${CONTAINER_ENGINE}" compose "$@"
 }
 
@@ -588,6 +590,7 @@ ADMIN_RP_ID=${ADMIN_RP_ID}
 ADMIN_ORIGIN=${ADMIN_ORIGIN}
 ADMIN_SETUP_TOKEN=${ADMIN_SETUP_TOKEN}
 ADMIN_SESSION_SECRET=${ADMIN_SESSION_SECRET}
+ADMIN_MQTT_CLIENT_ID=${ADMIN_MQTT_CLIENT_ID}
 EOF
 }
 
@@ -639,6 +642,7 @@ install_summary() {
     "Admin setup/login URL: ${ADMIN_ORIGIN}" \
     "Admin username: choose on first setup page, default is admin" \
     "Admin setup email: ${CERTBOT_EMAIL:-not configured}" \
+    "Admin MQTT identity: ${ADMIN_MQTT_CLIENT_ID}" \
     "" \
     "Use this token once to register the first admin passkey:" \
     "Admin setup token: ${ADMIN_SETUP_TOKEN}"
@@ -690,6 +694,31 @@ fix_step_ca_permissions() {
   fi
 }
 
+ensure_admin_mqtt_certificate() {
+  cert_file="${BASE_DIR}/admin-web/mqtt-client.crt"
+  key_file="${BASE_DIR}/admin-web/mqtt-client.key"
+  ca_file="${BASE_DIR}/step-ca/certs/intermediate_ca.crt"
+  ca_key_file="${BASE_DIR}/step-ca/secrets/intermediate_ca_key"
+  ca_password_file="${BASE_DIR}/step-ca/secrets/password"
+
+  if [ -f "${cert_file}" ] && [ -f "${key_file}" ]; then
+    return 0
+  fi
+
+  mkdir -p "${BASE_DIR}/admin-web"
+  step certificate create "${ADMIN_MQTT_CLIENT_ID}" "${cert_file}" "${key_file}" \
+    --profile leaf \
+    --not-after "${STEP_CA_DEVICE_CERT_TTL}" \
+    --ca "${ca_file}" \
+    --ca-key "${ca_key_file}" \
+    --ca-password-file "${ca_password_file}" \
+    --no-password \
+    --insecure \
+    --force
+  chmod 600 "${key_file}"
+  chmod 644 "${cert_file}"
+}
+
 bootstrap_step_ca() {
   password="$1"
   step_ca_dir="${BASE_DIR}/step-ca"
@@ -719,6 +748,7 @@ bootstrap_step_ca() {
   mkdir -p "${BASE_DIR}/pki/step-ca"
   cp "${step_ca_dir}/certs/root_ca.crt" "${BASE_DIR}/pki/step-ca/ca.crt"
   chmod 644 "${BASE_DIR}/pki/step-ca/ca.crt"
+  ensure_admin_mqtt_certificate
   fix_step_ca_permissions
 }
 
@@ -840,6 +870,7 @@ configure_advanced() {
   STEP_CA_PORT="$(wt_input "Advanced" "step-ca external port." "${STEP_CA_PORT}")" || return 1
   STEP_CA_PROVISIONER="$(wt_input "Advanced" "step-ca provisioner name." "${STEP_CA_PROVISIONER}")" || return 1
   STEP_CA_DEVICE_CERT_TTL="$(wt_input "Advanced" "Device certificate TTL." "${STEP_CA_DEVICE_CERT_TTL}")" || return 1
+  ADMIN_MQTT_CLIENT_ID="$(wt_input "Advanced" "Admin MQTT client certificate common name." "${ADMIN_MQTT_CLIENT_ID}")" || return 1
   derive_public_endpoints
 }
 
@@ -892,6 +923,7 @@ Preview mode: no files were written, no certificates were initialized, and no co
     if [ -f "${BASE_DIR}/step-ca/certs/root_ca.crt" ]; then
       STEP_CA_FINGERPRINT="$(step certificate fingerprint "${BASE_DIR}/step-ca/certs/root_ca.crt")"
     fi
+    ensure_admin_mqtt_certificate
     write_env
   fi
 
@@ -1063,6 +1095,11 @@ Preview mode: would optionally run git pull, then rebuild and recreate:
 
   if [ ! -f "${BASE_DIR}/pki/step-ca/ca.crt" ]; then
     wt_msg "MQTT client CA was not found at:\n\n${BASE_DIR}/pki/step-ca/ca.crt\n\nRun Install and initialize step-ca before updating the application containers."
+    return 1
+  fi
+
+  if ! wt_progress_command "Preparing Admin MQTT certificate" ensure_admin_mqtt_certificate; then
+    wt_msg "Admin MQTT certificate setup failed. Review the log shown by the wizard before updating containers."
     return 1
   fi
 
