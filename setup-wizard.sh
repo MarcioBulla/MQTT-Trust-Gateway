@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -92,6 +92,13 @@ run_compose() {
     ADMIN_SESSION_SECRET="${ADMIN_SESSION_SECRET}" \
     MQTT_USE_PUBLIC_IP="${MQTT_USE_PUBLIC_IP}" \
     "${CONTAINER_ENGINE}" compose "$@"
+}
+
+derive_public_endpoints() {
+  STEP_CA_DOMAIN="${MQTT_DOMAIN}"
+  STEP_CA_URL="https://${MQTT_DOMAIN}:${STEP_CA_PORT}"
+  ADMIN_RP_ID="${MQTT_DOMAIN}"
+  ADMIN_ORIGIN="https://${MQTT_DOMAIN}"
 }
 
 compose_available() {
@@ -228,16 +235,37 @@ set_env_value() {
   fi
 }
 
+env_value() {
+  printf "%s" "$1" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/"
+}
+
+read_line() {
+  prompt_text="$1"
+  default_value="${2:-}"
+  input_value=""
+
+  if [ -t 0 ]; then
+    if [ -n "${default_value}" ]; then
+      read -r -e -i "${default_value}" -p "${prompt_text}" input_value || true
+    else
+      read -r -e -p "${prompt_text}" input_value || true
+    fi
+  else
+    printf "%s" "${prompt_text}"
+    read -r input_value || true
+  fi
+}
+
 prompt_default() {
   var_name="$1"
   prompt_text="$2"
   default_value="$3"
-  printf "%s? %s%s%s [%s%s%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_YELLOW}" "${default_value}" "${C_RESET}"
-  read -r input_value || true
+  prompt_value="$(printf "%s? %s%s%s [%s%s%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_YELLOW}" "${default_value}" "${C_RESET}")"
+  read_line "${prompt_value}"
   if [ -z "${input_value}" ]; then
-    eval "${var_name}=\$default_value"
+    printf -v "${var_name}" "%s" "${default_value}"
   else
-    eval "${var_name}=\$input_value"
+    printf -v "${var_name}" "%s" "${input_value}"
   fi
   pace
 }
@@ -246,10 +274,10 @@ prompt_required() {
   var_name="$1"
   prompt_text="$2"
   while :; do
-    printf "%s? %s%s%s: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_RESET}"
-    read -r input_value || true
+    prompt_value="$(printf "%s? %s%s%s: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_RESET}")"
+    read_line "${prompt_value}"
     if [ -n "${input_value}" ]; then
-      eval "${var_name}=\$input_value"
+      printf -v "${var_name}" "%s" "${input_value}"
       pace
       return 0
     fi
@@ -264,12 +292,12 @@ prompt_domain_or_public_ip() {
   esac
 
   if [ -n "${current_domain}" ]; then
-    printf "%s? %sDomain%s [%s%s%s, empty = public IP]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "${C_RESET}" "${C_YELLOW}" "${current_domain}" "${C_RESET}"
+    prompt_value="$(printf "%s? %sDomain%s [%s%s%s, empty = public IP]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "${C_RESET}" "${C_YELLOW}" "${current_domain}" "${C_RESET}")"
   else
-    printf "%s? %sDomain%s [%spublic IP%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "${C_RESET}" "${C_YELLOW}" "${C_RESET}"
+    prompt_value="$(printf "%s? %sDomain%s [%spublic IP%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "${C_RESET}" "${C_YELLOW}" "${C_RESET}")"
   fi
 
-  read -r input_value || true
+  read_line "${prompt_value}"
   if [ -n "${input_value}" ]; then
     MQTT_DOMAIN="${input_value}"
     MQTT_USE_PUBLIC_IP="no"
@@ -292,12 +320,14 @@ has_step_cli() {
 read_secret() {
   secret_prompt_text="$1"
   while :; do
-    printf "%s? %s%s%s: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "${secret_prompt_text}" "${C_RESET}"
-    old_stty="$(stty -g)"
-    stty -echo
-    read -r SECRET_VALUE || true
-    stty "${old_stty}"
-    printf "\n"
+    prompt_value="$(printf "%s? %s%s%s: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "${secret_prompt_text}" "${C_RESET}")"
+    if [ -t 0 ]; then
+      read -r -s -e -p "${prompt_value}" SECRET_VALUE || true
+      printf "\n"
+    else
+      printf "%s" "${prompt_value}"
+      read -r SECRET_VALUE || true
+    fi
     if [ -n "${SECRET_VALUE}" ]; then
       pace
       return 0
@@ -331,8 +361,9 @@ prompt_yes_no() {
     *) err "Invalid yes/no default: ${default_value}"; exit 1 ;;
   esac
   while :; do
-    printf "%s? %s%s%s [%s%s%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_YELLOW}" "${prompt_suffix}" "${C_RESET}"
-    read -r yn || true
+    prompt_value="$(printf "%s? %s%s%s [%s%s%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_YELLOW}" "${prompt_suffix}" "${C_RESET}")"
+    read_line "${prompt_value}"
+    yn="${input_value}"
     if [ -z "${yn}" ]; then
       case "${default_value}" in
         yes) yn="y" ;;
@@ -341,12 +372,12 @@ prompt_yes_no() {
     fi
     case "${yn}" in
       y|Y)
-        eval "${var_name}=yes"
+        printf -v "${var_name}" "%s" "yes"
         pace
         return 0
         ;;
       n|N)
-        eval "${var_name}=no"
+        printf -v "${var_name}" "%s" "no"
         pace
         return 0
         ;;
@@ -375,63 +406,6 @@ report_command() {
     warn "  - ${command_name}: missing"
   fi
   return 1
-}
-
-check_prerequisites() {
-  missing_required=0
-  missing_optional=0
-
-  title "=== Prerequisite Check ==="
-  if ! report_command "${CONTAINER_ENGINE}" "required"; then
-    missing_required=1
-  fi
-
-  if ! compose_available; then
-    err "  - ${CONTAINER_ENGINE} compose: missing or not working"
-    missing_required=1
-  else
-    ok "  - ${CONTAINER_ENGINE} compose: available"
-  fi
-
-  if ! report_command "openssl" "required"; then
-    missing_required=1
-  fi
-
-  if ! report_command "step" "optional"; then
-    missing_optional=1
-  fi
-
-  if ! report_command "ss" "optional"; then
-    missing_optional=1
-  fi
-
-  if ! report_command "dig" "optional"; then
-    missing_optional=1
-  fi
-
-  if ! has_command "ufw" && ! has_command "firewall-cmd"; then
-    warn "  - firewall checker: ufw/firewalld not found"
-    missing_optional=1
-  else
-    ok "  - firewall checker: available"
-  fi
-
-  if [ "${missing_required}" -eq 0 ] && [ "${missing_optional}" -eq 0 ]; then
-    ok "All checked prerequisites are available."
-    return 0
-  fi
-
-  if [ "${missing_required}" -eq 1 ]; then
-    warn "Required dependencies are missing. The setup will probably fail."
-  else
-    warn "Only optional dependencies are missing. Some steps may be skipped or less informative."
-  fi
-
-  prompt_yes_no CONTINUE_WITH_MISSING "Continue anyway?" "no"
-  if [ "${CONTINUE_WITH_MISSING}" != "yes" ]; then
-    warn "Execution interrupted by user."
-    exit 0
-  fi
 }
 
 check_selected_engine() {
@@ -774,46 +748,19 @@ ADMIN_HTTPS_PORT="${ADMIN_HTTPS_PORT:-443}"
 ADMIN_APP_PORT="${ADMIN_APP_PORT:-8080}"
 MQTT_TOPIC_PREFIX="${MQTT_TOPIC_PREFIX:-devices}"
 ADMIN_RP_NAME="${ADMIN_RP_NAME:-MQTT Trust Gateway}"
-ADMIN_RP_ID="${MQTT_DOMAIN}"
-ADMIN_ORIGIN="https://${MQTT_DOMAIN}"
 ADMIN_SETUP_TOKEN="${ADMIN_SETUP_TOKEN:-$(random_secret)}"
 ADMIN_SESSION_SECRET="${ADMIN_SESSION_SECRET:-$(random_secret)}"
 
-case "${STEP_CA_DOMAIN:-}" in
-  ""|ca.example.com)
-    if [ "${MQTT_USE_PUBLIC_IP}" = "yes" ]; then
-      DEFAULT_STEP_CA_DOMAIN="${MQTT_DOMAIN}"
-    else
-      DEFAULT_STEP_CA_DOMAIN="ca.${MQTT_DOMAIN}"
-    fi
-    ;;
-  *)
-    DEFAULT_STEP_CA_DOMAIN="${STEP_CA_DOMAIN}"
-    ;;
-esac
-if [ "${MQTT_USE_PUBLIC_IP}" = "yes" ]; then
-  STEP_CA_DOMAIN="${MQTT_DOMAIN}"
-  info "step-ca public address: ${STEP_CA_DOMAIN}"
-else
-  prompt_default STEP_CA_DOMAIN "step-ca domain" "${DEFAULT_STEP_CA_DOMAIN}"
-fi
 STEP_CA_PORT="${STEP_CA_PORT:-9000}"
-case "${STEP_CA_URL:-}" in
-  ""|https://ca.example.com:*)
-    DEFAULT_STEP_CA_URL="https://${STEP_CA_DOMAIN}:${STEP_CA_PORT}"
-    ;;
-  *)
-    DEFAULT_STEP_CA_URL="${STEP_CA_URL}"
-    ;;
-esac
-STEP_CA_URL="${DEFAULT_STEP_CA_URL}"
+derive_public_endpoints
 STEP_CA_PROVISIONER="${STEP_CA_PROVISIONER:-mqtt-devices}"
 STEP_CA_DEVICE_CERT_TTL="${STEP_CA_DEVICE_CERT_TTL:-17520h}"
 STEP_CA_FINGERPRINT="${STEP_CA_FINGERPRINT:-}"
 
-info "Admin passkey name: ${ADMIN_RP_NAME}"
-info "Admin passkey domain: ${ADMIN_RP_ID}"
-info "Admin public origin: ${ADMIN_ORIGIN}"
+info "Admin Web URL: ${ADMIN_ORIGIN}"
+info "MQTT TLS endpoint: ${MQTT_DOMAIN}:${MQTT_TLS_PORT}"
+info "MQTT WSS endpoint: ${MQTT_DOMAIN}:${MQTT_WS_TLS_PORT}"
+info "step-ca URL: ${STEP_CA_URL}"
 
 prompt_yes_no ADVANCED_CONFIG "Edit advanced settings?" "no"
 if [ "${ADVANCED_CONFIG}" = "yes" ]; then
@@ -828,10 +775,8 @@ if [ "${ADVANCED_CONFIG}" = "yes" ]; then
   prompt_default ADMIN_APP_PORT "Admin internal app port" "${ADMIN_APP_PORT}"
   prompt_default MQTT_TOPIC_PREFIX "MQTT topic prefix" "${MQTT_TOPIC_PREFIX}"
   prompt_default ADMIN_RP_NAME "Admin passkey display name" "${ADMIN_RP_NAME}"
-  prompt_default ADMIN_RP_ID "Admin passkey domain" "${ADMIN_RP_ID}"
-  prompt_default ADMIN_ORIGIN "Admin public origin" "${ADMIN_ORIGIN}"
   prompt_default STEP_CA_PORT "step-ca external port" "${STEP_CA_PORT}"
-  prompt_default STEP_CA_URL "step-ca public URL" "${STEP_CA_URL}"
+  derive_public_endpoints
   prompt_default STEP_CA_PROVISIONER "step-ca provisioner name" "${STEP_CA_PROVISIONER}"
   prompt_default STEP_CA_DEVICE_CERT_TTL "Device certificate TTL" "${STEP_CA_DEVICE_CERT_TTL}"
   prompt_default STEP_CA_FINGERPRINT "Root CA fingerprint (can be empty for now)" "${STEP_CA_FINGERPRINT}"
@@ -847,7 +792,6 @@ if [ "${MQTT_USE_PUBLIC_IP}" = "yes" ]; then
   fi
 else
   check_dns_domain "${MQTT_DOMAIN}" "${PUBLIC_IP}" || dns_mismatch=1
-  check_dns_domain "${STEP_CA_DOMAIN}" "${PUBLIC_IP}" || dns_mismatch=1
 fi
 if [ "${dns_mismatch}" -eq 1 ]; then
   warn "DNS does not appear to match this VPS. Certbot or step-ca clients may fail."
@@ -874,44 +818,44 @@ fi
 
 cat > "${ENV_FILE}" <<EOF
 # Domain
-MQTT_DOMAIN=${MQTT_DOMAIN}
-MQTT_USE_PUBLIC_IP=${MQTT_USE_PUBLIC_IP}
+MQTT_DOMAIN=$(env_value "${MQTT_DOMAIN}")
+MQTT_USE_PUBLIC_IP=$(env_value "${MQTT_USE_PUBLIC_IP}")
 
 # Certbot
-CERTBOT_EMAIL=${CERTBOT_EMAIL}
-CERTBOT_ARGS=${CERTBOT_ARGS}
+CERTBOT_EMAIL=$(env_value "${CERTBOT_EMAIL}")
+CERTBOT_ARGS=$(env_value "${CERTBOT_ARGS}")
 
 # Container
-CONTAINER_NAME=${CONTAINER_NAME}
-IMAGE_NAME=${IMAGE_NAME}
+CONTAINER_NAME=$(env_value "${CONTAINER_NAME}")
+IMAGE_NAME=$(env_value "${IMAGE_NAME}")
 
 # Ports
-ACME_HTTP_PORT=${ACME_HTTP_PORT}
-MQTT_TLS_PORT=${MQTT_TLS_PORT}
-MQTT_WS_TLS_PORT=${MQTT_WS_TLS_PORT}
-ADMIN_HTTPS_PORT=${ADMIN_HTTPS_PORT}
-ADMIN_APP_PORT=${ADMIN_APP_PORT}
+ACME_HTTP_PORT=$(env_value "${ACME_HTTP_PORT}")
+MQTT_TLS_PORT=$(env_value "${MQTT_TLS_PORT}")
+MQTT_WS_TLS_PORT=$(env_value "${MQTT_WS_TLS_PORT}")
+ADMIN_HTTPS_PORT=$(env_value "${ADMIN_HTTPS_PORT}")
+ADMIN_APP_PORT=$(env_value "${ADMIN_APP_PORT}")
 
 # Paths on host
-BASE_DIR=${BASE_DIR}
+BASE_DIR=$(env_value "${BASE_DIR}")
 
 # Client certificate authentication (step-ca)
-MQTT_TOPIC_PREFIX=${MQTT_TOPIC_PREFIX}
+MQTT_TOPIC_PREFIX=$(env_value "${MQTT_TOPIC_PREFIX}")
 
 # step-ca
-STEP_CA_DOMAIN=${STEP_CA_DOMAIN}
-STEP_CA_PORT=${STEP_CA_PORT}
-STEP_CA_URL=${STEP_CA_URL}
-STEP_CA_PROVISIONER=${STEP_CA_PROVISIONER}
-STEP_CA_FINGERPRINT=${STEP_CA_FINGERPRINT}
-STEP_CA_DEVICE_CERT_TTL=${STEP_CA_DEVICE_CERT_TTL}
+STEP_CA_DOMAIN=$(env_value "${STEP_CA_DOMAIN}")
+STEP_CA_PORT=$(env_value "${STEP_CA_PORT}")
+STEP_CA_URL=$(env_value "${STEP_CA_URL}")
+STEP_CA_PROVISIONER=$(env_value "${STEP_CA_PROVISIONER}")
+STEP_CA_FINGERPRINT=$(env_value "${STEP_CA_FINGERPRINT}")
+STEP_CA_DEVICE_CERT_TTL=$(env_value "${STEP_CA_DEVICE_CERT_TTL}")
 
 # Admin Web
-ADMIN_RP_NAME=${ADMIN_RP_NAME}
-ADMIN_RP_ID=${ADMIN_RP_ID}
-ADMIN_ORIGIN=${ADMIN_ORIGIN}
-ADMIN_SETUP_TOKEN=${ADMIN_SETUP_TOKEN}
-ADMIN_SESSION_SECRET=${ADMIN_SESSION_SECRET}
+ADMIN_RP_NAME=$(env_value "${ADMIN_RP_NAME}")
+ADMIN_RP_ID=$(env_value "${ADMIN_RP_ID}")
+ADMIN_ORIGIN=$(env_value "${ADMIN_ORIGIN}")
+ADMIN_SETUP_TOKEN=$(env_value "${ADMIN_SETUP_TOKEN}")
+ADMIN_SESSION_SECRET=$(env_value "${ADMIN_SESSION_SECRET}")
 EOF
 
 ok "Generated file: ${ENV_FILE}"
