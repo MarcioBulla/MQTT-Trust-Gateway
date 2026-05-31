@@ -143,7 +143,8 @@ sudo ./wizard.sh update
 
 The update flow:
 
-- optionally runs `git pull --ff-only` and reexecutes the updated wizard
+- runs automatically when started with `sudo ./wizard.sh update`, without confirmation prompts
+- runs `git pull --ff-only` and reexecutes the updated wizard
 - checks that `runtime/step-ca/config/ca.json` and `runtime/step-ca/secrets/password` exist
 - fixes `runtime/step-ca` ownership for the `smallstep/step-ca` container user
 - regenerates the Admin Web MQTT client certificate

@@ -5,6 +5,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/broker.env"
 WT_BACKTITLE="MQTT Trust Gateway Wizard"
 WIZARD_PREVIEW="no"
+WIZARD_AUTO_UPDATE="no"
 export NEWT_COLORS="${NEWT_COLORS:-root=white,blue;window=white,blue;border=brightwhite,blue;title=brightwhite,blue;button=black,cyan;actbutton=white,red;checkbox=black,cyan;actcheckbox=white,red;entry=black,white;label=brightwhite,blue;listbox=black,white;actlistbox=white,red;textbox=black,white;emptyscale=white,blue;fullscale=white,red}"
 
 REQUESTED_MODE="${1:-}"
@@ -310,6 +311,14 @@ defaults() {
 
 wt_msg() {
   whiptail --backtitle "${WT_BACKTITLE}" --title "MQTT Trust Gateway" --msgbox "$1" 18 78
+}
+
+notify_message() {
+  if [ "${WIZARD_AUTO_UPDATE:-no}" = "yes" ]; then
+    printf "%b\n" "$1" >&2
+  else
+    wt_msg "$1"
+  fi
 }
 
 wt_textbox_text() {
@@ -1070,7 +1079,12 @@ run_update() {
   defaults
   BASE_DIR="$(absolute_path "${BASE_DIR}")"
   derive_public_endpoints
-  choose_engine || return 0
+  if [ "${WIZARD_AUTO_UPDATE:-no}" = "yes" ]; then
+    CONTAINER_ENGINE="$(preferred_container_engine)"
+    printf "Running automatic update with %s compose.\n" "${CONTAINER_ENGINE}"
+  else
+    choose_engine || return 0
+  fi
 
   if [ "${WIZARD_PREVIEW}" = "yes" ]; then
     wt_textbox_text "Update preview summary" "$(install_summary)
@@ -1086,15 +1100,23 @@ Preview mode: would optionally run git pull, then rebuild and recreate:
   fi
 
   if ! compose_command_available "${CONTAINER_ENGINE}"; then
-    wt_msg "${CONTAINER_ENGINE} compose is not available."
+    notify_message "${CONTAINER_ENGINE} compose is not available."
     return 1
   fi
 
   cd "${SCRIPT_DIR}"
 
-  if wt_yesno_default "Run git pull before updating containers?" "yes"; then
+  if [ "${WIZARD_AUTO_UPDATE:-no}" = "yes" ]; then
     if ! wt_progress_command "Updating repository" git -C "${SCRIPT_DIR}" pull --ff-only; then
-      wt_msg "git pull failed. The containers were not updated."
+      notify_message "git pull failed. The containers were not updated."
+      return 1
+    fi
+    if [ "${WIZARD_REEXEC_AFTER_PULL:-no}" != "yes" ]; then
+      WIZARD_REEXEC_AFTER_PULL="yes" exec "${SCRIPT_DIR}/wizard.sh" update
+    fi
+  elif wt_yesno_default "Run git pull before updating containers?" "yes"; then
+    if ! wt_progress_command "Updating repository" git -C "${SCRIPT_DIR}" pull --ff-only; then
+      notify_message "git pull failed. The containers were not updated."
       return 1
     fi
     if [ "${WIZARD_REEXEC_AFTER_PULL:-no}" != "yes" ]; then
@@ -1103,27 +1125,27 @@ Preview mode: would optionally run git pull, then rebuild and recreate:
   fi
 
   if [ ! -f "${BASE_DIR}/pki/step-ca/ca.crt" ]; then
-    wt_msg "MQTT client CA was not found at:\n\n${BASE_DIR}/pki/step-ca/ca.crt\n\nRun Install and initialize step-ca before updating the application containers."
+    notify_message "MQTT client CA was not found at:\n\n${BASE_DIR}/pki/step-ca/ca.crt\n\nRun Install and initialize step-ca before updating the application containers."
     return 1
   fi
 
   if ! step_ca_config_exists; then
-    wt_msg "step-ca runtime is incomplete.\n\nMissing one of:\n${BASE_DIR}/step-ca/config/ca.json\n${BASE_DIR}/step-ca/secrets/password\n\nRun Install and initialize step-ca before updating."
+    notify_message "step-ca runtime is incomplete.\n\nMissing one of:\n${BASE_DIR}/step-ca/config/ca.json\n${BASE_DIR}/step-ca/secrets/password\n\nRun Install and initialize step-ca before updating."
     return 1
   fi
 
   if ! wt_progress_command "Repairing step-ca permissions" fix_step_ca_permissions; then
-    wt_msg "step-ca permission repair failed. Review the log shown by the wizard."
+    notify_message "step-ca permission repair failed. Review the log shown by the wizard."
     return 1
   fi
 
   if ! wt_progress_command "Preparing Admin MQTT certificate" ensure_admin_mqtt_certificate; then
-    wt_msg "Admin MQTT certificate setup failed. Review the log shown by the wizard before updating containers."
+    notify_message "Admin MQTT certificate setup failed. Review the log shown by the wizard before updating containers."
     return 1
   fi
 
   if ! wt_progress_command "Opening firewall ports" open_firewall_ports; then
-    wt_msg "Firewall port setup failed. Review the log shown by the wizard before updating containers."
+    notify_message "Firewall port setup failed. Review the log shown by the wizard before updating containers."
     return 1
   fi
 
@@ -1131,16 +1153,16 @@ Preview mode: would optionally run git pull, then rebuild and recreate:
   remove_update_containers
 
   if ! wt_progress_command "Starting step-ca" run_compose --env-file broker.env -f step-ca/compose.step-ca.yaml up -d; then
-    wt_msg "step-ca container startup failed. Review the log shown by the wizard."
+    notify_message "step-ca container startup failed. Review the log shown by the wizard."
     return 1
   fi
 
   if ! wt_progress_command "Updating gateway" run_compose --env-file broker.env up -d --build; then
-    wt_msg "Update failed. Review the log shown by the wizard."
+    notify_message "Update failed. Review the log shown by the wizard."
     return 1
   fi
 
-  wt_textbox_text "Update summary" "$(install_summary)
+  update_summary="$(install_summary)
 
 Updated containers:
 - ${CONTAINER_NAME}-step-ca
@@ -1149,6 +1171,12 @@ Updated containers:
 - ${CONTAINER_NAME}
 - ${CONTAINER_NAME}-admin-web
 - ${CONTAINER_NAME}-admin-nginx"
+
+  if [ "${WIZARD_AUTO_UPDATE:-no}" = "yes" ]; then
+    printf "%s\n" "${update_summary}"
+  else
+    wt_textbox_text "Update summary" "${update_summary}"
+  fi
 }
 
 run_preview() {
@@ -1191,7 +1219,7 @@ main_menu() {
       return 0
       ;;
     update)
-      show_dependency_checklist
+      WIZARD_AUTO_UPDATE="yes"
       run_update
       return 0
       ;;
