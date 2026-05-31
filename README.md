@@ -126,6 +126,9 @@ https://<MQTT_DOMAIN>
 
 Use the setup token printed by the wizard to register the first passkey.
 
+> [!IMPORTANT]
+> The step-ca provisioner password is separate from the Admin setup token. Anyone with the provisioner password can issue MQTT device certificates trusted by the broker. Do not commit it, store it in `broker.env`, paste it in tickets/chat, or share it with untrusted users.
+
 For uninstall, choose `Stop and clean the stack` in the same wizard. It stops and removes the containers first. It asks separately before deleting runtime data, certificates, CA files, admin data, local images, or local iptables rules. It does not delete repository files.
 
 ## Updating A VPS
@@ -230,6 +233,9 @@ The private key stays on the operator machine or device. The CA receives only th
 
 You can also upload or paste the CSR into the Admin Web and sign it there. After signing, download the issued certificate and the MQTT CA certificate from the same page.
 
+> [!IMPORTANT]
+> Signing a CSR requires the step-ca provisioner password. That password authorizes certificate issuance; it is not a login password and it is not the Admin setup token.
+
 ## Troubleshooting
 
 If `step-ca` is not listening on port `9000`, check:
@@ -261,5 +267,5 @@ The update flow repairs the `runtime/step-ca` ownership and password permissions
 - Do not commit `runtime/`, private keys, passwords, issued device keys, or production `broker.env` secrets.
 - Restrict `9000/tcp` where practical.
 - Prefer generating device private keys on a trusted provisioning workstation or directly on the device.
-- Protect the step-ca provisioner password.
+- Protect the step-ca provisioner password. It can issue MQTT device certificates and is separate from the Admin setup token.
 - Use passkeys for Admin Web access and remove stale admin data before handing the VPS to another operator.
