@@ -129,10 +129,7 @@ export function registerAuthRoutes(app) {
     const user = db.users.find((item) => item.id === req.user.id);
     if (!user) return res.status(404).json({ error: 'unknown user' });
     const userId = b64urlToBuffer(user.id);
-    const excludeCredentials = userCredentials(user).flatMap((credential) => (
-      credentialIdCandidates(credential.id).map((id) => ({ id, type: 'public-key' }))
-    ));
-    const options = await registrationOptions({ username: user.username, userId, excludeCredentials });
+    const options = await registrationOptions({ username: user.username, userId });
     db.challenges[`add-passkey:${user.id}`] = {
       challenge: options.challenge,
       expiresAt: Date.now() + 300000,

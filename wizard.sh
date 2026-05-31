@@ -388,6 +388,64 @@ strip_ansi_log() {
   sed "s/${esc}\\[[0-9;?]*[ -/]*[@-~]//g; s/${esc}][^\a]*\a//g; s/\r//g" "${source_file}" > "${target_file}"
 }
 
+iptables_input_blocks_new_tcp() {
+  if ! has_command "iptables"; then
+    return 1
+  fi
+  iptables -S INPUT 2>/dev/null | grep -Eq '^-P INPUT DROP|^-A INPUT .* -j (REJECT|DROP)'
+}
+
+add_iptables_accept_rule() {
+  port="$1"
+  if ! has_command "iptables"; then
+    return 0
+  fi
+  if iptables -C INPUT -p tcp --dport "${port}" -j ACCEPT >/dev/null 2>&1; then
+    return 0
+  fi
+
+  first_blocking_rule="$(iptables -L INPUT --line-numbers -n 2>/dev/null | awk '$2 == "REJECT" || $2 == "DROP" { print $1; exit }')"
+  if [ -n "${first_blocking_rule}" ]; then
+    iptables -I INPUT "${first_blocking_rule}" -p tcp --dport "${port}" -j ACCEPT
+  else
+    iptables -A INPUT -p tcp --dport "${port}" -j ACCEPT
+  fi
+}
+
+persist_iptables_rules() {
+  if has_command "netfilter-persistent"; then
+    netfilter-persistent save >/dev/null 2>&1 || true
+  elif has_command "service" && service netfilter-persistent status >/dev/null 2>&1; then
+    service netfilter-persistent save >/dev/null 2>&1 || true
+  fi
+}
+
+open_firewall_port() {
+  port="$1"
+
+  if has_command "firewall-cmd" && firewall-cmd --state >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-port="${port}/tcp" >/dev/null 2>&1 || true
+    firewall-cmd --reload >/dev/null 2>&1 || true
+  fi
+
+  if has_command "ufw" && ufw status 2>/dev/null | grep -qi "Status: active"; then
+    ufw allow "${port}/tcp" >/dev/null 2>&1 || true
+  fi
+
+  if iptables_input_blocks_new_tcp; then
+    add_iptables_accept_rule "${port}"
+  fi
+}
+
+open_firewall_ports() {
+  open_firewall_port "${ACME_HTTP_PORT}"
+  open_firewall_port "${ADMIN_HTTPS_PORT}"
+  open_firewall_port "${MQTT_TLS_PORT}"
+  open_firewall_port "${MQTT_WS_TLS_PORT}"
+  open_firewall_port "${STEP_CA_PORT}"
+  persist_iptables_rules
+}
+
 wt_progress_command() {
   title="$1"
   shift
@@ -561,6 +619,7 @@ install_summary() {
     "MQTT TLS: ${MQTT_DOMAIN}:${MQTT_TLS_PORT}" \
     "MQTT WSS: ${MQTT_DOMAIN}:${MQTT_WS_TLS_PORT}" \
     "step-ca API: ${STEP_CA_URL}" \
+    "Firewall ports: ${ACME_HTTP_PORT}, ${ADMIN_HTTPS_PORT}, ${MQTT_TLS_PORT}, ${MQTT_WS_TLS_PORT}, ${STEP_CA_PORT}/tcp" \
     "" \
     "Runtime directory: ${BASE_DIR}" \
     "Environment file: ${ENV_FILE}" \
@@ -577,6 +636,9 @@ install_summary() {
     "" \
     "Admin passkey RP name: ${ADMIN_RP_NAME}" \
     "Admin passkey RP id: ${ADMIN_RP_ID}" \
+    "Admin setup/login URL: ${ADMIN_ORIGIN}" \
+    "Admin username: choose on first setup page, default is admin" \
+    "Admin setup email: ${CERTBOT_EMAIL:-not configured}" \
     "" \
     "Use this token once to register the first admin passkey:" \
     "Admin setup token: ${ADMIN_SETUP_TOKEN}"
@@ -835,6 +897,10 @@ Preview mode: no files were written, no certificates were initialized, and no co
 
   if wt_yesno_default "Start containers now?" "yes"; then
     cd "${SCRIPT_DIR}"
+    if ! wt_progress_command "Opening firewall ports" open_firewall_ports; then
+      wt_msg "Firewall port setup failed. Review the log shown by the wizard before starting containers."
+      return 1
+    fi
     if ! wt_progress_command "Starting step-ca" run_compose --env-file broker.env -f step-ca/compose.step-ca.yaml up -d; then
       wt_msg "step-ca container startup failed. Review the log shown by the wizard."
       return 1
@@ -872,9 +938,11 @@ remove_named_containers() {
 
 remove_update_containers() {
   for container in \
+    "${CONTAINER_NAME}-certbot-init" \
+    "${CONTAINER_NAME}-certbot-renew" \
+    "${CONTAINER_NAME}" \
     "${CONTAINER_NAME}-admin-nginx" \
-    "${CONTAINER_NAME}-admin-web" \
-    "${CONTAINER_NAME}"
+    "${CONTAINER_NAME}-admin-web"
   do
     if "${CONTAINER_ENGINE}" container inspect "${container}" >/dev/null 2>&1; then
       "${CONTAINER_ENGINE}" rm -f "${container}" >/dev/null 2>&1 || true
@@ -968,6 +1036,8 @@ run_update() {
     wt_textbox_text "Update preview summary" "$(install_summary)
 
 Preview mode: would optionally run git pull, then rebuild and recreate:
+- ${CONTAINER_NAME}-certbot-init
+- ${CONTAINER_NAME}-certbot-renew
 - ${CONTAINER_NAME}
 - ${CONTAINER_NAME}-admin-web
 - ${CONTAINER_NAME}-admin-nginx"
@@ -986,6 +1056,9 @@ Preview mode: would optionally run git pull, then rebuild and recreate:
       wt_msg "git pull failed. The containers were not updated."
       return 1
     fi
+    if [ "${WIZARD_REEXEC_AFTER_PULL:-no}" != "yes" ]; then
+      WIZARD_REEXEC_AFTER_PULL="yes" exec "${SCRIPT_DIR}/wizard.sh" update
+    fi
   fi
 
   if [ ! -f "${BASE_DIR}/pki/step-ca/ca.crt" ]; then
@@ -993,9 +1066,15 @@ Preview mode: would optionally run git pull, then rebuild and recreate:
     return 1
   fi
 
+  if ! wt_progress_command "Opening firewall ports" open_firewall_ports; then
+    wt_msg "Firewall port setup failed. Review the log shown by the wizard before updating containers."
+    return 1
+  fi
+
+  wt_progress_command "Stopping gateway" run_compose --env-file broker.env down --remove-orphans || true
   remove_update_containers
 
-  if ! wt_progress_command "Updating gateway" run_compose --env-file broker.env up -d --build broker admin-web admin-nginx; then
+  if ! wt_progress_command "Updating gateway" run_compose --env-file broker.env up -d --build; then
     wt_msg "Update failed. Review the log shown by the wizard."
     return 1
   fi
@@ -1003,6 +1082,8 @@ Preview mode: would optionally run git pull, then rebuild and recreate:
   wt_textbox_text "Update summary" "$(install_summary)
 
 Updated containers:
+- ${CONTAINER_NAME}-certbot-init
+- ${CONTAINER_NAME}-certbot-renew
 - ${CONTAINER_NAME}
 - ${CONTAINER_NAME}-admin-web
 - ${CONTAINER_NAME}-admin-nginx"
@@ -1017,17 +1098,27 @@ run_preview() {
       "install" \
       "install" "Install" \
       "update" "Update" \
+      "info" "Info" \
       "uninstall" "Uninstall" \
       "back" "Back")" || break
     case "${choice}" in
       install) run_install ;;
       update) run_update ;;
+      info) run_info ;;
       uninstall) run_uninstall ;;
       back) break ;;
     esac
   done
 
   WIZARD_PREVIEW="${previous_preview}"
+}
+
+run_info() {
+  defaults
+  BASE_DIR="$(absolute_path "${BASE_DIR}")"
+  CONTAINER_ENGINE="${CONTAINER_ENGINE:-$(preferred_container_engine)}"
+  derive_public_endpoints
+  wt_textbox_text "Gateway info" "$(install_summary)"
 }
 
 main_menu() {
@@ -1047,6 +1138,10 @@ main_menu() {
       run_uninstall
       return 0
       ;;
+    info)
+      run_info
+      return 0
+      ;;
     preview|dry-run)
       WIZARD_PREVIEW="yes"
       run_preview
@@ -1061,11 +1156,13 @@ main_menu() {
       "install" \
       "install" "Install" \
       "update" "Update" \
+      "info" "Info" \
       "uninstall" "Uninstall" \
       "exit" "Exit")"
     case "${choice}" in
       install) run_install ;;
       update) run_update ;;
+      info) run_info ;;
       uninstall) run_uninstall ;;
       exit) exit 0 ;;
     esac
