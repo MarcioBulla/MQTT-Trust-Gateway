@@ -20,14 +20,14 @@ export function signaturesSection() {
         <h3>Generate a CSR</h3>
         <p class="muted">Use the same device id as the certificate common name.</p>
         <pre>DEVICE_ID="device-01"
-mkdir -p "devices/${DEVICE_ID}"
+mkdir -p "devices/\${DEVICE_ID}"
 
-openssl genrsa -out "devices/${DEVICE_ID}/${DEVICE_ID}.key" 2048
+openssl genrsa -out "devices/\${DEVICE_ID}/\${DEVICE_ID}.key" 2048
 openssl req -new \
-  -key "devices/${DEVICE_ID}/${DEVICE_ID}.key" \
-  -out "devices/${DEVICE_ID}/${DEVICE_ID}.csr" \
-  -subj "/CN=${DEVICE_ID}" \
-  -addext "subjectAltName=DNS:${DEVICE_ID},URI:urn:mqtt-trust-gateway:device:${DEVICE_ID}"</pre>
+  -key "devices/\${DEVICE_ID}/\${DEVICE_ID}.key" \
+  -out "devices/\${DEVICE_ID}/\${DEVICE_ID}.csr" \
+  -subj "/CN=\${DEVICE_ID}" \
+  -addext "subjectAltName=DNS:\${DEVICE_ID},URI:urn:mqtt-trust-gateway:device:\${DEVICE_ID}"</pre>
       </section>
     </section>
   </div>`;
