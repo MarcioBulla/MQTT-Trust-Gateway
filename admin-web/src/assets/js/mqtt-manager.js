@@ -14,6 +14,18 @@ function escapeHtml(value) {
   }[char]));
 }
 
+function topicText(topic, key) {
+  return String(topic[key] || '');
+}
+
+function topicTime(topic) {
+  return Date.parse(topic.updatedAt || topic.firstSeenAt || '') || 0;
+}
+
+function topicMessageCount(topic) {
+  return Number(topic.messages || 0);
+}
+
 export async function loadStatus() {
   const data = await requestJson('/api/status');
   document.getElementById('status').textContent = JSON.stringify(data, null, 2);
@@ -30,16 +42,16 @@ function filteredTopics() {
   const sort = document.getElementById('topicSort').value;
   const filtered = cachedTopics.filter((topic) => {
     if (!search) return true;
-    return topic.name.toLowerCase().includes(search) || String(topic.lastPayload || '').toLowerCase().includes(search);
+    return topicText(topic, 'name').toLowerCase().includes(search) || topicText(topic, 'lastPayload').toLowerCase().includes(search);
   });
 
-  return filtered.sort((a, b) => {
-    if (sort === 'updatedAsc') return a.updatedAt.localeCompare(b.updatedAt);
-    if (sort === 'nameAsc') return a.name.localeCompare(b.name);
-    if (sort === 'nameDesc') return b.name.localeCompare(a.name);
-    if (sort === 'messagesDesc') return b.messages - a.messages;
-    if (sort === 'messagesAsc') return a.messages - b.messages;
-    return b.updatedAt.localeCompare(a.updatedAt);
+  return [...filtered].sort((a, b) => {
+    if (sort === 'updatedAsc') return topicTime(a) - topicTime(b);
+    if (sort === 'nameAsc') return topicText(a, 'name').localeCompare(topicText(b, 'name'));
+    if (sort === 'nameDesc') return topicText(b, 'name').localeCompare(topicText(a, 'name'));
+    if (sort === 'messagesDesc') return topicMessageCount(b) - topicMessageCount(a);
+    if (sort === 'messagesAsc') return topicMessageCount(a) - topicMessageCount(b);
+    return topicTime(b) - topicTime(a);
   });
 }
 
@@ -128,5 +140,6 @@ export async function publishMessage() {
 
 export function bindTopicTools() {
   document.getElementById('topicSearch').addEventListener('input', renderTopics);
+  document.getElementById('topicSort').addEventListener('input', renderTopics);
   document.getElementById('topicSort').addEventListener('change', renderTopics);
 }
