@@ -1,0 +1,171 @@
+@media (max-width: 760px) {
+  main {
+    width: 100%;
+    max-width: none;
+    padding: 12px;
+    box-sizing: border-box;
+  }
+
+  h1 {
+    font-size: 1.65rem;
+  }
+
+  h2 {
+    font-size: 1.35rem;
+  }
+
+  h3 {
+    font-size: 1.05rem;
+  }
+
+  header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .brand {
+    min-width: 0;
+  }
+
+  .brand strong,
+  #headerUsername {
+    overflow-wrap: anywhere;
+  }
+
+  .main-nav {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .main-nav button {
+    justify-content: center;
+    min-height: 44px;
+    padding-inline: 8px;
+  }
+
+  .header-actions {
+    justify-self: end;
+  }
+
+  .dropdown-menu {
+    position: fixed;
+    top: 68px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    min-width: 0;
+  }
+
+  .menu-item {
+    min-height: 44px;
+  }
+
+  section,
+  .panel {
+    padding: 12px;
+    margin: 12px 0;
+  }
+
+  .grid.two,
+  .topic-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-head {
+    align-items: stretch;
+  }
+
+  .panel-head > button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .inline {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .inline label,
+  .inline button {
+    width: 100%;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    min-height: 44px;
+  }
+
+  textarea {
+    min-height: 130px;
+  }
+
+  #setup,
+  #login {
+    margin-top: 10px;
+  }
+
+  .topic-row,
+  .passkey {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .topic-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .topic-actions button {
+    min-width: 0;
+  }
+
+  .topic-messages {
+    margin-top: 12px;
+  }
+
+  pre {
+    max-width: 100%;
+    font-size: 0.9rem;
+  }
+
+  .download-actions {
+    margin-top: 10px;
+  }
+}
+
+@media (max-width: 420px) {
+  main {
+    padding: 10px;
+  }
+
+  header {
+    grid-template-columns: 1fr;
+  }
+
+  .header-actions {
+    justify-self: stretch;
+  }
+
+  #settingsMenuButton {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .main-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .topic-actions {
+    grid-template-columns: 1fr;
+  }
+}
