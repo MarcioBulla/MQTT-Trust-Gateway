@@ -101,7 +101,7 @@ chmod +x uninstall-wizard.sh
 sudo ./uninstall-wizard.sh
 ```
 
-The uninstall wizard stops and removes the containers first. It asks separately before deleting runtime data, certificates, CA files, admin data, local images, local iptables rules, or `broker.env`.
+The uninstall wizard stops and removes the containers first. It asks separately before deleting runtime data, certificates, CA files, admin data, local images, or local iptables rules. It does not delete repository files.
 
 ## Device Credentials
 

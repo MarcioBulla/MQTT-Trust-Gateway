@@ -309,16 +309,4 @@ if [ "${REMOVE_IPTABLES}" = "yes" ]; then
   remove_iptables_accept_rule "${STEP_CA_PORT}"
 fi
 
-prompt_yes_no REMOVE_ENV "Delete broker.env from this repository?" "no"
-if [ "${REMOVE_ENV}" = "yes" ]; then
-  if [ -f "${ENV_FILE}" ]; then
-    rm -f "${ENV_FILE}"
-    ok "Removed ${ENV_FILE}."
-  else
-    warn "broker.env already missing."
-  fi
-else
-  warn "Kept ${ENV_FILE}."
-fi
-
 ok "Uninstall wizard finished."

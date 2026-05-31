@@ -70,6 +70,7 @@ run_compose() {
     MQTT_DOMAIN="${MQTT_DOMAIN}" \
     CERTBOT_EMAIL="${CERTBOT_EMAIL}" \
     CERTBOT_ARGS="${CERTBOT_ARGS}" \
+    CONTAINER_ENGINE="${CONTAINER_ENGINE}" \
     CONTAINER_NAME="${CONTAINER_NAME}" \
     IMAGE_NAME="${IMAGE_NAME}" \
     ACME_HTTP_PORT="${ACME_HTTP_PORT}" \
@@ -378,11 +379,11 @@ prompt_yes_no() {
     read_line "${prompt_value}"
     yn="${input_value}"
     if [ -z "${yn}" ]; then
-      case "${default_value}" in
-        yes) yn="y" ;;
-        no) yn="n" ;;
-      esac
+      printf -v "${var_name}" "%s" "${default_value}"
+      pace
+      return 0
     fi
+
     case "${yn}" in
       y|Y)
         printf -v "${var_name}" "%s" "yes"
@@ -466,8 +467,24 @@ preferred_container_engine() {
 
 prompt_container_engine() {
   default_engine="$1"
+  if [ -z "${default_engine}" ]; then
+    default_engine="podman"
+  fi
+
   while :; do
-    prompt_default CONTAINER_ENGINE "Container engine (docker/podman)" "${default_engine}"
+    prompt_value="$(printf "%s? %sContainer engine (docker/podman)%s [%s%s%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "${C_RESET}" "${C_YELLOW}" "${default_engine}" "${C_RESET}")"
+    if env_file_has_key "CONTAINER_ENGINE" && [ -n "${CONTAINER_ENGINE:-}" ]; then
+      read_line "${prompt_value}" "${CONTAINER_ENGINE}"
+    else
+      read_line "${prompt_value}"
+    fi
+
+    if [ -z "${input_value}" ]; then
+      CONTAINER_ENGINE="${default_engine}"
+    else
+      CONTAINER_ENGINE="${input_value}"
+    fi
+
     case "${CONTAINER_ENGINE}" in
       docker|podman) return 0 ;;
       *) warn "Choose docker or podman." ;;
@@ -839,6 +856,7 @@ CERTBOT_EMAIL=$(env_value "${CERTBOT_EMAIL}")
 CERTBOT_ARGS=$(env_value "${CERTBOT_ARGS}")
 
 # Container
+CONTAINER_ENGINE=$(env_value "${CONTAINER_ENGINE}")
 CONTAINER_NAME=$(env_value "${CONTAINER_NAME}")
 IMAGE_NAME=$(env_value "${IMAGE_NAME}")
 
