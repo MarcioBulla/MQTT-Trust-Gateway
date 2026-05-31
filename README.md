@@ -33,7 +33,7 @@ VPS dependencies:
 
 - `docker` with `docker compose`, or `podman` with `podman compose`
 - `step`, the Smallstep CLI used to initialize and manage `step-ca`
-- `bash`, used by the interactive setup wizard
+- `bash` and `whiptail`, used by the interactive wizard
 - `openssl`, used for certificate and secret generation
 - `python3`, used by the setup wizard to update `step-ca` configuration
 - `curl` or `dig`, used by the setup wizard for public IP and DNS checks
@@ -45,7 +45,7 @@ On Ubuntu/Debian, install the base OS tools with:
 
 ```bash
 sudo apt update
-sudo apt install -y bash ca-certificates curl gnupg openssl python3 dnsutils iproute2 lsof ufw iptables
+sudo apt install -y bash whiptail ca-certificates curl gnupg openssl python3 dnsutils iproute2 lsof ufw iptables
 ```
 
 Install `step-cli` and `step-ca` using the official Smallstep guide:
@@ -62,17 +62,18 @@ Port usage:
 - `8443/tcp`: MQTT over secure WebSocket
 - `9000/tcp`: step-ca API, preferably restricted to trusted networks
 
-## Setup
+## Wizard
 
-Run the wizard from the project root:
+Run the single wizard from the project root:
 
 ```bash
-chmod +x setup-wizard.sh
-sudo ./setup-wizard.sh
+chmod +x wizard.sh
+sudo ./wizard.sh
 ```
 
 The wizard:
 
+- lets you choose install/update or uninstall from the first menu
 - writes `broker.env`
 - checks container engine, DNS, firewall, and ports
 - initializes `step-ca`
@@ -92,16 +93,7 @@ https://<MQTT_DOMAIN>
 
 Use the setup token printed by the wizard to register the first passkey.
 
-## Uninstall
-
-Run the uninstall wizard from the project root:
-
-```bash
-chmod +x uninstall-wizard.sh
-sudo ./uninstall-wizard.sh
-```
-
-The uninstall wizard stops and removes the containers first. It asks separately before deleting runtime data, certificates, CA files, admin data, local images, or local iptables rules. It does not delete repository files.
+For uninstall, choose `Stop and clean the stack` in the same wizard. It stops and removes the containers first. It asks separately before deleting runtime data, certificates, CA files, admin data, local images, or local iptables rules. It does not delete repository files.
 
 ## Device Credentials
 
