@@ -697,16 +697,13 @@ fix_step_ca_permissions() {
 ensure_admin_mqtt_certificate() {
   cert_file="${BASE_DIR}/admin-web/mqtt-client.crt"
   key_file="${BASE_DIR}/admin-web/mqtt-client.key"
+  leaf_file="${BASE_DIR}/admin-web/mqtt-client.leaf.crt"
   ca_file="${BASE_DIR}/step-ca/certs/intermediate_ca.crt"
   ca_key_file="${BASE_DIR}/step-ca/secrets/intermediate_ca_key"
   ca_password_file="${BASE_DIR}/step-ca/secrets/password"
 
-  if [ -f "${cert_file}" ] && [ -f "${key_file}" ]; then
-    return 0
-  fi
-
   mkdir -p "${BASE_DIR}/admin-web"
-  step certificate create "${ADMIN_MQTT_CLIENT_ID}" "${cert_file}" "${key_file}" \
+  step certificate create "${ADMIN_MQTT_CLIENT_ID}" "${leaf_file}" "${key_file}" \
     --profile leaf \
     --not-after "${STEP_CA_DEVICE_CERT_TTL}" \
     --ca "${ca_file}" \
@@ -715,6 +712,8 @@ ensure_admin_mqtt_certificate() {
     --no-password \
     --insecure \
     --force
+  cat "${leaf_file}" "${ca_file}" > "${cert_file}"
+  rm -f "${leaf_file}"
   chmod 600 "${key_file}"
   chmod 644 "${cert_file}"
 }

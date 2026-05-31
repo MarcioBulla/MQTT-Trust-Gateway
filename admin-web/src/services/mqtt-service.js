@@ -65,27 +65,32 @@ async function connectMqtt() {
     try {
       await loadStoredTopics();
       const instance = mqtt.connect(`mqtts://${env.mqttDomain}:${env.mqttTlsPort}`, await mqttOptions());
-      const timeout = setTimeout(() => reject(new Error('MQTT connection timed out')), 12000);
+      let settled = false;
+      const fail = (error) => {
+        lastError = error.message;
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        client = null;
+        instance.end(true);
+        reject(error);
+      };
+      const timeout = setTimeout(() => fail(new Error('MQTT connection timed out')), 12000);
       client = instance;
       instance.on('message', rememberTopic);
       instance.on('error', (error) => { lastError = error.message; });
-      instance.once('error', (error) => {
-        if (!instance.connected) {
-          clearTimeout(timeout);
-          reject(error);
-        }
+      instance.once('error', fail);
+      instance.on('close', () => {
+        if (client === instance && !instance.connected) client = null;
       });
       instance.on('connect', () => {
         lastError = '';
         instance.subscribe('#', { qos: 0 }, (error) => {
-          if (error) {
-            lastError = error.message;
-            clearTimeout(timeout);
-            reject(error);
-          } else {
-            clearTimeout(timeout);
-            resolve(instance);
-          }
+          if (error) return fail(error);
+          if (settled) return undefined;
+          settled = true;
+          clearTimeout(timeout);
+          return resolve(instance);
         });
       });
     } catch (error) {
