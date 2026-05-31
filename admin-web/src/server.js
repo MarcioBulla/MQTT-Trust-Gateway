@@ -387,23 +387,28 @@ app.post('/api/register/verify', rateLimit, async (req, res) => {
 });
 
 app.post('/api/login/options', rateLimit, async (req, res) => {
-  const db = await loadDb();
-  const username = String(req.body.username || '').trim();
-  const user = db.users.find((item) => item.username === username);
-  if (!user) return res.status(404).json({ error: 'unknown user' });
+  try {
+    const db = await loadDb();
+    const username = String(req.body.username || '').trim();
+    const user = db.users.find((item) => item.username === username);
+    if (!user) return res.status(404).json({ error: 'unknown user' });
 
-  const options = await generateAuthenticationOptions({
-    rpID: env.rpID,
-    userVerification: 'required',
-    allowCredentials: [{ id: b64urlToBuffer(user.credentialID), type: 'public-key' }],
-  });
+    const options = await generateAuthenticationOptions({
+      rpID: env.rpID,
+      userVerification: 'required',
+      allowCredentials: [{ id: user.credentialID, type: 'public-key' }],
+    });
 
-  db.challenges[`login:${username}`] = {
-    challenge: options.challenge,
-    expiresAt: Date.now() + 300000,
-  };
-  await saveDb(db);
-  res.json(options);
+    db.challenges[`login:${username}`] = {
+      challenge: options.challenge,
+      expiresAt: Date.now() + 300000,
+    };
+    await saveDb(db);
+    res.json(options);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'failed to generate login options' });
+  }
 });
 
 app.post('/api/login/verify', rateLimit, async (req, res) => {
