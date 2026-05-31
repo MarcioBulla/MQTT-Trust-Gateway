@@ -211,6 +211,16 @@ domain_matches_public_ip() {
   domain_resolved_ips "${domain}" | grep -Fxq "${public_ip}"
 }
 
+valid_email_or_empty() {
+  email="$1"
+
+  [ -z "${email}" ] && return 0
+  case "${email}" in
+    *@*.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 show_dependency_checklist() {
   podman_status="$(dependency_status compose_command_available podman)"
   docker_status="$(dependency_status compose_command_available docker)"
@@ -721,7 +731,13 @@ configure_basic() {
     esac
   fi
 
-  CERTBOT_EMAIL="$(wt_input "Let's Encrypt" "Contact email for Let's Encrypt. Leave empty to skip email registration." "${CERTBOT_EMAIL}")" || return 1
+  while :; do
+    CERTBOT_EMAIL="$(wt_input "Let's Encrypt" "Contact email for Let's Encrypt. Leave empty to skip email registration.\n\nThis must be an email address, not the domain." "${CERTBOT_EMAIL}")" || return 1
+    if valid_email_or_empty "${CERTBOT_EMAIL}"; then
+      break
+    fi
+    wt_msg "Invalid Let's Encrypt email:\n\n${CERTBOT_EMAIL}\n\nEnter a valid email address like contato@example.com, or leave this field empty."
+  done
   BASE_DIR="$(wt_input "Runtime Directory" "Host directory for runtime data." "${BASE_DIR:-./runtime}")" || return 1
   BASE_DIR="$(absolute_path "${BASE_DIR}")"
   choose_engine || return 1
