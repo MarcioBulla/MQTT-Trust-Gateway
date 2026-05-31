@@ -77,7 +77,30 @@ function b64urlToBuffer(value) {
 }
 
 function bufferToB64url(value) {
+  if (typeof value === 'string') return value;
   return Buffer.from(value).toString('base64url');
+}
+
+function looksLikeCredentialId(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{16,}$/.test(value);
+}
+
+function credentialIdCandidates(value) {
+  const candidates = new Set();
+  if (looksLikeCredentialId(value)) candidates.add(value);
+
+  try {
+    const decoded = Buffer.from(value, 'base64url').toString('utf8');
+    if (decoded !== value && looksLikeCredentialId(decoded)) candidates.add(decoded);
+  } catch {
+    // Ignore malformed legacy values.
+  }
+
+  return [...candidates];
+}
+
+function findUserCredential(user, credentialId) {
+  return credentialIdCandidates(user.credentialID).includes(credentialId);
 }
 
 async function loadDb() {
@@ -91,7 +114,8 @@ async function loadDb() {
 }
 
 async function saveDb(db) {
-  const tmpFile = `${dbFile}.tmp`;
+  await fs.mkdir(env.dataDir, { recursive: true, mode: 0o700 });
+  const tmpFile = `${dbFile}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   await fs.writeFile(tmpFile, JSON.stringify(db, null, 2), { mode: 0o600 });
   await fs.rename(tmpFile, dbFile);
 }
@@ -231,13 +255,14 @@ function decodePublicKeyOptions(options) {
   return options;
 }
 function encodeCredential(credential) {
+  const rawId = bufferToB64url(credential.rawId);
   const response = {};
   for (const [key, value] of Object.entries(credential.response)) {
     if (value instanceof ArrayBuffer) response[key] = bufferToB64url(value);
   }
   return {
     id: credential.id,
-    rawId: bufferToB64url(credential.rawId),
+    rawId,
     type: credential.type,
     response,
     clientExtensionResults: credential.getClientExtensionResults(),
@@ -345,7 +370,7 @@ app.post('/api/register/options', rateLimit, async (req, res) => {
     attestationType: 'none',
     authenticatorSelection: {
       residentKey: 'preferred',
-      userVerification: 'required',
+      userVerification: 'preferred',
     },
     supportedAlgorithmIDs: [-7, -257],
   });
@@ -374,10 +399,11 @@ app.post('/api/register/verify', rateLimit, async (req, res) => {
 
   if (!verification.verified) return res.status(400).json({ error: 'passkey verification failed' });
   const info = verification.registrationInfo;
+  const credentialID = req.body.credential.rawId || req.body.credential.id || bufferToB64url(info.credentialID);
   db.users.push({
     id: challenge.userId,
     username,
-    credentialID: bufferToB64url(info.credentialID),
+    credentialID,
     credentialPublicKey: bufferToB64url(info.credentialPublicKey),
     counter: info.counter,
   });
@@ -395,8 +421,8 @@ app.post('/api/login/options', rateLimit, async (req, res) => {
 
     const options = await generateAuthenticationOptions({
       rpID: env.rpID,
-      userVerification: 'required',
-      allowCredentials: [{ id: user.credentialID, type: 'public-key' }],
+      userVerification: 'preferred',
+      allowCredentials: credentialIdCandidates(user.credentialID).map((id) => ({ id, type: 'public-key' })),
     });
 
     db.challenges[`login:${username}`] = {
@@ -417,6 +443,8 @@ app.post('/api/login/verify', rateLimit, async (req, res) => {
   const user = db.users.find((item) => item.username === username);
   const challenge = db.challenges[`login:${username}`];
   if (!user || !challenge || challenge.expiresAt < Date.now()) return res.status(400).json({ error: 'login challenge expired' });
+  const credentialID = req.body.credential?.rawId || req.body.credential?.id || '';
+  if (!findUserCredential(user, credentialID)) return res.status(400).json({ error: 'credential id does not match this user' });
 
   const verification = await verifyAuthenticationResponse({
     response: req.body.credential,
@@ -424,13 +452,14 @@ app.post('/api/login/verify', rateLimit, async (req, res) => {
     expectedOrigin: env.origin,
     expectedRPID: env.rpID,
     authenticator: {
-      credentialID: b64urlToBuffer(user.credentialID),
+      credentialID: b64urlToBuffer(credentialID),
       credentialPublicKey: b64urlToBuffer(user.credentialPublicKey),
       counter: user.counter,
     },
   });
 
   if (!verification.verified) return res.status(400).json({ error: 'passkey verification failed' });
+  user.credentialID = credentialID;
   user.counter = verification.authenticationInfo.newCounter;
   delete db.challenges[`login:${username}`];
   const sessionId = crypto.randomBytes(32).toString('base64url');
