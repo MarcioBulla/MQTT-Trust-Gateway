@@ -79,6 +79,12 @@ pre { overflow: auto; background: var(--code); padding: 12px; border-radius: 6px
 .panel.nested { background: var(--surface-strong); }
 .message-row { border-top: 1px solid var(--border); padding: 12px 0; }
 .message-row pre { margin-bottom: 0; white-space: pre-wrap; }
+.help-head { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+.help-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; background: var(--primary); color: white; }
+.help-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.help-step { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface); }
+.help-step p { margin-bottom: 10px; }
+.help-step pre { margin: 0; white-space: pre-wrap; }
 .muted { color: var(--muted); }
 #notice { min-height: 24px; margin: 12px 0; color: var(--notice); }
 #notice.ok { color: var(--ok); }
