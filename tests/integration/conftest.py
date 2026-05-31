@@ -2,6 +2,7 @@ import getpass
 import os
 import shutil
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -27,10 +28,33 @@ def pytest_addoption(parser):
     )
 
 
+def load_broker_env():
+    env_file = Path("broker.env")
+    if not env_file.exists():
+        return {}
+
+    values = {}
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key:
+            values[key] = value
+    return values
+
+
+def config_value(name, broker_env, default=""):
+    return os.getenv(name, broker_env.get(name, default)).strip()
+
+
 @pytest.fixture(scope="session")
 def gateway_config():
-    domain = os.getenv("MQTT_DOMAIN", "").strip()
-    fingerprint = os.getenv("STEP_CA_FINGERPRINT", "").strip()
+    broker_env = load_broker_env()
+    domain = config_value("MQTT_DOMAIN", broker_env)
+    fingerprint = config_value("STEP_CA_FINGERPRINT", broker_env)
 
     missing = []
     if not domain:
@@ -42,13 +66,13 @@ def gateway_config():
 
     return GatewayConfig(
         domain=domain,
-        step_ca_url=os.getenv("STEP_CA_URL", f"https://{domain}:9000").strip(),
+        step_ca_url=config_value("STEP_CA_URL", broker_env, f"https://{domain}:9000"),
         step_ca_fingerprint=fingerprint,
-        step_ca_provisioner=os.getenv("STEP_CA_PROVISIONER", "mqtt-devices").strip(),
-        device_cert_ttl=os.getenv("STEP_CA_DEVICE_CERT_TTL", "24h").strip(),
-        topic_prefix=os.getenv("MQTT_TOPIC_PREFIX", "devices").strip(),
-        mqtt_tls_port=int(os.getenv("MQTT_TLS_PORT", "8883")),
-        mqtt_ws_tls_port=int(os.getenv("MQTT_WS_TLS_PORT", "8443")),
+        step_ca_provisioner=config_value("STEP_CA_PROVISIONER", broker_env, "mqtt-devices"),
+        device_cert_ttl=config_value("STEP_CA_DEVICE_CERT_TTL", broker_env, "24h"),
+        topic_prefix=config_value("MQTT_TOPIC_PREFIX", broker_env, "devices"),
+        mqtt_tls_port=int(config_value("MQTT_TLS_PORT", broker_env, "8883")),
+        mqtt_ws_tls_port=int(config_value("MQTT_WS_TLS_PORT", broker_env, "8443")),
     )
 
 

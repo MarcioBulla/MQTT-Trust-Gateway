@@ -266,16 +266,13 @@ Required on the test machine:
 Run from the repository root:
 
 ```bash
-export MQTT_DOMAIN="<mqtt-domain>"
-export STEP_CA_URL="https://${MQTT_DOMAIN}:9000"
-export STEP_CA_FINGERPRINT="<root-ca-fingerprint-from-broker-env>"
-export STEP_CA_PROVISIONER="<step-ca-provisioner>"
-export MQTT_TOPIC_PREFIX="devices"
-
+set -a
+. ./broker.env
+set +a
 uv run pytest -s tests/integration
 ```
 
-The `-s` flag lets the test prompt for the step-ca provisioner password without showing it on screen. For non-interactive automation, pass `--provisioner-password` or set `STEP_CA_PROVISIONER_PASSWORD`, but avoid storing that value in shell history, CI logs, or committed files.
+The tests also read `broker.env` directly when it exists, but `set -a` exports the same values for tools such as `step`. The `-s` flag lets the test prompt for the step-ca provisioner password without showing it on screen. For non-interactive automation, pass `--provisioner-password` or set `STEP_CA_PROVISIONER_PASSWORD`, but avoid storing that value in shell history, CI logs, or committed files.
 
 ## Troubleshooting
 
