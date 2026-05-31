@@ -23,9 +23,27 @@ export function decodePublicKeyOptions(options) {
 
 export function encodeCredential(credential) {
   const response = {};
-  for (const [key, value] of Object.entries(credential.response)) {
-    if (value instanceof ArrayBuffer) response[key] = bufferToB64url(value);
+
+  if (credential.response.clientDataJSON) {
+    response.clientDataJSON = bufferToB64url(credential.response.clientDataJSON);
   }
+
+  if (credential.response.attestationObject) {
+    response.attestationObject = bufferToB64url(credential.response.attestationObject);
+  }
+
+  if (credential.response.authenticatorData) {
+    response.authenticatorData = bufferToB64url(credential.response.authenticatorData);
+  }
+
+  if (credential.response.signature) {
+    response.signature = bufferToB64url(credential.response.signature);
+  }
+
+  if (credential.response.userHandle) {
+    response.userHandle = bufferToB64url(credential.response.userHandle);
+  }
+
   return {
     id: credential.id,
     rawId: bufferToB64url(credential.rawId),

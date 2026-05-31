@@ -193,17 +193,48 @@ export function registerAuthRoutes(app) {
     }
   });
 
-  app.post('/api/login/verify', rateLimit, async (req, res) => {
+app.post('/api/login/verify', rateLimit, async (req, res) => {
+  try {
     const db = await loadDb();
     const username = String(req.body.username || '').trim();
     const user = db.users.find((item) => item.username === username);
     const challenge = db.challenges[`login:${username}`];
-    if (!user || !challenge || challenge.expiresAt < Date.now()) return res.status(400).json({ error: 'login challenge expired' });
-    const credentialID = req.body.credential?.rawId || req.body.credential?.id || '';
+
+    if (!user || !challenge || challenge.expiresAt < Date.now()) {
+      return res.status(400).json({ error: 'login challenge expired' });
+    }
+
+    const credential = req.body.credential;
+
+    if (
+      !credential ||
+      !credential.response ||
+      typeof credential.response.clientDataJSON !== 'string' ||
+      typeof credential.response.authenticatorData !== 'string' ||
+      typeof credential.response.signature !== 'string'
+    ) {
+      console.error('Invalid WebAuthn login credential response:', {
+        hasCredential: Boolean(credential),
+        hasResponse: Boolean(credential?.response),
+        clientDataJSONType: typeof credential?.response?.clientDataJSON,
+        authenticatorDataType: typeof credential?.response?.authenticatorData,
+        signatureType: typeof credential?.response?.signature,
+      });
+
+      return res.status(400).json({
+        error: 'invalid webauthn credential response format',
+      });
+    }
+
+    const credentialID = credential.rawId || credential.id || '';
     const storedCredential = findUserCredential(user, credentialID);
-    if (!storedCredential) return res.status(400).json({ error: 'credential id does not match this user' });
+
+    if (!storedCredential) {
+      return res.status(400).json({ error: 'credential id does not match this user' });
+    }
+
     const verification = await verifyAuthenticationResponse({
-      response: req.body.credential,
+      response: credential,
       expectedChallenge: challenge.challenge,
       expectedOrigin: env.origin,
       expectedRPID: env.rpID,
@@ -213,17 +244,31 @@ export function registerAuthRoutes(app) {
         counter: storedCredential.counter || 0,
       },
     });
-    if (!verification.verified) return res.status(400).json({ error: 'passkey verification failed' });
+
+    if (!verification.verified) {
+      return res.status(400).json({ error: 'passkey verification failed' });
+    }
+
     storedCredential.id = credentialID;
     storedCredential.counter = verification.authenticationInfo.newCounter;
     user.credentialID = storedCredential.id;
     user.credentialPublicKey = storedCredential.publicKey;
     user.counter = storedCredential.counter;
+
     delete db.challenges[`login:${username}`];
+
     createSession(db, user, res);
     await saveDb(db);
-    res.json({ ok: true });
-  });
+
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('WebAuthn login verification failed:', error);
+
+    return res.status(400).json({
+      error: 'webauthn login verification failed',
+    });
+  }
+});
 
   app.post('/api/logout', async (req, res) => {
     const cookies = parseCookies(req.headers.cookie);
