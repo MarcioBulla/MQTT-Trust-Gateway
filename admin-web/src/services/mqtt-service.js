@@ -34,13 +34,20 @@ function scheduleTopicSave() {
 function rememberTopic(topic, payload) {
   const now = new Date().toISOString();
   const existing = topics.get(topic);
+  const message = {
+    payload: payload.toString('utf8').slice(0, 2000),
+    payloadBytes: payload.length,
+    receivedAt: now,
+  };
+  const history = [message, ...(existing?.history || [])].slice(0, 50);
   topics.set(topic, {
     name: topic,
-    lastPayload: payload.toString('utf8').slice(0, 500),
+    lastPayload: message.payload.slice(0, 500),
     lastPayloadBytes: payload.length,
     messages: (existing?.messages || 0) + 1,
     firstSeenAt: existing?.firstSeenAt || now,
     updatedAt: now,
+    history,
   });
   scheduleTopicSave();
 }
@@ -113,7 +120,12 @@ export function mqttConnectionStatus() {
 
 export async function listTopics() {
   await connectMqtt();
-  return topicSnapshot();
+  return topicSnapshot().map(({ history, ...topic }) => topic);
+}
+
+export async function topicMessages(topicName) {
+  await connectMqtt();
+  return topics.get(topicName)?.history || [];
 }
 
 export async function publishMessage({ topic, payload, qos, retain }) {
@@ -124,5 +136,4 @@ export async function publishMessage({ topic, payload, qos, retain }) {
       else resolve();
     });
   });
-  rememberTopic(topic, Buffer.from(payload));
 }

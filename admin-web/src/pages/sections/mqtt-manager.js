@@ -28,7 +28,19 @@ export function mqttManagerSection() {
         <h3>Topics</h3>
         <button id="refreshTopicsButton" class="secondary" type="button"><span class="nf">&#xf021;</span> Refresh topics</button>
       </div>
+      <div class="topic-tools">
+        <label>Search<input id="topicSearch" placeholder="Filter topics or payload"></label>
+        <label>Sort<select id="topicSort">
+          <option value="updatedDesc">Newest message</option>
+          <option value="updatedAsc">Oldest message</option>
+          <option value="nameAsc">Topic A-Z</option>
+          <option value="nameDesc">Topic Z-A</option>
+          <option value="messagesDesc">Most messages</option>
+          <option value="messagesAsc">Fewest messages</option>
+        </select></label>
+      </div>
       <div id="topicList" class="topic-list"></div>
+      <div id="topicMessages" class="topic-messages"></div>
     </section>
   </div>`;
 }

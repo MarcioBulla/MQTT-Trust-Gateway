@@ -2,7 +2,7 @@ import { requestJson } from './api.js';
 import { loginPasskey, logout, registerPasskey } from './auth.js';
 import { signCsr } from './certificates.js';
 import { bindSettingsMenu, closeSettingsMenu, toggleSettingsMenu } from './menu.js';
-import { loadStatus, loadTopics, publishMessage } from './mqtt-manager.js';
+import { bindTopicTools, loadStatus, loadTopics, publishMessage } from './mqtt-manager.js';
 import { setNotice } from './notice.js';
 import { showAuth, showView } from './navigation.js';
 import { getCurrentUser } from './state.js';
@@ -52,4 +52,5 @@ document.getElementById('saveUsernameButton').addEventListener('click', () => ru
 document.getElementById('addPasskeyButton').addEventListener('click', () => runAction(addPasskey));
 applyTheme();
 bindSettingsMenu();
+bindTopicTools();
 init();

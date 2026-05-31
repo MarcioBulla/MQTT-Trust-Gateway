@@ -67,9 +67,15 @@ pre { overflow: auto; background: var(--code); padding: 12px; border-radius: 6px
 .checkbox input { width: auto; margin: 0; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .passkey, .topic-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; border-top: 1px solid var(--border); padding: 12px 0; }
-.topic-row button { flex: 0 0 auto; }
+.topic-row.selected { background: var(--surface-strong); margin-inline: -8px; padding-inline: 8px; border-radius: 6px; }
+.topic-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.topic-tools { display: grid; gap: 12px; grid-template-columns: minmax(260px, 1fr) minmax(180px, 260px); }
 .topic-meta { color: var(--muted); font-size: 0.9rem; overflow-wrap: anywhere; }
 .topic-name { font-weight: 700; overflow-wrap: anywhere; }
+.topic-messages { margin-top: 16px; }
+.panel.nested { background: var(--surface-strong); }
+.message-row { border-top: 1px solid var(--border); padding: 12px 0; }
+.message-row pre { margin-bottom: 0; white-space: pre-wrap; }
 .muted { color: var(--muted); }
 #notice { min-height: 24px; margin: 12px 0; color: var(--notice); }
 #notice.ok { color: var(--ok); }

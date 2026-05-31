@@ -1,9 +1,15 @@
 import { requireAuth } from '../auth.js';
-import { listTopics, publishMessage } from '../services/mqtt-service.js';
+import { listTopics, publishMessage, topicMessages } from '../services/mqtt-service.js';
 
 export function registerMqttRoutes(app) {
   app.get('/api/mqtt/topics', requireAuth(async (_req, res) => {
     res.json({ topics: await listTopics() });
+  }));
+
+  app.get('/api/mqtt/messages', requireAuth(async (req, res) => {
+    const topic = String(req.query.topic || '').trim();
+    if (!topic) return res.status(400).json({ error: 'topic is required' });
+    res.json({ topic, messages: await topicMessages(topic) });
   }));
 
   app.post('/api/mqtt/publish', requireAuth(async (req, res) => {
