@@ -36,7 +36,8 @@ VPS dependencies:
 - `bash` and `whiptail`, used by the interactive wizard
 - `openssl`, used for certificate and secret generation
 - `python3`, used by the setup wizard to update `step-ca` configuration
-- `curl` or `dig`, used by the setup wizard for public IP and DNS checks
+- `curl`, used by the setup wizard for public IP detection
+- `dig`, used by the setup wizard for DNS checks. It is provided by `dnsutils`, `bind-utils`, or `bind-tools`, depending on the distribution.
 - `ss` or `lsof`, used by the setup wizard for local port checks
 - `ufw`, `firewalld`, or `iptables`, used to inspect or adjust local firewall rules
 - `netfilter-persistent`, optional, used to persist `iptables` rules across reboots on Ubuntu/Debian

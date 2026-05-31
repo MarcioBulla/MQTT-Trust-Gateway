@@ -167,6 +167,50 @@ has_iproute2() {
   has_command "ip" && has_command "ss"
 }
 
+domain_has_dns_record() {
+  domain="$1"
+
+  if has_command "dig"; then
+    [ -n "$(dig +short A "${domain}" 2>/dev/null | head -n 1)" ] && return 0
+    [ -n "$(dig +short AAAA "${domain}" 2>/dev/null | head -n 1)" ] && return 0
+    return 1
+  fi
+
+  if has_command "getent"; then
+    getent ahosts "${domain}" >/dev/null 2>&1
+    return "$?"
+  fi
+
+  return 0
+}
+
+domain_resolved_ips() {
+  domain="$1"
+
+  if has_command "dig"; then
+    {
+      dig +short A "${domain}" 2>/dev/null
+      dig +short AAAA "${domain}" 2>/dev/null
+    } | sed '/^$/d' | sort -u
+    return 0
+  fi
+
+  if has_command "getent"; then
+    getent ahosts "${domain}" 2>/dev/null | awk '{print $1}' | sed '/^$/d' | sort -u
+    return 0
+  fi
+
+  return 1
+}
+
+domain_matches_public_ip() {
+  domain="$1"
+  public_ip="$2"
+
+  [ -n "${public_ip}" ] || return 2
+  domain_resolved_ips "${domain}" | grep -Fxq "${public_ip}"
+}
+
 show_dependency_checklist() {
   podman_status="$(dependency_status compose_command_available podman)"
   docker_status="$(dependency_status compose_command_available docker)"
@@ -353,7 +397,7 @@ wt_progress_command() {
   command_pid="$!"
 
   (
-    progress=3
+    progress=0
     while kill -0 "${command_pid}" >/dev/null 2>&1; do
       cat <<EOF
 XXX
@@ -363,10 +407,11 @@ ${title}
 The command is running. Output is being captured and will open inside this wizard.
 XXX
 EOF
-      if [ "${progress}" -lt 92 ]; then
-        progress=$((progress + 7))
-      else
-        progress=12
+      if [ "${progress}" -lt 99 ]; then
+        progress=$((progress + 1))
+        if [ "${progress}" -gt 99 ]; then
+          progress=99
+        fi
       fi
       sleep 1
     done
@@ -391,8 +436,10 @@ EOF
     status="${wait_status}"
   fi
 
-  strip_ansi_log "${log_file}" "${clean_log_file}"
-  whiptail --backtitle "${WT_BACKTITLE}" --title "${title} output" --textbox "${clean_log_file}" 22 90
+  if [ "${status}" != "0" ]; then
+    strip_ansi_log "${log_file}" "${clean_log_file}"
+    whiptail --backtitle "${WT_BACKTITLE}" --title "${title} output" --textbox "${clean_log_file}" 22 90
+  fi
   rm -f "${log_file}" "${clean_log_file}" "${status_file}"
   return "${status}"
 }
@@ -633,11 +680,25 @@ configure_basic() {
   fi
 
   if wt_yesno_default "Do you have a DNS domain for this gateway?" "${has_domain_default}"; then
-    MQTT_DOMAIN="$(wt_input "Domain" "Enter the public DNS domain for Admin, MQTT, and step-ca." "${MQTT_DOMAIN}")" || return 1
-    if [ -z "${MQTT_DOMAIN}" ]; then
-      wt_msg "Domain is required when DNS domain mode is selected."
-      return 1
-    fi
+    while :; do
+      MQTT_DOMAIN="$(wt_input "Domain" "Enter the public DNS domain for Admin, MQTT, and step-ca." "${MQTT_DOMAIN}")" || return 1
+      if [ -z "${MQTT_DOMAIN}" ]; then
+        wt_msg "Domain is required when DNS domain mode is selected."
+        continue
+      fi
+      if [ "${WIZARD_PREVIEW}" = "yes" ]; then
+        break
+      fi
+      if ! domain_has_dns_record "${MQTT_DOMAIN}"; then
+        wt_msg "DNS lookup failed for:\n\n${MQTT_DOMAIN}\n\nCreate an A or AAAA record pointing to this VPS, or fix the typed domain before continuing."
+        continue
+      fi
+      if domain_matches_public_ip "${MQTT_DOMAIN}" "${PUBLIC_IP}"; then
+        break
+      fi
+      resolved_ips="$(domain_resolved_ips "${MQTT_DOMAIN}" | tr '\n' ' ')"
+      wt_msg "DNS does not match this VPS public IP.\n\nDomain: ${MQTT_DOMAIN}\nDetected VPS public IP: ${PUBLIC_IP:-not detected}\nDomain resolves to: ${resolved_ips:-not detected}\n\nFix the DNS A/AAAA record or enter the correct domain before continuing."
+    done
     MQTT_USE_PUBLIC_IP="no"
   else
     previous_use_public_ip="${MQTT_USE_PUBLIC_IP:-}"
