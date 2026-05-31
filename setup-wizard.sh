@@ -20,6 +20,7 @@ if [ -t 1 ]; then
   C_RESET="$(printf '\033[0m')"
   C_BOLD="$(printf '\033[1m')"
   C_BLUE="$(printf '\033[34m')"
+  C_CYAN="$(printf '\033[36m')"
   C_GREEN="$(printf '\033[32m')"
   C_YELLOW="$(printf '\033[33m')"
   C_RED="$(printf '\033[31m')"
@@ -27,6 +28,7 @@ else
   C_RESET=""
   C_BOLD=""
   C_BLUE=""
+  C_CYAN=""
   C_GREEN=""
   C_YELLOW=""
   C_RED=""
@@ -44,6 +46,11 @@ ok() {
 
 warn() {
   printf "%s%s%s\n" "${C_YELLOW}" "$1" "${C_RESET}"
+  pace
+}
+
+info() {
+  printf "%s%s%s\n" "${C_CYAN}" "$1" "${C_RESET}"
   pace
 }
 
@@ -83,6 +90,7 @@ run_compose() {
     ADMIN_ORIGIN="${ADMIN_ORIGIN}" \
     ADMIN_SETUP_TOKEN="${ADMIN_SETUP_TOKEN}" \
     ADMIN_SESSION_SECRET="${ADMIN_SESSION_SECRET}" \
+    MQTT_USE_PUBLIC_IP="${MQTT_USE_PUBLIC_IP}" \
     "${CONTAINER_ENGINE}" compose "$@"
 }
 
@@ -224,7 +232,7 @@ prompt_default() {
   var_name="$1"
   prompt_text="$2"
   default_value="$3"
-  printf "%s [%s]: " "$prompt_text" "$default_value"
+  printf "%s? %s%s%s [%s%s%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_YELLOW}" "${default_value}" "${C_RESET}"
   read -r input_value || true
   if [ -z "${input_value}" ]; then
     eval "${var_name}=\$default_value"
@@ -238,7 +246,7 @@ prompt_required() {
   var_name="$1"
   prompt_text="$2"
   while :; do
-    printf "%s: " "$prompt_text"
+    printf "%s? %s%s%s: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_RESET}"
     read -r input_value || true
     if [ -n "${input_value}" ]; then
       eval "${var_name}=\$input_value"
@@ -249,6 +257,34 @@ prompt_required() {
   done
 }
 
+prompt_domain_or_public_ip() {
+  current_domain="${MQTT_DOMAIN:-}"
+  case "${current_domain}" in
+    ""|mqtt.example.com) current_domain="" ;;
+  esac
+
+  if [ -n "${current_domain}" ]; then
+    printf "%s? %sDomain%s [%s%s%s, empty = public IP]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "${C_RESET}" "${C_YELLOW}" "${current_domain}" "${C_RESET}"
+  else
+    printf "%s? %sDomain%s [%spublic IP%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "${C_RESET}" "${C_YELLOW}" "${C_RESET}"
+  fi
+
+  read -r input_value || true
+  if [ -n "${input_value}" ]; then
+    MQTT_DOMAIN="${input_value}"
+    MQTT_USE_PUBLIC_IP="no"
+    return 0
+  fi
+
+  MQTT_USE_PUBLIC_IP="yes"
+  if [ -n "${PUBLIC_IP:-}" ]; then
+    MQTT_DOMAIN="${PUBLIC_IP}"
+    return 0
+  fi
+
+  prompt_required MQTT_DOMAIN "Public IP"
+}
+
 has_step_cli() {
   command -v step >/dev/null 2>&1
 }
@@ -256,7 +292,7 @@ has_step_cli() {
 read_secret() {
   secret_prompt_text="$1"
   while :; do
-    printf "%s: " "$secret_prompt_text"
+    printf "%s? %s%s%s: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "${secret_prompt_text}" "${C_RESET}"
     old_stty="$(stty -g)"
     stty -echo
     read -r SECRET_VALUE || true
@@ -295,7 +331,7 @@ prompt_yes_no() {
     *) err "Invalid yes/no default: ${default_value}"; exit 1 ;;
   esac
   while :; do
-    printf "%s [%s]: " "$prompt_text" "$prompt_suffix"
+    printf "%s? %s%s%s [%s%s%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_YELLOW}" "${prompt_suffix}" "${C_RESET}"
     read -r yn || true
     if [ -z "${yn}" ]; then
       case "${default_value}" in
@@ -427,6 +463,29 @@ compose_command_available() {
     return 1
   fi
   "${engine}" compose version >/dev/null 2>&1
+}
+
+preferred_container_engine() {
+  if compose_command_available "podman"; then
+    printf "podman\n"
+    return 0
+  fi
+  if compose_command_available "docker"; then
+    printf "docker\n"
+    return 0
+  fi
+  printf "podman\n"
+}
+
+prompt_container_engine() {
+  default_engine="$1"
+  while :; do
+    prompt_default CONTAINER_ENGINE "Container engine (docker/podman)" "${default_engine}"
+    case "${CONTAINER_ENGINE}" in
+      docker|podman) return 0 ;;
+      *) warn "Choose docker or podman." ;;
+    esac
+  done
 }
 
 initial_prerequisite_check() {
@@ -585,6 +644,10 @@ detect_public_ip() {
   return 1
 }
 
+is_ipv4_address() {
+  printf "%s\n" "$1" | grep -E -q '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'
+}
+
 check_dns_domain() {
   domain="$1"
   expected_ip="$2"
@@ -674,36 +737,67 @@ title "=== MQTT Trust Gateway Setup Wizard (step-ca) ==="
 initial_prerequisite_check
 title "=== Configuration ==="
 
-prompt_default MQTT_DOMAIN "Public MQTT broker domain" "${MQTT_DOMAIN:-mqtt.example.com}"
+PUBLIC_IP="$(detect_public_ip || true)"
+if [ -n "${PUBLIC_IP}" ]; then
+  info "Detected public VPS IP: ${PUBLIC_IP}"
+else
+  warn "Could not detect public VPS IP automatically."
+fi
+
+prompt_domain_or_public_ip
+if [ "${MQTT_USE_PUBLIC_IP}" = "yes" ]; then
+  info "No domain selected. Using public IP: ${MQTT_DOMAIN}"
+  warn "IP-only mode requires a Certbot version with Let's Encrypt IP certificate support."
+  warn "IP certificates require the Let's Encrypt shortlived profile; adding it to CERTBOT_ARGS when missing."
+  case " ${CERTBOT_ARGS:-} " in
+    *" --preferred-profile "*) ;;
+    *) CERTBOT_ARGS="${CERTBOT_ARGS:+${CERTBOT_ARGS} }--preferred-profile shortlived" ;;
+  esac
+else
+  info "Using domain: ${MQTT_DOMAIN}"
+fi
+
 prompt_default CERTBOT_EMAIL "Contact email (Let's Encrypt)" "${CERTBOT_EMAIL:-admin@example.com}"
-prompt_default CERTBOT_ARGS "Extra certbot args (example: --staging)" "${CERTBOT_ARGS:-}"
-prompt_default CONTAINER_NAME "Broker container name" "${CONTAINER_NAME:-mqtt-trust-gateway}"
-prompt_default IMAGE_NAME "Broker image name" "${IMAGE_NAME:-mqtt-trust-gateway}"
-prompt_default ACME_HTTP_PORT "ACME HTTP port" "${ACME_HTTP_PORT:-80}"
-prompt_default MQTT_TLS_PORT "MQTT TLS port" "${MQTT_TLS_PORT:-8883}"
-prompt_default ADMIN_HTTPS_PORT "Admin HTTPS port" "${ADMIN_HTTPS_PORT:-443}"
-prompt_default ADMIN_APP_PORT "Admin internal app port" "${ADMIN_APP_PORT:-8080}"
-prompt_default MQTT_WS_TLS_PORT "MQTT over WSS port" "${MQTT_WS_TLS_PORT:-8443}"
 prompt_default BASE_DIR "Host runtime directory" "${BASE_DIR:-./runtime}"
 BASE_DIR="$(absolute_path "${BASE_DIR}")"
-prompt_default MQTT_TOPIC_PREFIX "MQTT topic prefix" "${MQTT_TOPIC_PREFIX:-devices}"
-prompt_default ADMIN_RP_NAME "Admin passkey relying party name" "${ADMIN_RP_NAME:-MQTT-Trust-Gateway}"
-ADMIN_RP_NAME="$(printf "%s" "${ADMIN_RP_NAME}" | tr ' ' '-')"
-prompt_default ADMIN_RP_ID "Admin passkey relying party id" "${ADMIN_RP_ID:-${MQTT_DOMAIN}}"
-prompt_default ADMIN_ORIGIN "Admin public origin" "${ADMIN_ORIGIN:-https://${MQTT_DOMAIN}}"
+
+DEFAULT_CONTAINER_ENGINE="$(preferred_container_engine)"
+prompt_container_engine "${CONTAINER_ENGINE:-${DEFAULT_CONTAINER_ENGINE}}"
+
+CERTBOT_ARGS="${CERTBOT_ARGS:-}"
+CONTAINER_NAME="${CONTAINER_NAME:-mqtt-trust-gateway}"
+IMAGE_NAME="${IMAGE_NAME:-mqtt-trust-gateway}"
+ACME_HTTP_PORT="${ACME_HTTP_PORT:-80}"
+MQTT_TLS_PORT="${MQTT_TLS_PORT:-8883}"
+MQTT_WS_TLS_PORT="${MQTT_WS_TLS_PORT:-8443}"
+ADMIN_HTTPS_PORT="${ADMIN_HTTPS_PORT:-443}"
+ADMIN_APP_PORT="${ADMIN_APP_PORT:-8080}"
+MQTT_TOPIC_PREFIX="${MQTT_TOPIC_PREFIX:-devices}"
+ADMIN_RP_NAME="${ADMIN_RP_NAME:-MQTT Trust Gateway}"
+ADMIN_RP_ID="${MQTT_DOMAIN}"
+ADMIN_ORIGIN="https://${MQTT_DOMAIN}"
 ADMIN_SETUP_TOKEN="${ADMIN_SETUP_TOKEN:-$(random_secret)}"
 ADMIN_SESSION_SECRET="${ADMIN_SESSION_SECRET:-$(random_secret)}"
 
 case "${STEP_CA_DOMAIN:-}" in
   ""|ca.example.com)
-    DEFAULT_STEP_CA_DOMAIN="ca.${MQTT_DOMAIN}"
+    if [ "${MQTT_USE_PUBLIC_IP}" = "yes" ]; then
+      DEFAULT_STEP_CA_DOMAIN="${MQTT_DOMAIN}"
+    else
+      DEFAULT_STEP_CA_DOMAIN="ca.${MQTT_DOMAIN}"
+    fi
     ;;
   *)
     DEFAULT_STEP_CA_DOMAIN="${STEP_CA_DOMAIN}"
     ;;
 esac
-prompt_default STEP_CA_DOMAIN "step-ca domain" "${DEFAULT_STEP_CA_DOMAIN}"
-prompt_default STEP_CA_PORT "step-ca external port" "${STEP_CA_PORT:-9000}"
+if [ "${MQTT_USE_PUBLIC_IP}" = "yes" ]; then
+  STEP_CA_DOMAIN="${MQTT_DOMAIN}"
+  info "step-ca public address: ${STEP_CA_DOMAIN}"
+else
+  prompt_default STEP_CA_DOMAIN "step-ca domain" "${DEFAULT_STEP_CA_DOMAIN}"
+fi
+STEP_CA_PORT="${STEP_CA_PORT:-9000}"
 case "${STEP_CA_URL:-}" in
   ""|https://ca.example.com:*)
     DEFAULT_STEP_CA_URL="https://${STEP_CA_DOMAIN}:${STEP_CA_PORT}"
@@ -712,20 +806,49 @@ case "${STEP_CA_URL:-}" in
     DEFAULT_STEP_CA_URL="${STEP_CA_URL}"
     ;;
 esac
-prompt_default STEP_CA_URL "step-ca public URL" "${DEFAULT_STEP_CA_URL}"
-prompt_default STEP_CA_PROVISIONER "step-ca provisioner name" "${STEP_CA_PROVISIONER:-mqtt-devices}"
-prompt_default STEP_CA_DEVICE_CERT_TTL "Device certificate TTL" "${STEP_CA_DEVICE_CERT_TTL:-17520h}"
-prompt_default STEP_CA_FINGERPRINT "Root CA fingerprint (can be empty for now)" "${STEP_CA_FINGERPRINT:-}"
-title "=== DNS Check ==="
-PUBLIC_IP="$(detect_public_ip || true)"
-if [ -n "${PUBLIC_IP}" ]; then
-  ok "  - detected public VPS IP: ${PUBLIC_IP}"
+STEP_CA_URL="${DEFAULT_STEP_CA_URL}"
+STEP_CA_PROVISIONER="${STEP_CA_PROVISIONER:-mqtt-devices}"
+STEP_CA_DEVICE_CERT_TTL="${STEP_CA_DEVICE_CERT_TTL:-17520h}"
+STEP_CA_FINGERPRINT="${STEP_CA_FINGERPRINT:-}"
+
+info "Admin passkey name: ${ADMIN_RP_NAME}"
+info "Admin passkey domain: ${ADMIN_RP_ID}"
+info "Admin public origin: ${ADMIN_ORIGIN}"
+
+prompt_yes_no ADVANCED_CONFIG "Edit advanced settings?" "no"
+if [ "${ADVANCED_CONFIG}" = "yes" ]; then
+  title "=== Advanced Settings ==="
+  prompt_default CERTBOT_ARGS "Extra certbot args (example: --staging)" "${CERTBOT_ARGS}"
+  prompt_default CONTAINER_NAME "Broker container name" "${CONTAINER_NAME}"
+  prompt_default IMAGE_NAME "Broker image name" "${IMAGE_NAME}"
+  prompt_default ACME_HTTP_PORT "ACME HTTP port" "${ACME_HTTP_PORT}"
+  prompt_default MQTT_TLS_PORT "MQTT TLS port" "${MQTT_TLS_PORT}"
+  prompt_default MQTT_WS_TLS_PORT "MQTT over WSS port" "${MQTT_WS_TLS_PORT}"
+  prompt_default ADMIN_HTTPS_PORT "Admin HTTPS port" "${ADMIN_HTTPS_PORT}"
+  prompt_default ADMIN_APP_PORT "Admin internal app port" "${ADMIN_APP_PORT}"
+  prompt_default MQTT_TOPIC_PREFIX "MQTT topic prefix" "${MQTT_TOPIC_PREFIX}"
+  prompt_default ADMIN_RP_NAME "Admin passkey display name" "${ADMIN_RP_NAME}"
+  prompt_default ADMIN_RP_ID "Admin passkey domain" "${ADMIN_RP_ID}"
+  prompt_default ADMIN_ORIGIN "Admin public origin" "${ADMIN_ORIGIN}"
+  prompt_default STEP_CA_PORT "step-ca external port" "${STEP_CA_PORT}"
+  prompt_default STEP_CA_URL "step-ca public URL" "${STEP_CA_URL}"
+  prompt_default STEP_CA_PROVISIONER "step-ca provisioner name" "${STEP_CA_PROVISIONER}"
+  prompt_default STEP_CA_DEVICE_CERT_TTL "Device certificate TTL" "${STEP_CA_DEVICE_CERT_TTL}"
+  prompt_default STEP_CA_FINGERPRINT "Root CA fingerprint (can be empty for now)" "${STEP_CA_FINGERPRINT}"
 else
-  warn "  - could not detect public VPS IP"
+  info "Using default ports: HTTPS ${ADMIN_HTTPS_PORT}, MQTT ${MQTT_TLS_PORT}, WSS ${MQTT_WS_TLS_PORT}, step-ca ${STEP_CA_PORT}."
 fi
+title "=== DNS Check ==="
 dns_mismatch=0
-check_dns_domain "${MQTT_DOMAIN}" "${PUBLIC_IP}" || dns_mismatch=1
-check_dns_domain "${STEP_CA_DOMAIN}" "${PUBLIC_IP}" || dns_mismatch=1
+if [ "${MQTT_USE_PUBLIC_IP}" = "yes" ]; then
+  info "DNS check skipped because this setup is using the public IP directly."
+  if ! is_ipv4_address "${MQTT_DOMAIN}"; then
+    warn "The selected public IP does not look like IPv4. Verify Certbot support for this address format before continuing."
+  fi
+else
+  check_dns_domain "${MQTT_DOMAIN}" "${PUBLIC_IP}" || dns_mismatch=1
+  check_dns_domain "${STEP_CA_DOMAIN}" "${PUBLIC_IP}" || dns_mismatch=1
+fi
 if [ "${dns_mismatch}" -eq 1 ]; then
   warn "DNS does not appear to match this VPS. Certbot or step-ca clients may fail."
   prompt_yes_no CONTINUE_WITH_DNS_MISMATCH "Continue anyway?" "no"
@@ -734,18 +857,6 @@ if [ "${dns_mismatch}" -eq 1 ]; then
     exit 0
   fi
 fi
-
-while :; do
-  printf "Container engine (docker/podman) [podman]: "
-  read -r CONTAINER_ENGINE || true
-  if [ -z "${CONTAINER_ENGINE}" ]; then
-    CONTAINER_ENGINE="podman"
-  fi
-  case "${CONTAINER_ENGINE}" in
-    docker|podman) break ;;
-    *) warn "Choose docker or podman." ;;
-  esac
-done
 
 check_selected_engine
 
@@ -764,6 +875,7 @@ fi
 cat > "${ENV_FILE}" <<EOF
 # Domain
 MQTT_DOMAIN=${MQTT_DOMAIN}
+MQTT_USE_PUBLIC_IP=${MQTT_USE_PUBLIC_IP}
 
 # Certbot
 CERTBOT_EMAIL=${CERTBOT_EMAIL}

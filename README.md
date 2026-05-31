@@ -29,6 +29,30 @@ On the VPS:
 - DNS records for `<MQTT_DOMAIN>` and `<STEP_CA_DOMAIN>` pointing to the VPS public IP
 - inbound ports `80/tcp`, `443/tcp`, `8883/tcp`, `8443/tcp`, and `9000/tcp`
 
+VPS dependencies:
+
+- `docker` with `docker compose`, or `podman` with `podman compose`
+- `step`, the Smallstep CLI used to initialize and manage `step-ca`
+- `openssl`, used for certificate and secret generation
+- `python3`, used by the setup wizard to update `step-ca` configuration
+- `curl` or `dig`, used by the setup wizard for public IP and DNS checks
+- `ss` or `lsof`, used by the setup wizard for local port checks
+- `ufw`, `firewalld`, or `iptables`, used to inspect or adjust local firewall rules
+- `netfilter-persistent`, optional, used to persist `iptables` rules across reboots on Ubuntu/Debian
+
+On Ubuntu/Debian, install the base OS tools with:
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg openssl python3 dnsutils iproute2 lsof ufw iptables
+```
+
+Install `step-cli` and `step-ca` using the official Smallstep guide:
+
+[Smallstep step-ca installation guide](https://smallstep.com/docs/step-ca/installation/)
+
+Install either Docker Compose or Podman Compose before running the wizard.
+
 Port usage:
 
 - `80/tcp`: Let's Encrypt HTTP challenge
@@ -55,6 +79,9 @@ The wizard:
 - saves the root CA fingerprint
 - generates an Admin Web first-registration setup token
 - starts `step-ca`, Certbot, Mosquitto, Admin Web, and Nginx
+
+> [!NOTE]
+> When the wizard asks for `Domain`, leave it empty to use the detected public VPS IP directly instead of a DNS name. In IP-only mode, DNS checks are skipped and Certbot is configured for Let's Encrypt IP address certificates with the `shortlived` profile.
 
 After startup, open:
 
@@ -119,3 +146,24 @@ You can also paste the CSR into the Admin Web and sign it there.
 - Protect the step-ca provisioner password.
 - Use passkeys for Admin Web access and remove stale admin data before handing the VPS to another operator.
 
+## Goals
+
+- [x] Mosquitto MQTT broker with public TLS
+- [x] Let's Encrypt certificate automation with Certbot
+- [x] Device authentication with mTLS
+- [x] Smallstep `step-ca` integration for device certificate signing
+- [x] CSR-first device credential flow
+- [x] Setup wizard for DNS, ports, firewall, step-ca, and container startup
+- [x] Admin Web entrypoint on `https://<MQTT_DOMAIN>`
+- [x] Passkey/WebAuthn login for Admin Web
+- [x] Admin Web CSR signing without storing device private keys
+- [ ] Admin Web device inventory with certificate serial, fingerprint, expiration, and revocation status
+- [ ] Certificate revocation from Admin Web using `step ca revoke`
+- [ ] Broker health checks for Mosquitto, step-ca, Nginx, Certbot, and certificate expiration
+- [ ] Optional IP allowlist or VPN-only mode for Admin Web and step-ca API
+- [ ] Backup and restore documentation for `runtime/step-ca`, Admin Web data, and Mosquitto data
+- [ ] Automatic log rotation guidance for Podman/Docker and host logs
+- [ ] Non-interactive setup mode for CI or repeatable VPS provisioning
+- [ ] Integration tests for the wizard, generated Mosquitto config, and Admin Web CSR signing flow
+- [ ] Docker Compose validation examples for both Docker and Podman
+- [ ] Safer provisioner flow using short-lived tokens instead of asking for the provisioner password in Admin Web

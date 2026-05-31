@@ -7,13 +7,23 @@ set -eu
 if [ "${CERTBOT_MODE}" = "init" ]; then
   : "${CERTBOT_EMAIL:?CERTBOT_EMAIL is required}"
 
-  exec certbot certonly \
-    --standalone \
-    --non-interactive \
-    --agree-tos \
-    --email "${CERTBOT_EMAIL}" \
-    -d "${MQTT_DOMAIN}" \
-    ${CERTBOT_ARGS:-}
+  if [ "${MQTT_USE_PUBLIC_IP:-no}" = "yes" ]; then
+    exec certbot certonly \
+      --standalone \
+      --non-interactive \
+      --agree-tos \
+      --email "${CERTBOT_EMAIL}" \
+      --ip-address "${MQTT_DOMAIN}" \
+      ${CERTBOT_ARGS:-}
+  else
+    exec certbot certonly \
+      --standalone \
+      --non-interactive \
+      --agree-tos \
+      --email "${CERTBOT_EMAIL}" \
+      -d "${MQTT_DOMAIN}" \
+      ${CERTBOT_ARGS:-}
+  fi
 fi
 
 if [ "${CERTBOT_MODE}" = "renew" ]; then
