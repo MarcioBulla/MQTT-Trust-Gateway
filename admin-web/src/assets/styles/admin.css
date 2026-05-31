@@ -46,6 +46,7 @@ input, textarea, select { width: 100%; box-sizing: border-box; background: var(-
 textarea { min-height: 150px; resize: vertical; }
 button { background: var(--primary); color: white; cursor: pointer; }
 button.secondary { background: var(--secondary); color: var(--text); }
+button.danger { background: var(--error); color: white; }
 button .nf { margin-right: 6px; }
 pre { overflow: auto; background: var(--code); padding: 12px; border-radius: 6px; }
 .nf { font-family: "Symbols Nerd Font", "Symbols Nerd Font Mono", "Nerd Font Symbols", monospace; font-style: normal; line-height: 1; }
@@ -68,6 +69,8 @@ pre { overflow: auto; background: var(--code); padding: 12px; border-radius: 6px
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .passkey, .topic-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; border-top: 1px solid var(--border); padding: 12px 0; }
 .topic-row.selected { background: var(--surface-strong); margin-inline: -8px; padding-inline: 8px; border-radius: 6px; }
+.topic-main { flex: 1 1 auto; display: grid; gap: 4px; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--text); text-align: left; }
+.topic-main:hover .topic-name { color: var(--primary); }
 .topic-actions { display: flex; gap: 8px; flex: 0 0 auto; }
 .topic-tools { display: grid; gap: 12px; grid-template-columns: minmax(260px, 1fr) minmax(180px, 260px); }
 .topic-meta { color: var(--muted); font-size: 0.9rem; overflow-wrap: anywhere; }

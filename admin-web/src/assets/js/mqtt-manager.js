@@ -52,11 +52,15 @@ function renderTopics() {
   }
   list.innerHTML = topics.map((topic) => (
     '<div class="topic-row' + (topic.name === selectedTopic ? ' selected' : '') + '">' +
-      '<div><div class="topic-name">' + escapeHtml(topic.name) + '</div>' +
-      '<div class="topic-meta">' + escapeHtml(topic.messages + ' messages | ' + topic.updatedAt + ' | ' + topic.lastPayload) + '</div></div>' +
+      '<button class="topic-main" type="button" data-view-topic="' + escapeHtml(topic.name) + '">' +
+        '<span class="topic-name">' + escapeHtml(topic.name) + '</span>' +
+        '<span class="topic-meta">' + escapeHtml(topic.messages + ' messages | ' + topic.updatedAt + ' | ' + topic.lastPayload) + '</span>' +
+      '</button>' +
       '<div class="topic-actions">' +
         '<button class="secondary" type="button" data-view-topic="' + escapeHtml(topic.name) + '"><span class="nf">&#xf06e;</span> View</button>' +
         '<button class="secondary" type="button" data-topic="' + escapeHtml(topic.name) + '"><span class="nf">&#xf1d8;</span> Use</button>' +
+        '<button class="danger" type="button" data-clear-topic="' + escapeHtml(topic.name) + '"><span class="nf">&#xf12d;</span> Clean</button>' +
+        '<button class="danger" type="button" data-remove-topic="' + escapeHtml(topic.name) + '"><span class="nf">&#xf1f8;</span> Remove</button>' +
       '</div>' +
     '</div>'
   )).join('');
@@ -65,6 +69,12 @@ function renderTopics() {
   });
   document.querySelectorAll('[data-view-topic]').forEach((button) => {
     button.addEventListener('click', () => loadTopicMessages(button.dataset.viewTopic));
+  });
+  document.querySelectorAll('[data-clear-topic]').forEach((button) => {
+    button.addEventListener('click', () => clearTopicMessages(button.dataset.clearTopic));
+  });
+  document.querySelectorAll('[data-remove-topic]').forEach((button) => {
+    button.addEventListener('click', () => removeTopic(button.dataset.removeTopic));
   });
 }
 
@@ -83,6 +93,24 @@ export async function loadTopicMessages(topic) {
       '<pre>' + escapeHtml(message.payload) + '</pre>' +
     '</div>'
   )).join('') + '</section>';
+}
+
+async function clearTopicMessages(topic) {
+  await requestJson('/api/mqtt/messages?topic=' + encodeURIComponent(topic), { method: 'DELETE' });
+  if (selectedTopic === topic) await loadTopicMessages(topic);
+  await loadTopics();
+  setNotice('Topic messages cleaned.', 'ok');
+}
+
+async function removeTopic(topic) {
+  await requestJson('/api/mqtt/topics?topic=' + encodeURIComponent(topic), { method: 'DELETE' });
+  cachedTopics = cachedTopics.filter((item) => item.name !== topic);
+  if (selectedTopic === topic) {
+    selectedTopic = '';
+    document.getElementById('topicMessages').innerHTML = '';
+  }
+  renderTopics();
+  setNotice('Topic removed from observed list.', 'ok');
 }
 
 export async function publishMessage() {

@@ -25,10 +25,18 @@ function scheduleTopicSave() {
   if (saveTimer) return;
   saveTimer = setTimeout(async () => {
     saveTimer = null;
-    const db = await loadDb();
-    db.mqttTopics = topicSnapshot();
-    await saveDb(db);
+    await saveTopicsNow();
   }, 1000);
+}
+
+async function saveTopicsNow() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  const db = await loadDb();
+  db.mqttTopics = topicSnapshot();
+  await saveDb(db);
 }
 
 function rememberTopic(topic, payload) {
@@ -126,6 +134,28 @@ export async function listTopics() {
 export async function topicMessages(topicName) {
   await connectMqtt();
   return topics.get(topicName)?.history || [];
+}
+
+export async function clearTopicMessages(topicName) {
+  await loadStoredTopics();
+  const topic = topics.get(topicName);
+  if (!topic) return false;
+  topics.set(topicName, {
+    ...topic,
+    history: [],
+    messages: 0,
+    lastPayload: '',
+    lastPayloadBytes: 0,
+  });
+  await saveTopicsNow();
+  return true;
+}
+
+export async function removeTopic(topicName) {
+  await loadStoredTopics();
+  const removed = topics.delete(topicName);
+  if (removed) await saveTopicsNow();
+  return removed;
 }
 
 export async function publishMessage({ topic, payload, qos, retain }) {
