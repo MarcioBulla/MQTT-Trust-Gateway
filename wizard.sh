@@ -9,6 +9,54 @@ export NEWT_COLORS="${NEWT_COLORS:-root=white,blue;window=white,blue;border=brig
 
 REQUESTED_MODE="${1:-}"
 
+has_command() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+detect_package_manager() {
+  if has_command "apt-get"; then
+    printf "apt\n"
+  elif has_command "pacman"; then
+    printf "pacman\n"
+  elif has_command "dnf"; then
+    printf "dnf\n"
+  elif has_command "yum"; then
+    printf "yum\n"
+  elif has_command "apk"; then
+    printf "apk\n"
+  elif has_command "zypper"; then
+    printf "zypper\n"
+  else
+    printf "unknown\n"
+  fi
+}
+
+base_dependency_install_command() {
+  case "$(detect_package_manager)" in
+    apt)
+      printf "sudo apt update\nsudo apt install -y whiptail bash ca-certificates curl gnupg openssl python3 dnsutils iproute2 lsof ufw iptables\n"
+      ;;
+    pacman)
+      printf "sudo pacman -Syu --needed libnewt bash ca-certificates curl gnupg openssl python dnsutils iproute2 lsof ufw iptables\n"
+      ;;
+    dnf)
+      printf "sudo dnf install -y newt bash ca-certificates curl gnupg2 openssl python3 bind-utils iproute lsof ufw iptables\n"
+      ;;
+    yum)
+      printf "sudo yum install -y newt bash ca-certificates curl gnupg2 openssl python3 bind-utils iproute lsof ufw iptables\n"
+      ;;
+    apk)
+      printf "sudo apk add newt bash ca-certificates curl gnupg openssl python3 bind-tools iproute2 lsof ufw iptables\n"
+      ;;
+    zypper)
+      printf "sudo zypper install -y newt bash ca-certificates curl gpg2 openssl python3 bind-utils iproute2 lsof ufw iptables\n"
+      ;;
+    *)
+      printf "Install whiptail, bash, ca-certificates, curl, gnupg, openssl, python3, dig, ip/ss, lsof, ufw, and iptables with your distribution package manager.\n"
+      ;;
+  esac
+}
+
 if [ "$(id -u)" -ne 0 ] && [ "${REQUESTED_MODE}" != "preview" ] && [ "${REQUESTED_MODE}" != "dry-run" ]; then
   echo "This wizard must be run as root. Use: sudo ./wizard.sh" >&2
   echo "Preview mode can be opened without root: ./wizard.sh preview" >&2
@@ -16,7 +64,8 @@ if [ "$(id -u)" -ne 0 ] && [ "${REQUESTED_MODE}" != "preview" ] && [ "${REQUESTE
 fi
 
 if ! command -v whiptail >/dev/null 2>&1; then
-  echo "whiptail is required. Install it with: sudo apt install -y whiptail" >&2
+  echo "whiptail is required. Install the base dependencies with:" >&2
+  base_dependency_install_command >&2
   exit 1
 fi
 
@@ -48,10 +97,6 @@ load_env_file() {
 }
 
 load_env_file
-
-has_command() {
-  command -v "$1" >/dev/null 2>&1
-}
 
 absolute_path() {
   path_value="$1"
@@ -125,9 +170,12 @@ has_iproute2() {
 show_dependency_checklist() {
   podman_status="$(dependency_status compose_command_available podman)"
   docker_status="$(dependency_status compose_command_available docker)"
+  package_manager="$(detect_package_manager)"
+  install_command="$(base_dependency_install_command)"
 
   wt_textbox_text "Dependency check" "$(printf "%s\n" \
     "Installed items are marked with [x]. Missing items are marked with [ ]." \
+    "Detected package manager: ${package_manager}" \
     "" \
     "$(dependency_status has_command whiptail) whiptail          interactive wizard UI" \
     "$(dependency_status has_command bash) bash              wizard shell" \
@@ -143,7 +191,10 @@ show_dependency_checklist() {
     "$(dependency_status has_command iptables) iptables          firewall rules" \
     "$(dependency_status has_command step) step-cli          Smallstep CLI" \
     "${podman_status} podman-compose    Podman with compose support" \
-    "${docker_status} docker-compose    Docker with compose support")"
+    "${docker_status} docker-compose    Docker with compose support" \
+    "" \
+    "Base dependency install command:" \
+    "${install_command}")"
 }
 
 preferred_container_engine() {
@@ -242,6 +293,24 @@ wt_password() {
   whiptail --backtitle "${WT_BACKTITLE}" --title "${title}" --passwordbox "${text}" 12 78 3>&1 1>&2 2>&3
 }
 
+wt_confirmed_password() {
+  title="$1"
+  text="$2"
+  CONFIRMED_PASSWORD=""
+
+  while :; do
+    password="$(wt_password "${title}" "Step 1 of 2\n\n${text}")" || return 1
+    confirm_password="$(wt_password "${title}" "Step 2 of 2\n\nRepeat the same password to confirm it.")" || return 1
+
+    if [ "${password}" = "${confirm_password}" ]; then
+      CONFIRMED_PASSWORD="${password}"
+      return 0
+    fi
+
+    wt_msg "The two passwords did not match.\n\nNo password was saved. Try again."
+  done
+}
+
 wt_menu() {
   title="$1"
   text="$2"
@@ -258,20 +327,25 @@ wt_menu_nocancel() {
   whiptail --backtitle "${WT_BACKTITLE}" --title "${title}" --nocancel --default-item "${default}" --menu "${text}" 18 78 8 "$@" 3>&1 1>&2 2>&3
 }
 
+strip_ansi_log() {
+  source_file="$1"
+  target_file="$2"
+  esc="$(printf '\033')"
+  sed "s/${esc}\\[[0-9;?]*[ -/]*[@-~]//g; s/${esc}][^\a]*\a//g; s/\r//g" "${source_file}" > "${target_file}"
+}
+
 wt_progress_command() {
   title="$1"
   shift
   log_file="$(mktemp)"
+  clean_log_file="$(mktemp)"
   status_file="$(mktemp)"
 
   (
     set +e
-    printf "Running:"
-    for arg in "$@"; do
-      printf " %s" "${arg}"
-    done
+    printf "Running: %s\n" "${title}"
     printf "\n\n"
-    "$@"
+    NO_COLOR=1 CLICOLOR=0 FORCE_COLOR=0 TERM=dumb "$@"
     command_status="$?"
     printf "\nExit code: %s\n" "${command_status}"
     printf "%s" "${command_status}" > "${status_file}"
@@ -317,8 +391,9 @@ EOF
     status="${wait_status}"
   fi
 
-  whiptail --backtitle "${WT_BACKTITLE}" --title "${title} output" --textbox "${log_file}" 22 90
-  rm -f "${log_file}" "${status_file}"
+  strip_ansi_log "${log_file}" "${clean_log_file}"
+  whiptail --backtitle "${WT_BACKTITLE}" --title "${title} output" --textbox "${clean_log_file}" 22 90
+  rm -f "${log_file}" "${clean_log_file}" "${status_file}"
   return "${status}"
 }
 
@@ -407,6 +482,14 @@ install_summary() {
     step_ca_status="initialized, root CA exported"
   fi
 
+  summary_fingerprint="${STEP_CA_FINGERPRINT:-}"
+  if [ -z "${summary_fingerprint}" ] && [ -f "${BASE_DIR}/step-ca/certs/root_ca.crt" ] && has_command "step"; then
+    summary_fingerprint="$(step certificate fingerprint "${BASE_DIR}/step-ca/certs/root_ca.crt" 2>/dev/null || true)"
+  fi
+  if [ -z "${summary_fingerprint}" ] && [ -f "${BASE_DIR}/pki/step-ca/ca.crt" ] && has_command "step"; then
+    summary_fingerprint="$(step certificate fingerprint "${BASE_DIR}/pki/step-ca/ca.crt" 2>/dev/null || true)"
+  fi
+
   mode="DNS domain"
   if [ "${MQTT_USE_PUBLIC_IP}" = "yes" ]; then
     mode="public IP"
@@ -433,7 +516,7 @@ install_summary() {
     "step-ca status: ${step_ca_status}" \
     "step-ca provisioner: ${STEP_CA_PROVISIONER}" \
     "Device certificate TTL: ${STEP_CA_DEVICE_CERT_TTL}" \
-    "step-ca fingerprint: ${STEP_CA_FINGERPRINT:-not available}" \
+    "step-ca fingerprint: ${summary_fingerprint:-not available}" \
     "" \
     "Admin passkey RP name: ${ADMIN_RP_NAME}" \
     "Admin passkey RP id: ${ADMIN_RP_ID}" \
@@ -638,7 +721,7 @@ run_install() {
     preview_start="no"
     if wt_yesno_default "Initialize or update step-ca now?" "yes"; then
       preview_step_ca="yes"
-      wt_password "step-ca Password" "Preview only. Entering a password here will not write any file or initialize step-ca." >/dev/null || return 0
+      wt_confirmed_password "step-ca Password" "Preview only. Entering a password here will not write any file or initialize step-ca." || return 0
     fi
     if wt_yesno_default "Start containers now?" "yes"; then
       preview_start="yes"
@@ -659,7 +742,8 @@ Preview mode: no files were written, no certificates were initialized, and no co
   fi
 
   if wt_yesno_default "Initialize or update step-ca now?" "yes"; then
-    password="$(wt_password "step-ca Password" "Password for ${BASE_DIR}/step-ca/secrets/password.")" || return 0
+    wt_confirmed_password "step-ca Password" "Password for ${BASE_DIR}/step-ca/secrets/password." || return 0
+    password="${CONFIRMED_PASSWORD}"
     if ! wt_progress_command "step-ca setup" bootstrap_step_ca "${password}"; then
       wt_msg "step-ca setup failed. Review the log shown by the wizard before continuing."
       return 1

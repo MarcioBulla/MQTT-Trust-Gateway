@@ -41,11 +41,37 @@ VPS dependencies:
 - `ufw`, `firewalld`, or `iptables`, used to inspect or adjust local firewall rules
 - `netfilter-persistent`, optional, used to persist `iptables` rules across reboots on Ubuntu/Debian
 
-On Ubuntu/Debian, install the base OS tools with:
+Install the base OS tools with the package manager for your distribution.
+
+Ubuntu/Debian:
 
 ```bash
 sudo apt update
 sudo apt install -y whiptail bash ca-certificates curl gnupg openssl python3 dnsutils iproute2 lsof ufw iptables
+```
+
+Arch Linux:
+
+```bash
+sudo pacman -Syu --needed libnewt bash ca-certificates curl gnupg openssl python dnsutils iproute2 lsof ufw iptables
+```
+
+Fedora/RHEL:
+
+```bash
+sudo dnf install -y newt bash ca-certificates curl gnupg2 openssl python3 bind-utils iproute lsof ufw iptables
+```
+
+Alpine:
+
+```bash
+sudo apk add newt bash ca-certificates curl gnupg openssl python3 bind-tools iproute2 lsof ufw iptables
+```
+
+openSUSE:
+
+```bash
+sudo zypper install -y newt bash ca-certificates curl gpg2 openssl python3 bind-utils iproute2 lsof ufw iptables
 ```
 
 Install `step-cli` and `step-ca` using the official Smallstep guide:
