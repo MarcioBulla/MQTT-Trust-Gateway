@@ -2,6 +2,7 @@ import { post } from './api.js';
 import { loadStatus } from './mqtt-manager.js';
 import { setNotice } from './notice.js';
 import { showView } from './navigation.js';
+import { setCurrentUser } from './state.js';
 import { renderUser, loadMe } from './user.js';
 import { decodePublicKeyOptions, encodeCredential } from './webauthn.js';
 
@@ -35,6 +36,8 @@ export async function loginPasskey(username = document.getElementById('loginUser
 }
 
 export async function logout() {
+  setNotice('Logging out...');
   await post('/api/logout', {});
-  location.reload();
+  setCurrentUser(null);
+  window.location.replace('/');
 }

@@ -64,5 +64,5 @@ export function setSessionCookie(res, sessionId) {
 }
 
 export function clearSessionCookie(res) {
-  res.setHeader('Set-Cookie', 'admin_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+  res.setHeader('Set-Cookie', 'admin_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT');
 }

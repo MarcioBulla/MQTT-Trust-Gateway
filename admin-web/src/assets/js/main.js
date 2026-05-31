@@ -46,7 +46,14 @@ document.getElementById('themeToggleButton').addEventListener('click', () => { t
 document.getElementById('refreshStatusButton').addEventListener('click', () => runAction(async () => { await loadStatus(); await loadTopics(); }));
 document.getElementById('refreshTopicsButton').addEventListener('click', () => runAction(loadTopics));
 document.getElementById('publishButton').addEventListener('click', () => runAction(publishMessage));
-document.getElementById('logoutButton').addEventListener('click', () => { closeSettingsMenu(); runAction(logout); });
+document.getElementById('logoutButton').addEventListener('click', (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  const button = event.currentTarget;
+  button.disabled = true;
+  closeSettingsMenu();
+  runAction(logout).finally(() => { button.disabled = false; });
+});
 document.getElementById('signCsrButton').addEventListener('click', () => runAction(signCsr));
 document.getElementById('saveUsernameButton').addEventListener('click', () => runAction(saveUsername));
 document.getElementById('addPasskeyButton').addEventListener('click', () => runAction(addPasskey));
