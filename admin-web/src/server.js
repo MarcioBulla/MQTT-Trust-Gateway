@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import { env } from './config.js';
 import { renderAdminPage } from './pages/admin-page.js';
 import { registerAdminRoutes } from './routes/admin-routes.js';
+import { startMonthlyMessageCleanup } from './services/mqtt-service.js';
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.get('/', (_req, res) => {
 });
 
 registerAdminRoutes(app);
+startMonthlyMessageCleanup();
 
 app.use((error, _req, res, _next) => {
   res.status(500).json({ error: error.message });

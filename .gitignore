@@ -9,4 +9,6 @@ devices/
 *.log
 node_modules/
 .env
-
+.venv/
+.pytest_cache/
+__pycache__/
