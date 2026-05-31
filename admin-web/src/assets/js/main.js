@@ -1,6 +1,6 @@
 import { requestJson } from './api.js';
 import { loginPasskey, logout, registerPasskey } from './auth.js';
-import { loadCsrFile, signCsr, toggleCsrHelp } from './certificates.js';
+import { downloadCaCertificate, downloadCertificate, loadCsrFile, signCsr, toggleCsrHelp } from './certificates.js';
 import { bindSettingsMenu, closeSettingsMenu, toggleSettingsMenu } from './menu.js';
 import { bindTopicTools, loadStatus, loadTopics, publishMessage } from './mqtt-manager.js';
 import { setNotice } from './notice.js';
@@ -55,6 +55,8 @@ document.getElementById('logoutButton').addEventListener('click', (event) => {
   runAction(logout).finally(() => { button.disabled = false; });
 });
 document.getElementById('signCsrButton').addEventListener('click', () => runAction(signCsr));
+document.getElementById('downloadCertButton').addEventListener('click', () => runAction(downloadCertificate));
+document.getElementById('downloadCaButton').addEventListener('click', downloadCaCertificate);
 document.getElementById('csrFile').addEventListener('change', (event) => runAction(() => loadCsrFile(event.target.files[0])));
 document.getElementById('csrHelpToggle').addEventListener('click', toggleCsrHelp);
 document.getElementById('saveUsernameButton').addEventListener('click', () => runAction(saveUsername));

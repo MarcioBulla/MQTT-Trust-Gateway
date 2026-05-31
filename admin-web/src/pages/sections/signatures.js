@@ -14,6 +14,10 @@ export function signaturesSection() {
       <label>CSR file<input id="csrFile" type="file" accept=".csr,.pem,.txt,application/pkcs10"></label>
       <label>CSR PEM<textarea id="csr" placeholder="Paste CSR PEM here"></textarea></label>
       <button id="signCsrButton" type="button"><span class="nf">&#xf084;</span> Sign CSR</button>
+      <div class="inline download-actions">
+        <button id="downloadCertButton" class="secondary" type="button" disabled><span class="nf">&#xf019;</span> Download certificate</button>
+        <button id="downloadCaButton" class="secondary" type="button"><span class="nf">&#xf019;</span> Download CA</button>
+      </div>
       <pre id="cert"></pre>
       <button id="csrHelpToggle" class="secondary" type="button"><span class="nf">&#xf059;</span> Show CSR help</button>
       <section id="csrHelp" class="panel nested" hidden>

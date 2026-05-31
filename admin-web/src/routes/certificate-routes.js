@@ -1,8 +1,13 @@
 import { requireAuth } from '../auth.js';
 import { loadDb, saveDb } from '../db.js';
+import { env } from '../config.js';
 import { signDeviceCsr } from '../services/certificate-service.js';
 
 export function registerCertificateRoutes(app) {
+  app.get('/api/certificates/ca', requireAuth((_req, res) => {
+    res.download(env.clientCaFile, 'mqtt-trust-gateway-ca.crt');
+  }));
+
   app.post('/api/certificates/sign', requireAuth(async (req, res) => {
     const deviceId = String(req.body.deviceId || '').trim();
     const csr = String(req.body.csr || '').trim();
