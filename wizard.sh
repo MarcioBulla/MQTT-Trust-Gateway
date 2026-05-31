@@ -637,6 +637,11 @@ install_summary() {
     "Device certificate TTL: ${STEP_CA_DEVICE_CERT_TTL}" \
     "step-ca fingerprint: ${summary_fingerprint:-not available}" \
     "" \
+    "Provisioner password disclaimer:" \
+    "  The step-ca provisioner password can issue MQTT device certificates." \
+    "  It is not the Admin setup token and is not stored in broker.env." \
+    "  Do not commit it or share it with untrusted users." \
+    "" \
     "Admin passkey RP name: ${ADMIN_RP_NAME}" \
     "Admin passkey RP id: ${ADMIN_RP_ID}" \
     "Admin setup/login URL: ${ADMIN_ORIGIN}" \
