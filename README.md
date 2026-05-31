@@ -84,7 +84,8 @@ The wizard:
 - starts `step-ca`, Certbot, Mosquitto, Admin Web, and Nginx
 
 > [!NOTE]
-> When the wizard asks for `Domain`, leave it empty to use the detected public VPS IP directly instead of a DNS name. In IP-only mode, DNS checks are skipped and Certbot is configured for Let's Encrypt IP address certificates with the `shortlived` profile.
+> [!NOTE]
+> When the wizard asks if you have a DNS domain, choose `No` to use the detected public VPS IP directly instead of a DNS name. In IP-only mode, DNS checks are skipped and Certbot is configured for Let's Encrypt IP address certificates with the `shortlived` profile.
 
 After startup, open:
 

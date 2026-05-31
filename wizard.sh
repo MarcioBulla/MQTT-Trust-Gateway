@@ -3,9 +3,15 @@ set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/broker.env"
+WT_BACKTITLE="MQTT Trust Gateway Wizard"
+WIZARD_PREVIEW="no"
+export NEWT_COLORS="${NEWT_COLORS:-root=white,blue;window=white,blue;border=brightwhite,blue;title=brightwhite,blue;button=black,cyan;actbutton=white,red;checkbox=black,cyan;actcheckbox=white,red;entry=black,white;label=brightwhite,blue;listbox=black,white;actlistbox=white,red;textbox=black,white;emptyscale=white,blue;fullscale=white,red}"
 
-if [ "$(id -u)" -ne 0 ]; then
+REQUESTED_MODE="${1:-}"
+
+if [ "$(id -u)" -ne 0 ] && [ "${REQUESTED_MODE}" != "preview" ] && [ "${REQUESTED_MODE}" != "dry-run" ]; then
   echo "This wizard must be run as root. Use: sudo ./wizard.sh" >&2
+  echo "Preview mode can be opened without root: ./wizard.sh preview" >&2
   exit 1
 fi
 
@@ -14,12 +20,34 @@ if ! command -v whiptail >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ -f "${ENV_FILE}" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  . "${ENV_FILE}"
-  set +a
-fi
+load_env_file() {
+  [ -f "${ENV_FILE}" ] || return 0
+
+  while IFS= read -r line || [ -n "${line}" ]; do
+    case "${line}" in
+      ''|\#*) continue ;;
+    esac
+
+    key="${line%%=*}"
+    value="${line#*=}"
+    key="${key%%[[:space:]]*}"
+
+    case "${value}" in
+      \'*\') value="${value#\'}"; value="${value%\'}" ;;
+      \"*\") value="${value#\"}"; value="${value%\"}" ;;
+    esac
+
+    case "${key}" in
+      ''|*[!A-Za-z0-9_]*)
+        continue
+        ;;
+    esac
+
+    printf -v "${key}" "%s" "${value}"
+  done < "${ENV_FILE}"
+}
+
+load_env_file
 
 has_command() {
   command -v "$1" >/dev/null 2>&1
@@ -34,8 +62,8 @@ absolute_path() {
   esac
 }
 
-env_value() {
-  printf "%s" "$1" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/"
+normalize_admin_name() {
+  printf "%s" "$1" | sed 's/[[:space:]]\+/_/g'
 }
 
 random_secret() {
@@ -71,7 +99,51 @@ compose_command_available() {
   if ! has_command "${engine}"; then
     return 1
   fi
-  "${engine}" compose version >/dev/null 2>&1
+  if has_command "timeout"; then
+    timeout 3 "${engine}" compose version >/dev/null 2>&1
+  else
+    "${engine}" compose version >/dev/null 2>&1
+  fi
+}
+
+dependency_status() {
+  if "$@"; then
+    printf "[x]\n"
+  else
+    printf "[ ]\n"
+  fi
+}
+
+has_ca_certificates() {
+  [ -f /etc/ssl/certs/ca-certificates.crt ] || [ -d /etc/ssl/certs ]
+}
+
+has_iproute2() {
+  has_command "ip" && has_command "ss"
+}
+
+show_dependency_checklist() {
+  podman_status="$(dependency_status compose_command_available podman)"
+  docker_status="$(dependency_status compose_command_available docker)"
+
+  wt_textbox_text "Dependency check" "$(printf "%s\n" \
+    "Installed items are marked with [x]. Missing items are marked with [ ]." \
+    "" \
+    "$(dependency_status has_command whiptail) whiptail          interactive wizard UI" \
+    "$(dependency_status has_command bash) bash              wizard shell" \
+    "$(dependency_status has_ca_certificates) ca-certificates   trusted CA bundle" \
+    "$(dependency_status has_command curl) curl              public IP detection and downloads" \
+    "$(dependency_status has_command gpg) gnupg             package repository keys" \
+    "$(dependency_status has_command openssl) openssl           random secrets" \
+    "$(dependency_status has_command python3) python3           step-ca JSON configuration" \
+    "$(dependency_status has_command dig) dnsutils          dig DNS checks" \
+    "$(dependency_status has_iproute2) iproute2          ip and ss network tools" \
+    "$(dependency_status has_command lsof) lsof              port diagnostics" \
+    "$(dependency_status has_command ufw) ufw               firewall management" \
+    "$(dependency_status has_command iptables) iptables          firewall rules" \
+    "$(dependency_status has_command step) step-cli          Smallstep CLI" \
+    "${podman_status} podman-compose    Podman with compose support" \
+    "${docker_status} docker-compose    Docker with compose support")"
 }
 
 preferred_container_engine() {
@@ -88,6 +160,15 @@ preferred_container_engine() {
     return 0
   fi
   printf "podman\n"
+}
+
+available_container_engines() {
+  if compose_command_available "podman"; then
+    printf "podman\n"
+  fi
+  if compose_command_available "docker"; then
+    printf "docker\n"
+  fi
 }
 
 derive_public_endpoints() {
@@ -116,37 +197,129 @@ defaults() {
   STEP_CA_PROVISIONER="${STEP_CA_PROVISIONER:-mqtt-devices}"
   STEP_CA_FINGERPRINT="${STEP_CA_FINGERPRINT:-}"
   STEP_CA_DEVICE_CERT_TTL="${STEP_CA_DEVICE_CERT_TTL:-17520h}"
-  ADMIN_RP_NAME="${ADMIN_RP_NAME:-MQTT Trust Gateway}"
+  ADMIN_RP_NAME="${ADMIN_RP_NAME:-MQTT_Trust_Gateway}"
   ADMIN_SETUP_TOKEN="${ADMIN_SETUP_TOKEN:-$(random_secret)}"
   ADMIN_SESSION_SECRET="${ADMIN_SESSION_SECRET:-$(random_secret)}"
 }
 
 wt_msg() {
-  whiptail --title "MQTT Trust Gateway" --msgbox "$1" 18 78
+  whiptail --backtitle "${WT_BACKTITLE}" --title "MQTT Trust Gateway" --msgbox "$1" 18 78
+}
+
+wt_textbox_text() {
+  title="$1"
+  text="$2"
+  text_file="$(mktemp)"
+  printf "%s\n" "${text}" > "${text_file}"
+  whiptail --backtitle "${WT_BACKTITLE}" --title "${title}" --textbox "${text_file}" 22 90
+  rm -f "${text_file}"
 }
 
 wt_yesno() {
-  whiptail --title "MQTT Trust Gateway" --yesno "$1" 14 78
+  wt_yesno_default "$1" "yes"
+}
+
+wt_yesno_default() {
+  text="$1"
+  default="${2:-yes}"
+  if [ "${default}" = "no" ]; then
+    whiptail --backtitle "${WT_BACKTITLE}" --title "MQTT Trust Gateway" --defaultno --yesno "${text}" 14 78
+  else
+    whiptail --backtitle "${WT_BACKTITLE}" --title "MQTT Trust Gateway" --yesno "${text}" 14 78
+  fi
 }
 
 wt_input() {
   title="$1"
   text="$2"
   value="$3"
-  whiptail --title "${title}" --inputbox "${text}" 12 78 "${value}" 3>&1 1>&2 2>&3
+  whiptail --backtitle "${WT_BACKTITLE}" --title "${title}" --inputbox "${text}" 12 78 "${value}" 3>&1 1>&2 2>&3
 }
 
 wt_password() {
   title="$1"
   text="$2"
-  whiptail --title "${title}" --passwordbox "${text}" 12 78 3>&1 1>&2 2>&3
+  whiptail --backtitle "${WT_BACKTITLE}" --title "${title}" --passwordbox "${text}" 12 78 3>&1 1>&2 2>&3
 }
 
 wt_menu() {
   title="$1"
   text="$2"
-  shift 2
-  whiptail --title "${title}" --menu "${text}" 18 78 8 "$@" 3>&1 1>&2 2>&3
+  default="$3"
+  shift 3
+  whiptail --backtitle "${WT_BACKTITLE}" --title "${title}" --default-item "${default}" --menu "${text}" 18 78 8 "$@" 3>&1 1>&2 2>&3
+}
+
+wt_menu_nocancel() {
+  title="$1"
+  text="$2"
+  default="$3"
+  shift 3
+  whiptail --backtitle "${WT_BACKTITLE}" --title "${title}" --nocancel --default-item "${default}" --menu "${text}" 18 78 8 "$@" 3>&1 1>&2 2>&3
+}
+
+wt_progress_command() {
+  title="$1"
+  shift
+  log_file="$(mktemp)"
+  status_file="$(mktemp)"
+
+  (
+    set +e
+    printf "Running:"
+    for arg in "$@"; do
+      printf " %s" "${arg}"
+    done
+    printf "\n\n"
+    "$@"
+    command_status="$?"
+    printf "\nExit code: %s\n" "${command_status}"
+    printf "%s" "${command_status}" > "${status_file}"
+  ) >"${log_file}" 2>&1 &
+  command_pid="$!"
+
+  (
+    progress=3
+    while kill -0 "${command_pid}" >/dev/null 2>&1; do
+      cat <<EOF
+XXX
+${progress}
+${title}
+
+The command is running. Output is being captured and will open inside this wizard.
+XXX
+EOF
+      if [ "${progress}" -lt 92 ]; then
+        progress=$((progress + 7))
+      else
+        progress=12
+      fi
+      sleep 1
+    done
+    cat <<EOF
+XXX
+100
+${title}
+
+Command finished. Opening the captured output.
+XXX
+EOF
+  ) | whiptail --backtitle "${WT_BACKTITLE}" --title "${title}" --gauge "Starting..." 10 78 0 || true
+
+  set +e
+  wait "${command_pid}"
+  wait_status="$?"
+  set -e
+
+  if [ -s "${status_file}" ]; then
+    status="$(cat "${status_file}")"
+  else
+    status="${wait_status}"
+  fi
+
+  whiptail --backtitle "${WT_BACKTITLE}" --title "${title} output" --textbox "${log_file}" 22 90
+  rm -f "${log_file}" "${status_file}"
+  return "${status}"
 }
 
 run_compose() {
@@ -180,48 +353,91 @@ run_compose() {
 }
 
 write_env() {
+  if [ "${WIZARD_PREVIEW}" = "yes" ]; then
+    return 0
+  fi
+
   cat > "${ENV_FILE}" <<EOF
 # Domain
-MQTT_DOMAIN=$(env_value "${MQTT_DOMAIN}")
-MQTT_USE_PUBLIC_IP=$(env_value "${MQTT_USE_PUBLIC_IP}")
+MQTT_DOMAIN=${MQTT_DOMAIN}
+MQTT_USE_PUBLIC_IP=${MQTT_USE_PUBLIC_IP}
 
 # Certbot
-CERTBOT_EMAIL=$(env_value "${CERTBOT_EMAIL}")
-CERTBOT_ARGS=$(env_value "${CERTBOT_ARGS}")
+CERTBOT_EMAIL=${CERTBOT_EMAIL}
+CERTBOT_ARGS=${CERTBOT_ARGS}
 
 # Container
-CONTAINER_ENGINE=$(env_value "${CONTAINER_ENGINE}")
-CONTAINER_NAME=$(env_value "${CONTAINER_NAME}")
-IMAGE_NAME=$(env_value "${IMAGE_NAME}")
+CONTAINER_ENGINE=${CONTAINER_ENGINE}
+CONTAINER_NAME=${CONTAINER_NAME}
+IMAGE_NAME=${IMAGE_NAME}
 
 # Ports
-ACME_HTTP_PORT=$(env_value "${ACME_HTTP_PORT}")
-MQTT_TLS_PORT=$(env_value "${MQTT_TLS_PORT}")
-MQTT_WS_TLS_PORT=$(env_value "${MQTT_WS_TLS_PORT}")
-ADMIN_HTTPS_PORT=$(env_value "${ADMIN_HTTPS_PORT}")
-ADMIN_APP_PORT=$(env_value "${ADMIN_APP_PORT}")
+ACME_HTTP_PORT=${ACME_HTTP_PORT}
+MQTT_TLS_PORT=${MQTT_TLS_PORT}
+MQTT_WS_TLS_PORT=${MQTT_WS_TLS_PORT}
+ADMIN_HTTPS_PORT=${ADMIN_HTTPS_PORT}
+ADMIN_APP_PORT=${ADMIN_APP_PORT}
 
 # Paths on host
-BASE_DIR=$(env_value "${BASE_DIR}")
+BASE_DIR=${BASE_DIR}
 
 # Client certificate authentication (step-ca)
-MQTT_TOPIC_PREFIX=$(env_value "${MQTT_TOPIC_PREFIX}")
+MQTT_TOPIC_PREFIX=${MQTT_TOPIC_PREFIX}
 
 # step-ca
-STEP_CA_DOMAIN=$(env_value "${STEP_CA_DOMAIN}")
-STEP_CA_PORT=$(env_value "${STEP_CA_PORT}")
-STEP_CA_URL=$(env_value "${STEP_CA_URL}")
-STEP_CA_PROVISIONER=$(env_value "${STEP_CA_PROVISIONER}")
-STEP_CA_FINGERPRINT=$(env_value "${STEP_CA_FINGERPRINT}")
-STEP_CA_DEVICE_CERT_TTL=$(env_value "${STEP_CA_DEVICE_CERT_TTL}")
+STEP_CA_DOMAIN=${STEP_CA_DOMAIN}
+STEP_CA_PORT=${STEP_CA_PORT}
+STEP_CA_URL=${STEP_CA_URL}
+STEP_CA_PROVISIONER=${STEP_CA_PROVISIONER}
+STEP_CA_FINGERPRINT=${STEP_CA_FINGERPRINT}
+STEP_CA_DEVICE_CERT_TTL=${STEP_CA_DEVICE_CERT_TTL}
 
 # Admin Web
-ADMIN_RP_NAME=$(env_value "${ADMIN_RP_NAME}")
-ADMIN_RP_ID=$(env_value "${ADMIN_RP_ID}")
-ADMIN_ORIGIN=$(env_value "${ADMIN_ORIGIN}")
-ADMIN_SETUP_TOKEN=$(env_value "${ADMIN_SETUP_TOKEN}")
-ADMIN_SESSION_SECRET=$(env_value "${ADMIN_SESSION_SECRET}")
+ADMIN_RP_NAME=${ADMIN_RP_NAME}
+ADMIN_RP_ID=${ADMIN_RP_ID}
+ADMIN_ORIGIN=${ADMIN_ORIGIN}
+ADMIN_SETUP_TOKEN=${ADMIN_SETUP_TOKEN}
+ADMIN_SESSION_SECRET=${ADMIN_SESSION_SECRET}
 EOF
+}
+
+install_summary() {
+  step_ca_status="not initialized"
+  if [ -f "${BASE_DIR}/pki/step-ca/ca.crt" ]; then
+    step_ca_status="initialized, root CA exported"
+  fi
+
+  mode="DNS domain"
+  if [ "${MQTT_USE_PUBLIC_IP}" = "yes" ]; then
+    mode="public IP"
+  fi
+
+  printf "%s\n" \
+    "Install summary" \
+    "" \
+    "Mode: ${mode}" \
+    "Public endpoint: ${MQTT_DOMAIN}" \
+    "Admin Web: ${ADMIN_ORIGIN}" \
+    "MQTT TLS: ${MQTT_DOMAIN}:${MQTT_TLS_PORT}" \
+    "MQTT WSS: ${MQTT_DOMAIN}:${MQTT_WS_TLS_PORT}" \
+    "step-ca API: ${STEP_CA_URL}" \
+    "" \
+    "Runtime directory: ${BASE_DIR}" \
+    "Environment file: ${ENV_FILE}" \
+    "Container engine: ${CONTAINER_ENGINE}" \
+    "Container prefix: ${CONTAINER_NAME}" \
+    "Image prefix: ${IMAGE_NAME}" \
+    "" \
+    "Let's Encrypt email: ${CERTBOT_EMAIL:-not configured}" \
+    "Extra Certbot args: ${CERTBOT_ARGS:-none}" \
+    "step-ca status: ${step_ca_status}" \
+    "step-ca provisioner: ${STEP_CA_PROVISIONER}" \
+    "Device certificate TTL: ${STEP_CA_DEVICE_CERT_TTL}" \
+    "step-ca fingerprint: ${STEP_CA_FINGERPRINT:-not available}" \
+    "" \
+    "Admin passkey RP name: ${ADMIN_RP_NAME}" \
+    "Admin passkey RP id: ${ADMIN_RP_ID}" \
+    "Admin setup token: ${ADMIN_SETUP_TOKEN}"
 }
 
 normalize_step_ca_container_paths() {
@@ -303,39 +519,62 @@ bootstrap_step_ca() {
 }
 
 choose_engine() {
-  default_engine="$(preferred_container_engine)"
-  if [ "${default_engine}" = "docker" ]; then
-    selected="$(wt_menu "Container Engine" "Choose the container engine." \
-      "docker" "Docker Compose" \
-      "podman" "Podman Compose")" || return 1
-  else
-    selected="$(wt_menu "Container Engine" "Choose the container engine." \
-      "podman" "Podman Compose" \
-      "docker" "Docker Compose")" || return 1
+  engines="$(available_container_engines)"
+  if [ -z "${engines}" ]; then
+    if [ "${WIZARD_PREVIEW}" = "yes" ]; then
+      CONTAINER_ENGINE="${CONTAINER_ENGINE:-podman}"
+      return 0
+    fi
+    wt_msg "No supported container engine was found.\n\nInstall Docker with Docker Compose or Podman with Podman Compose before continuing."
+    return 1
   fi
-  CONTAINER_ENGINE="${selected:-${default_engine}}"
+
+  if [ -n "${CONTAINER_ENGINE:-}" ] && compose_command_available "${CONTAINER_ENGINE}"; then
+    return 0
+  fi
+
+  if printf "%s\n" "${engines}" | grep -qx "podman"; then
+    CONTAINER_ENGINE="podman"
+    return 0
+  fi
+
+  CONTAINER_ENGINE="docker"
 }
 
 configure_basic() {
   PUBLIC_IP="$(detect_public_ip || true)"
-  domain_help="Leave empty to use the detected public IP directly."
-  if [ -n "${PUBLIC_IP}" ]; then
-    domain_help="${domain_help}\nDetected public IP: ${PUBLIC_IP}"
+
+  has_domain_default="no"
+  if [ -n "${MQTT_DOMAIN}" ] && [ "${MQTT_USE_PUBLIC_IP:-no}" != "yes" ]; then
+    has_domain_default="yes"
   fi
 
-  MQTT_DOMAIN="$(wt_input "Domain" "${domain_help}" "${MQTT_DOMAIN}")" || return 1
-  if [ -z "${MQTT_DOMAIN}" ]; then
+  if wt_yesno_default "Do you have a DNS domain for this gateway?" "${has_domain_default}"; then
+    MQTT_DOMAIN="$(wt_input "Domain" "Enter the public DNS domain for Admin, MQTT, and step-ca." "${MQTT_DOMAIN}")" || return 1
+    if [ -z "${MQTT_DOMAIN}" ]; then
+      wt_msg "Domain is required when DNS domain mode is selected."
+      return 1
+    fi
+    MQTT_USE_PUBLIC_IP="no"
+  else
+    previous_use_public_ip="${MQTT_USE_PUBLIC_IP:-}"
     MQTT_USE_PUBLIC_IP="yes"
-    MQTT_DOMAIN="${PUBLIC_IP}"
+    ip_default="${PUBLIC_IP}"
+    if [ "${previous_use_public_ip}" = "yes" ] && [ -n "${MQTT_DOMAIN}" ]; then
+      ip_default="${MQTT_DOMAIN}"
+    fi
+    MQTT_DOMAIN="${ip_default}"
     if [ -z "${MQTT_DOMAIN}" ]; then
       MQTT_DOMAIN="$(wt_input "Public IP" "Public IP could not be detected. Enter it manually." "")" || return 1
+    fi
+    if [ -z "${MQTT_DOMAIN}" ]; then
+      wt_msg "Public IP is required when DNS domain mode is not selected."
+      return 1
     fi
     case " ${CERTBOT_ARGS:-} " in
       *" --preferred-profile "*) ;;
       *) CERTBOT_ARGS="${CERTBOT_ARGS:+${CERTBOT_ARGS} }--preferred-profile shortlived" ;;
     esac
-  else
-    MQTT_USE_PUBLIC_IP="no"
   fi
 
   CERTBOT_EMAIL="$(wt_input "Let's Encrypt" "Contact email for Let's Encrypt. Leave empty to skip email registration." "${CERTBOT_EMAIL}")" || return 1
@@ -354,12 +593,12 @@ configure_basic() {
   STEP_CA_PORT="${STEP_CA_PORT:-9000}"
   STEP_CA_PROVISIONER="${STEP_CA_PROVISIONER:-mqtt-devices}"
   STEP_CA_DEVICE_CERT_TTL="${STEP_CA_DEVICE_CERT_TTL:-17520h}"
-  ADMIN_RP_NAME="${ADMIN_RP_NAME:-MQTT Trust Gateway}"
+  ADMIN_RP_NAME="$(normalize_admin_name "${ADMIN_RP_NAME:-MQTT_Trust_Gateway}")"
   derive_public_endpoints
 }
 
 configure_advanced() {
-  if ! wt_yesno "Edit advanced settings?"; then
+  if ! wt_yesno_default "Edit advanced settings?" "no"; then
     return 0
   fi
 
@@ -372,7 +611,8 @@ configure_advanced() {
   ADMIN_HTTPS_PORT="$(wt_input "Advanced" "Admin HTTPS port." "${ADMIN_HTTPS_PORT}")" || return 1
   ADMIN_APP_PORT="$(wt_input "Advanced" "Internal Admin Web port." "${ADMIN_APP_PORT}")" || return 1
   MQTT_TOPIC_PREFIX="$(wt_input "Advanced" "MQTT topic prefix." "${MQTT_TOPIC_PREFIX}")" || return 1
-  ADMIN_RP_NAME="$(wt_input "Advanced" "Admin passkey display name." "${ADMIN_RP_NAME}")" || return 1
+  admin_rp_input="$(wt_input "Advanced" "Admin passkey display name. Spaces are saved as underscores in broker.env." "${ADMIN_RP_NAME}")" || return 1
+  ADMIN_RP_NAME="$(normalize_admin_name "${admin_rp_input}")"
   STEP_CA_PORT="$(wt_input "Advanced" "step-ca external port." "${STEP_CA_PORT}")" || return 1
   STEP_CA_PROVISIONER="$(wt_input "Advanced" "step-ca provisioner name." "${STEP_CA_PROVISIONER}")" || return 1
   STEP_CA_DEVICE_CERT_TTL="$(wt_input "Advanced" "Device certificate TTL." "${STEP_CA_DEVICE_CERT_TTL}")" || return 1
@@ -381,6 +621,10 @@ configure_advanced() {
 
 run_install() {
   defaults
+  if [ "${WIZARD_PREVIEW}" = "yes" ]; then
+    wt_msg "Preview mode is active.\n\nYou can navigate the install wizard, but no files will be written and no containers or certificates will be changed."
+  fi
+
   configure_basic || return 0
   configure_advanced || return 0
   derive_public_endpoints
@@ -389,28 +633,62 @@ run_install() {
   summary="Admin Web: ${ADMIN_ORIGIN}\nMQTT TLS: ${MQTT_DOMAIN}:${MQTT_TLS_PORT}\nMQTT WSS: ${MQTT_DOMAIN}:${MQTT_WS_TLS_PORT}\nstep-ca: ${STEP_CA_URL}\nRuntime: ${BASE_DIR}\nEngine: ${CONTAINER_ENGINE}"
   wt_msg "${summary}"
 
+  if [ "${WIZARD_PREVIEW}" = "yes" ]; then
+    preview_step_ca="no"
+    preview_start="no"
+    if wt_yesno_default "Initialize or update step-ca now?" "yes"; then
+      preview_step_ca="yes"
+      wt_password "step-ca Password" "Preview only. Entering a password here will not write any file or initialize step-ca." >/dev/null || return 0
+    fi
+    if wt_yesno_default "Start containers now?" "yes"; then
+      preview_start="yes"
+    fi
+
+    wt_textbox_text "Install preview summary" "$(install_summary)
+
+Preview selected step-ca initialization: ${preview_step_ca}
+Preview selected container startup: ${preview_start}
+
+Preview mode: no files were written, no certificates were initialized, and no containers were started."
+    return 0
+  fi
+
   if ! compose_command_available "${CONTAINER_ENGINE}"; then
     wt_msg "${CONTAINER_ENGINE} compose is not available."
     return 1
   fi
 
-  if wt_yesno "Initialize or update step-ca now?"; then
+  if wt_yesno_default "Initialize or update step-ca now?" "yes"; then
     password="$(wt_password "step-ca Password" "Password for ${BASE_DIR}/step-ca/secrets/password.")" || return 0
-    bootstrap_step_ca "${password}"
+    if ! wt_progress_command "step-ca setup" bootstrap_step_ca "${password}"; then
+      wt_msg "step-ca setup failed. Review the log shown by the wizard before continuing."
+      return 1
+    fi
+    if [ -f "${BASE_DIR}/step-ca/certs/root_ca.crt" ]; then
+      STEP_CA_FINGERPRINT="$(step certificate fingerprint "${BASE_DIR}/step-ca/certs/root_ca.crt")"
+    fi
     write_env
   fi
 
-  if wt_yesno "Start containers now?"; then
+  if wt_yesno_default "Start containers now?" "yes"; then
     cd "${SCRIPT_DIR}"
-    run_compose --env-file broker.env -f step-ca/compose.step-ca.yaml up -d
+    if ! wt_progress_command "Starting step-ca" run_compose --env-file broker.env -f step-ca/compose.step-ca.yaml up -d; then
+      wt_msg "step-ca container startup failed. Review the log shown by the wizard."
+      return 1
+    fi
     if [ ! -f "${BASE_DIR}/pki/step-ca/ca.crt" ]; then
       wt_msg "step-ca was started, but the MQTT client CA was not found at:\n\n${BASE_DIR}/pki/step-ca/ca.crt\n\nRun install again and initialize step-ca before starting the broker."
       return 0
     fi
-    run_compose --env-file broker.env up -d --build
-    wt_msg "Stack started.\n\nUse setup token:\n${ADMIN_SETUP_TOKEN}"
+    if ! wt_progress_command "Starting gateway" run_compose --env-file broker.env up -d --build; then
+      wt_msg "Gateway startup failed. Review the log shown by the wizard."
+      return 1
+    fi
+    wt_textbox_text "Install summary" "$(install_summary)"
   else
-    wt_msg "Configuration saved to broker.env."
+    wt_textbox_text "Install summary" "$(install_summary)
+
+Containers were not started."
   fi
 }
 
@@ -452,31 +730,49 @@ run_uninstall() {
   BASE_DIR="$(absolute_path "${BASE_DIR}")"
   CONTAINER_ENGINE="${CONTAINER_ENGINE:-$(preferred_container_engine)}"
   derive_public_endpoints
+  if [ "${WIZARD_PREVIEW}" = "yes" ]; then
+    wt_msg "Preview mode is active.\n\nYou can navigate the uninstall wizard, but no containers, images, runtime data, repository files, broker.env, or iptables rules will be changed."
+  fi
 
   choose_engine || return 0
+
+  if ! wt_yesno_default "Stop and remove MQTT Trust Gateway containers?\n\nRepository files will not be deleted." "no"; then
+    return 0
+  fi
+
+  if [ "${WIZARD_PREVIEW}" = "yes" ]; then
+    if wt_yesno_default "Preview removing locally built images?" "no"; then
+      :
+    fi
+    if wt_yesno_default "Preview deleting runtime data at ${BASE_DIR}?" "no"; then
+      :
+    fi
+    if wt_yesno_default "Preview removing local iptables ACCEPT rules for configured ports?" "no"; then
+      :
+    fi
+    wt_msg "Uninstall preview finished.\n\nNo containers, images, runtime data, repository files, broker.env, or iptables rules were changed."
+    return 0
+  fi
+
   if ! compose_command_available "${CONTAINER_ENGINE}"; then
     wt_msg "${CONTAINER_ENGINE} compose is not available."
     return 1
   fi
 
-  if ! wt_yesno "Stop and remove MQTT Trust Gateway containers?\n\nRepository files will not be deleted."; then
-    return 0
-  fi
-
   cd "${SCRIPT_DIR}"
-  run_compose --env-file broker.env down --remove-orphans || true
-  run_compose --env-file broker.env -f step-ca/compose.step-ca.yaml down --remove-orphans || true
+  wt_progress_command "Stopping gateway" run_compose --env-file broker.env down --remove-orphans || true
+  wt_progress_command "Stopping step-ca" run_compose --env-file broker.env -f step-ca/compose.step-ca.yaml down --remove-orphans || true
   remove_named_containers
 
-  if wt_yesno "Remove locally built images?"; then
+  if wt_yesno_default "Remove locally built images?" "no"; then
     remove_images
   fi
 
-  if wt_yesno "Delete runtime data at ${BASE_DIR}?\n\nThis removes certificates, CA files, admin DB, and Mosquitto data."; then
+  if wt_yesno_default "Delete runtime data at ${BASE_DIR}?\n\nThis removes certificates, CA files, admin DB, and Mosquitto data.\n\nRepository files and broker.env will not be deleted." "no"; then
     rm -rf "${BASE_DIR}"
   fi
 
-  if wt_yesno "Remove local iptables ACCEPT rules for configured ports?"; then
+  if wt_yesno_default "Remove local iptables ACCEPT rules for configured ports?" "no"; then
     remove_iptables_accept_rule "${ACME_HTTP_PORT}"
     remove_iptables_accept_rule "${ADMIN_HTTPS_PORT}"
     remove_iptables_accept_rule "${MQTT_TLS_PORT}"
@@ -487,17 +783,53 @@ run_uninstall() {
   wt_msg "Uninstall actions finished.\n\nRepository files were kept."
 }
 
-main_menu() {
-  case "${1:-}" in
-    install|setup) run_install; return 0 ;;
-    uninstall|remove) run_uninstall; return 0 ;;
-  esac
+run_preview() {
+  previous_preview="${WIZARD_PREVIEW}"
+  WIZARD_PREVIEW="yes"
 
   while :; do
-    choice="$(wt_menu "MQTT Trust Gateway" "Choose an action." \
-      "install" "Install or update the stack" \
-      "uninstall" "Stop and clean the stack" \
-      "exit" "Exit")" || exit 0
+    choice="$(wt_menu "Preview mode" "Navigate a wizard flow without applying changes." \
+      "install" \
+      "install" "Install" \
+      "uninstall" "Uninstall" \
+      "back" "Back")" || break
+    case "${choice}" in
+      install) run_install ;;
+      uninstall) run_uninstall ;;
+      back) break ;;
+    esac
+  done
+
+  WIZARD_PREVIEW="${previous_preview}"
+}
+
+main_menu() {
+  case "${REQUESTED_MODE}" in
+    install|setup)
+      show_dependency_checklist
+      run_install
+      return 0
+      ;;
+    uninstall|remove)
+      show_dependency_checklist
+      run_uninstall
+      return 0
+      ;;
+    preview|dry-run)
+      WIZARD_PREVIEW="yes"
+      run_preview
+      return 0
+      ;;
+  esac
+
+  show_dependency_checklist
+
+  while :; do
+    choice="$(wt_menu_nocancel "MQTT Trust Gateway" "Choose an action." \
+      "install" \
+      "install" "Install" \
+      "uninstall" "Uninstall" \
+      "exit" "Exit")"
     case "${choice}" in
       install) run_install ;;
       uninstall) run_uninstall ;;

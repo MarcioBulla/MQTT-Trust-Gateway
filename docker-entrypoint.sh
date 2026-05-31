@@ -22,7 +22,7 @@ fi
 
 if [ ! -f "${CLIENT_CA_SOURCE}" ]; then
   echo "Missing client CA certificate in ${CLIENT_CA_SOURCE}" >&2
-  echo "Run setup-wizard.sh with step-ca bootstrap before starting the broker" >&2
+  echo "Run sudo ./wizard.sh and initialize step-ca before starting the broker" >&2
   exit 1
 fi
 
