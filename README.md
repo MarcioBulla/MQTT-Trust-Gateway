@@ -45,7 +45,7 @@ On Ubuntu/Debian, install the base OS tools with:
 
 ```bash
 sudo apt update
-sudo apt install -y bash whiptail ca-certificates curl gnupg openssl python3 dnsutils iproute2 lsof ufw iptables
+sudo apt install -y whiptail bash ca-certificates curl gnupg openssl python3 dnsutils iproute2 lsof ufw iptables
 ```
 
 Install `step-cli` and `step-ca` using the official Smallstep guide:
@@ -74,6 +74,7 @@ sudo ./wizard.sh
 The wizard:
 
 - lets you choose install/update or uninstall from the first menu
+- accepts an optional Let's Encrypt contact email
 - writes `broker.env`
 - checks container engine, DNS, firewall, and ports
 - initializes `step-ca`

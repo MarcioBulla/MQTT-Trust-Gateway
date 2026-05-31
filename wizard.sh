@@ -338,7 +338,7 @@ configure_basic() {
     MQTT_USE_PUBLIC_IP="no"
   fi
 
-  CERTBOT_EMAIL="$(wt_input "Let's Encrypt" "Contact email for Let's Encrypt." "${CERTBOT_EMAIL:-admin@example.com}")" || return 1
+  CERTBOT_EMAIL="$(wt_input "Let's Encrypt" "Contact email for Let's Encrypt. Leave empty to skip email registration." "${CERTBOT_EMAIL}")" || return 1
   BASE_DIR="$(wt_input "Runtime Directory" "Host directory for runtime data." "${BASE_DIR:-./runtime}")" || return 1
   BASE_DIR="$(absolute_path "${BASE_DIR}")"
   choose_engine || return 1

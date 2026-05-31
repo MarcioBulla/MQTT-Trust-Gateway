@@ -5,24 +5,42 @@ set -eu
 : "${MQTT_DOMAIN:?MQTT_DOMAIN is required}"
 
 if [ "${CERTBOT_MODE}" = "init" ]; then
-  : "${CERTBOT_EMAIL:?CERTBOT_EMAIL is required}"
-
   if [ "${MQTT_USE_PUBLIC_IP:-no}" = "yes" ]; then
-    exec certbot certonly \
-      --standalone \
-      --non-interactive \
-      --agree-tos \
-      --email "${CERTBOT_EMAIL}" \
-      --ip-address "${MQTT_DOMAIN}" \
-      ${CERTBOT_ARGS:-}
+    if [ -n "${CERTBOT_EMAIL:-}" ]; then
+      exec certbot certonly \
+        --standalone \
+        --non-interactive \
+        --agree-tos \
+        --email "${CERTBOT_EMAIL}" \
+        --ip-address "${MQTT_DOMAIN}" \
+        ${CERTBOT_ARGS:-}
+    else
+      exec certbot certonly \
+        --standalone \
+        --non-interactive \
+        --agree-tos \
+        --register-unsafely-without-email \
+        --ip-address "${MQTT_DOMAIN}" \
+        ${CERTBOT_ARGS:-}
+    fi
   else
-    exec certbot certonly \
-      --standalone \
-      --non-interactive \
-      --agree-tos \
-      --email "${CERTBOT_EMAIL}" \
-      -d "${MQTT_DOMAIN}" \
-      ${CERTBOT_ARGS:-}
+    if [ -n "${CERTBOT_EMAIL:-}" ]; then
+      exec certbot certonly \
+        --standalone \
+        --non-interactive \
+        --agree-tos \
+        --email "${CERTBOT_EMAIL}" \
+        -d "${MQTT_DOMAIN}" \
+        ${CERTBOT_ARGS:-}
+    else
+      exec certbot certonly \
+        --standalone \
+        --non-interactive \
+        --agree-tos \
+        --register-unsafely-without-email \
+        -d "${MQTT_DOMAIN}" \
+        ${CERTBOT_ARGS:-}
+    fi
   fi
 fi
 
