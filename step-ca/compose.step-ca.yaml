@@ -6,5 +6,5 @@ services:
       - ../broker.env
     network_mode: host
     volumes:
-      - "${BASE_DIR:-./runtime}/step-ca:/home/step:z"
+      - "${BASE_DIR:-../runtime}/step-ca:/home/step:z"
     restart: unless-stopped
