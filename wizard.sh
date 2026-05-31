@@ -299,6 +299,9 @@ defaults() {
   ADMIN_APP_PORT="${ADMIN_APP_PORT:-8080}"
   BASE_DIR="${BASE_DIR:-./runtime}"
   MQTT_TOPIC_PREFIX="${MQTT_TOPIC_PREFIX:-devices}"
+  MQTT_MONTHLY_CLEANUP_ENABLED="${MQTT_MONTHLY_CLEANUP_ENABLED:-yes}"
+  MQTT_MONTHLY_CLEANUP_DAY="${MQTT_MONTHLY_CLEANUP_DAY:-1}"
+  MQTT_MONTHLY_CLEANUP_HOUR="${MQTT_MONTHLY_CLEANUP_HOUR:-3}"
   STEP_CA_PORT="${STEP_CA_PORT:-9000}"
   STEP_CA_PROVISIONER="${STEP_CA_PROVISIONER:-mqtt-devices}"
   STEP_CA_FINGERPRINT="${STEP_CA_FINGERPRINT:-}"
@@ -538,6 +541,9 @@ run_compose() {
     ADMIN_APP_PORT="${ADMIN_APP_PORT}" \
     BASE_DIR="${BASE_DIR}" \
     MQTT_TOPIC_PREFIX="${MQTT_TOPIC_PREFIX}" \
+    MQTT_MONTHLY_CLEANUP_ENABLED="${MQTT_MONTHLY_CLEANUP_ENABLED}" \
+    MQTT_MONTHLY_CLEANUP_DAY="${MQTT_MONTHLY_CLEANUP_DAY}" \
+    MQTT_MONTHLY_CLEANUP_HOUR="${MQTT_MONTHLY_CLEANUP_HOUR}" \
     STEP_CA_DOMAIN="${STEP_CA_DOMAIN}" \
     STEP_CA_PORT="${STEP_CA_PORT}" \
     STEP_CA_URL="${STEP_CA_URL}" \
@@ -585,6 +591,11 @@ BASE_DIR=${BASE_DIR}
 # Client certificate authentication (step-ca)
 MQTT_TOPIC_PREFIX=${MQTT_TOPIC_PREFIX}
 
+# MQTT monthly cleanup
+MQTT_MONTHLY_CLEANUP_ENABLED=${MQTT_MONTHLY_CLEANUP_ENABLED}
+MQTT_MONTHLY_CLEANUP_DAY=${MQTT_MONTHLY_CLEANUP_DAY}
+MQTT_MONTHLY_CLEANUP_HOUR=${MQTT_MONTHLY_CLEANUP_HOUR}
+
 # step-ca
 STEP_CA_DOMAIN=${STEP_CA_DOMAIN}
 STEP_CA_PORT=${STEP_CA_PORT}
@@ -630,6 +641,7 @@ install_summary() {
     "Admin Web: ${ADMIN_ORIGIN}" \
     "MQTT TLS: ${MQTT_DOMAIN}:${MQTT_TLS_PORT}" \
     "MQTT WSS: ${MQTT_DOMAIN}:${MQTT_WS_TLS_PORT}" \
+    "MQTT monthly cleanup: ${MQTT_MONTHLY_CLEANUP_ENABLED} (day ${MQTT_MONTHLY_CLEANUP_DAY}, hour ${MQTT_MONTHLY_CLEANUP_HOUR}:00)" \
     "step-ca API: ${STEP_CA_URL}" \
     "Firewall ports: ${ACME_HTTP_PORT}, ${ADMIN_HTTPS_PORT}, ${MQTT_TLS_PORT}, ${MQTT_WS_TLS_PORT}, ${STEP_CA_PORT}/tcp" \
     "" \
@@ -861,6 +873,9 @@ configure_basic() {
   ADMIN_HTTPS_PORT="${ADMIN_HTTPS_PORT:-443}"
   ADMIN_APP_PORT="${ADMIN_APP_PORT:-8080}"
   MQTT_TOPIC_PREFIX="${MQTT_TOPIC_PREFIX:-devices}"
+  MQTT_MONTHLY_CLEANUP_ENABLED="${MQTT_MONTHLY_CLEANUP_ENABLED:-yes}"
+  MQTT_MONTHLY_CLEANUP_DAY="${MQTT_MONTHLY_CLEANUP_DAY:-1}"
+  MQTT_MONTHLY_CLEANUP_HOUR="${MQTT_MONTHLY_CLEANUP_HOUR:-3}"
   STEP_CA_PORT="${STEP_CA_PORT:-9000}"
   STEP_CA_PROVISIONER="${STEP_CA_PROVISIONER:-mqtt-devices}"
   STEP_CA_DEVICE_CERT_TTL="${STEP_CA_DEVICE_CERT_TTL:-17520h}"
@@ -882,6 +897,9 @@ configure_advanced() {
   ADMIN_HTTPS_PORT="$(wt_input "Advanced" "Admin HTTPS port." "${ADMIN_HTTPS_PORT}")" || return 1
   ADMIN_APP_PORT="$(wt_input "Advanced" "Internal Admin Web port." "${ADMIN_APP_PORT}")" || return 1
   MQTT_TOPIC_PREFIX="$(wt_input "Advanced" "MQTT topic prefix." "${MQTT_TOPIC_PREFIX}")" || return 1
+  MQTT_MONTHLY_CLEANUP_ENABLED="$(wt_input "Advanced" "Monthly MQTT cleanup enabled? Use yes or no." "${MQTT_MONTHLY_CLEANUP_ENABLED}")" || return 1
+  MQTT_MONTHLY_CLEANUP_DAY="$(wt_input "Advanced" "Monthly MQTT cleanup day. Use 1-28." "${MQTT_MONTHLY_CLEANUP_DAY}")" || return 1
+  MQTT_MONTHLY_CLEANUP_HOUR="$(wt_input "Advanced" "Monthly MQTT cleanup hour. Use 0-23." "${MQTT_MONTHLY_CLEANUP_HOUR}")" || return 1
   admin_rp_input="$(wt_input "Advanced" "Admin passkey display name. Spaces are saved as underscores in broker.env." "${ADMIN_RP_NAME}")" || return 1
   ADMIN_RP_NAME="$(normalize_admin_name "${admin_rp_input}")"
   STEP_CA_PORT="$(wt_input "Advanced" "step-ca external port." "${STEP_CA_PORT}")" || return 1
