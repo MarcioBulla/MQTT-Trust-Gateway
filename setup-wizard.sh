@@ -261,7 +261,7 @@ prompt_default() {
   prompt_text="$2"
   default_value="$3"
   prompt_value="$(printf "%s? %s%s%s [%s%s%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_YELLOW}" "${default_value}" "${C_RESET}")"
-  read_line "${prompt_value}"
+  read_line "${prompt_value}" "${default_value}"
   if [ -z "${input_value}" ]; then
     printf -v "${var_name}" "%s" "${default_value}"
   else
@@ -356,13 +356,19 @@ prompt_yes_no() {
   prompt_text="$2"
   default_value="$3"
   case "${default_value}" in
-    yes) prompt_suffix="Y/n" ;;
-    no) prompt_suffix="y/N" ;;
+    yes)
+      prompt_suffix="Y/n"
+      input_default="y"
+      ;;
+    no)
+      prompt_suffix="y/N"
+      input_default="n"
+      ;;
     *) err "Invalid yes/no default: ${default_value}"; exit 1 ;;
   esac
   while :; do
     prompt_value="$(printf "%s? %s%s%s [%s%s%s]: " "${C_BOLD}${C_CYAN}" "${C_RESET}" "$prompt_text" "${C_YELLOW}" "${prompt_suffix}" "${C_RESET}")"
-    read_line "${prompt_value}"
+    read_line "${prompt_value}" "${input_default}"
     yn="${input_value}"
     if [ -z "${yn}" ]; then
       case "${default_value}" in
