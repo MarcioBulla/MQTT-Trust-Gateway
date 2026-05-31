@@ -8,6 +8,8 @@ It provides:
 - device authentication with mutual TLS
 - a Smallstep `step-ca` certificate authority for device certificates
 - an Admin Web interface protected by passkeys/WebAuthn
+- an MQTT Manager for observed topics, message history, publish, search, sort, clean, and remove actions
+- CSR signing from the Admin Web with paste, upload, certificate download, and CA download
 - Nginx for the public HTTPS admin endpoint
 - a setup wizard for DNS, firewall, certificates, and container startup
 
@@ -101,16 +103,18 @@ sudo ./wizard.sh
 The wizard:
 
 - lets you choose install/update or uninstall from the first menu
+- includes an `Info` screen with URLs, setup token, ports, runtime path, and step-ca fingerprint
 - accepts an optional Let's Encrypt contact email
 - writes `broker.env`
 - checks container engine, DNS, firewall, and ports
 - initializes `step-ca`
 - exports the MQTT client CA
+- generates the Admin Web MQTT client certificate used by MQTT Manager
 - saves the root CA fingerprint
 - generates an Admin Web first-registration setup token
-- starts `step-ca`, Certbot, Mosquitto, Admin Web, and Nginx
+- starts or updates `step-ca`, Certbot, Mosquitto, Admin Web, and Nginx
+- repairs `runtime/step-ca` ownership and password-file permissions during update
 
-> [!NOTE]
 > [!NOTE]
 > When the wizard asks if you have a DNS domain, choose `No` to use the detected public VPS IP directly instead of a DNS name. In IP-only mode, DNS checks are skipped and Certbot is configured for Let's Encrypt IP address certificates with the `shortlived` profile.
 
@@ -123,6 +127,61 @@ https://<MQTT_DOMAIN>
 Use the setup token printed by the wizard to register the first passkey.
 
 For uninstall, choose `Stop and clean the stack` in the same wizard. It stops and removes the containers first. It asks separately before deleting runtime data, certificates, CA files, admin data, local images, or local iptables rules. It does not delete repository files.
+
+## Updating A VPS
+
+Use Git as the regular SSH user and use `sudo` only for the wizard and containers:
+
+```bash
+cd ~/MQTT-Trust-Gateway
+git pull --ff-only
+sudo ./wizard.sh update
+```
+
+The update flow:
+
+- optionally runs `git pull --ff-only` and reexecutes the updated wizard
+- checks that `runtime/step-ca/config/ca.json` and `runtime/step-ca/secrets/password` exist
+- fixes `runtime/step-ca` ownership for the `smallstep/step-ca` container user
+- regenerates the Admin Web MQTT client certificate
+- opens configured firewall ports
+- starts `step-ca`
+- rebuilds and recreates the application containers
+
+If `broker.env` has local VPS values and blocks `git pull`, keep the VPS copy:
+
+```bash
+cp broker.env /tmp/broker.env.vps.backup
+git stash push -m "vps broker env" -- broker.env
+git pull --ff-only
+cp /tmp/broker.env.vps.backup broker.env
+sudo ./wizard.sh update
+```
+
+If a previous `sudo git pull` broke `.git` permissions:
+
+```bash
+sudo chown -R "$USER:$USER" .git
+git pull --ff-only
+```
+
+## Admin Web
+
+The Admin Web is available at:
+
+```text
+https://<MQTT_DOMAIN>
+```
+
+Current features:
+
+- passkey/WebAuthn setup and login
+- dark and light mode with bundled Nerd Font symbols
+- MQTT Manager with observed topic list, search, sort, message history, publish, clean messages, and remove topic
+- CSR signing with paste or file upload
+- download issued device certificate
+- download MQTT CA certificate
+- settings menu for username, passkeys, theme, and logout
 
 ## Device Credentials
 
@@ -169,7 +228,33 @@ step ca sign \
 
 The private key stays on the operator machine or device. The CA receives only the CSR.
 
-You can also paste the CSR into the Admin Web and sign it there.
+You can also upload or paste the CSR into the Admin Web and sign it there. After signing, download the issued certificate and the MQTT CA certificate from the same page.
+
+## Troubleshooting
+
+If `step-ca` is not listening on port `9000`, check:
+
+```bash
+sudo podman ps -a | grep step-ca
+sudo ss -lntp | grep ':9000'
+sudo podman logs --tail=100 mqtt-trust-gateway-step-ca
+```
+
+If the log says `there is no ca.json config file`, initialize step-ca with:
+
+```bash
+sudo ./wizard.sh install
+```
+
+Choose `Yes` for `Initialize or update step-ca now?`.
+
+If the log says `error reading /home/step/secrets/password: permission denied`, run:
+
+```bash
+sudo ./wizard.sh update
+```
+
+The update flow repairs the `runtime/step-ca` ownership and password permissions before starting `step-ca`.
 
 ## Security Notes
 

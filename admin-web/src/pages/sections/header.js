@@ -15,6 +15,7 @@ export function appHeader() {
       <div class="dropdown">
         <button id="settingsMenuButton" class="icon-button secondary" type="button" aria-haspopup="true" aria-expanded="false" title="Settings">
           <span class="nf">&#xf013;</span>
+          <span class="nf dropdown-caret">&#xf0d7;</span>
         </button>
         <div id="settingsMenu" class="dropdown-menu" hidden>
           <button id="settingsTab" class="menu-item" type="button"><span class="nf">&#xf013;</span> Settings</button>

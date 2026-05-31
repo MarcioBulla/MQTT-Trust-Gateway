@@ -12,6 +12,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
       styleSrc: ["'self'"],
+      fontSrc: ["'self'"],
       connectSrc: ["'self'"],
       imgSrc: ["'self'", 'data:'],
     },
