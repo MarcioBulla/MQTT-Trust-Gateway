@@ -165,11 +165,15 @@ app.get('/', async (_req, res) => {
     button { background: #3f7cff; color: white; cursor: pointer; }
     pre { overflow: auto; background: #0b0e13; padding: 12px; border-radius: 6px; }
     .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    #notice { min-height: 24px; margin: 12px 0; color: #f7c873; }
+    #notice.ok { color: #7ee787; }
+    #notice.error { color: #ff8a8a; }
   </style>
 </head>
 <body>
 <main>
   <h1>MQTT Trust Gateway</h1>
+  <div id="notice"></div>
   <section id="setup">
     <h2>Register Passkey</h2>
     <input id="setupToken" placeholder="Setup token">
@@ -240,6 +244,11 @@ function encodeCredential(credential) {
     authenticatorAttachment: credential.authenticatorAttachment,
   };
 }
+function setNotice(message, type = '') {
+  const notice = document.getElementById('notice');
+  notice.className = type;
+  notice.textContent = message;
+}
 async function post(url, body) {
   const res = await fetch(url, {
     method: 'POST',
@@ -251,20 +260,39 @@ async function post(url, body) {
   return data;
 }
 async function registerPasskey() {
-  const options = await post('/api/register/options', {
-    setupToken: document.getElementById('setupToken').value,
-    username: document.getElementById('username').value,
-  });
-  const credential = await navigator.credentials.create({ publicKey: decodePublicKeyOptions(options) });
-  await post('/api/register/verify', { username: document.getElementById('username').value, credential: encodeCredential(credential) });
-  await loginPasskey(document.getElementById('username').value);
+  try {
+    setNotice('Starting passkey registration...');
+    if (!window.PublicKeyCredential) throw new Error('This browser does not support passkeys/WebAuthn.');
+    const username = document.getElementById('username').value;
+    const options = await post('/api/register/options', {
+      setupToken: document.getElementById('setupToken').value,
+      username,
+    });
+    setNotice('Waiting for the browser passkey prompt...');
+    const credential = await navigator.credentials.create({ publicKey: decodePublicKeyOptions(options) });
+    if (!credential) throw new Error('Passkey registration was cancelled.');
+    await post('/api/register/verify', { username, credential: encodeCredential(credential) });
+    setNotice('Passkey registered. Logging in...', 'ok');
+    await loginPasskey(username);
+  } catch (error) {
+    setNotice(error.message || String(error), 'error');
+  }
 }
 async function loginPasskey(username = document.getElementById('loginUsername').value) {
-  const options = await post('/api/login/options', { username });
-  const credential = await navigator.credentials.get({ publicKey: decodePublicKeyOptions(options) });
-  await post('/api/login/verify', { username, credential: encodeCredential(credential) });
-  document.getElementById('app').hidden = false;
-  await loadStatus();
+  try {
+    setNotice('Starting passkey login...');
+    if (!window.PublicKeyCredential) throw new Error('This browser does not support passkeys/WebAuthn.');
+    const options = await post('/api/login/options', { username });
+    setNotice('Waiting for the browser passkey prompt...');
+    const credential = await navigator.credentials.get({ publicKey: decodePublicKeyOptions(options) });
+    if (!credential) throw new Error('Passkey login was cancelled.');
+    await post('/api/login/verify', { username, credential: encodeCredential(credential) });
+    document.getElementById('app').hidden = false;
+    setNotice('Logged in.', 'ok');
+    await loadStatus();
+  } catch (error) {
+    setNotice(error.message || String(error), 'error');
+  }
 }
 async function loadStatus() {
   const res = await fetch('/api/status');

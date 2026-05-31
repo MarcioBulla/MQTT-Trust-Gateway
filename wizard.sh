@@ -577,6 +577,8 @@ install_summary() {
     "" \
     "Admin passkey RP name: ${ADMIN_RP_NAME}" \
     "Admin passkey RP id: ${ADMIN_RP_ID}" \
+    "" \
+    "Use this token once to register the first admin passkey:" \
     "Admin setup token: ${ADMIN_SETUP_TOKEN}"
 }
 
@@ -868,6 +870,18 @@ remove_named_containers() {
   done
 }
 
+remove_update_containers() {
+  for container in \
+    "${CONTAINER_NAME}-admin-nginx" \
+    "${CONTAINER_NAME}-admin-web" \
+    "${CONTAINER_NAME}"
+  do
+    if "${CONTAINER_ENGINE}" container inspect "${container}" >/dev/null 2>&1; then
+      "${CONTAINER_ENGINE}" rm -f "${container}" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
 remove_images() {
   for image in "${IMAGE_NAME}" "${IMAGE_NAME}-admin-web" "${IMAGE_NAME}-admin-nginx" "${IMAGE_NAME}-certbot"; do
     if "${CONTAINER_ENGINE}" image inspect "${image}" >/dev/null 2>&1; then
@@ -944,6 +958,56 @@ run_uninstall() {
   wt_msg "Uninstall actions finished.\n\nRepository files were kept."
 }
 
+run_update() {
+  defaults
+  BASE_DIR="$(absolute_path "${BASE_DIR}")"
+  derive_public_endpoints
+  choose_engine || return 0
+
+  if [ "${WIZARD_PREVIEW}" = "yes" ]; then
+    wt_textbox_text "Update preview summary" "$(install_summary)
+
+Preview mode: would optionally run git pull, then rebuild and recreate:
+- ${CONTAINER_NAME}
+- ${CONTAINER_NAME}-admin-web
+- ${CONTAINER_NAME}-admin-nginx"
+    return 0
+  fi
+
+  if ! compose_command_available "${CONTAINER_ENGINE}"; then
+    wt_msg "${CONTAINER_ENGINE} compose is not available."
+    return 1
+  fi
+
+  cd "${SCRIPT_DIR}"
+
+  if wt_yesno_default "Run git pull before updating containers?" "yes"; then
+    if ! wt_progress_command "Updating repository" git -C "${SCRIPT_DIR}" pull --ff-only; then
+      wt_msg "git pull failed. The containers were not updated."
+      return 1
+    fi
+  fi
+
+  if [ ! -f "${BASE_DIR}/pki/step-ca/ca.crt" ]; then
+    wt_msg "MQTT client CA was not found at:\n\n${BASE_DIR}/pki/step-ca/ca.crt\n\nRun Install and initialize step-ca before updating the application containers."
+    return 1
+  fi
+
+  remove_update_containers
+
+  if ! wt_progress_command "Updating gateway" run_compose --env-file broker.env up -d --build broker admin-web admin-nginx; then
+    wt_msg "Update failed. Review the log shown by the wizard."
+    return 1
+  fi
+
+  wt_textbox_text "Update summary" "$(install_summary)
+
+Updated containers:
+- ${CONTAINER_NAME}
+- ${CONTAINER_NAME}-admin-web
+- ${CONTAINER_NAME}-admin-nginx"
+}
+
 run_preview() {
   previous_preview="${WIZARD_PREVIEW}"
   WIZARD_PREVIEW="yes"
@@ -952,10 +1016,12 @@ run_preview() {
     choice="$(wt_menu "Preview mode" "Navigate a wizard flow without applying changes." \
       "install" \
       "install" "Install" \
+      "update" "Update" \
       "uninstall" "Uninstall" \
       "back" "Back")" || break
     case "${choice}" in
       install) run_install ;;
+      update) run_update ;;
       uninstall) run_uninstall ;;
       back) break ;;
     esac
@@ -969,6 +1035,11 @@ main_menu() {
     install|setup)
       show_dependency_checklist
       run_install
+      return 0
+      ;;
+    update)
+      show_dependency_checklist
+      run_update
       return 0
       ;;
     uninstall|remove)
@@ -989,10 +1060,12 @@ main_menu() {
     choice="$(wt_menu_nocancel "MQTT Trust Gateway" "Choose an action." \
       "install" \
       "install" "Install" \
+      "update" "Update" \
       "uninstall" "Uninstall" \
       "exit" "Exit")"
     case "${choice}" in
       install) run_install ;;
+      update) run_update ;;
       uninstall) run_uninstall ;;
       exit) exit 0 ;;
     esac
