@@ -34,6 +34,19 @@
   position: relative;
 }
 
+#settingsMenuButton {
+  width: auto;
+  min-width: 52px;
+  grid-auto-flow: column;
+  gap: 4px;
+  padding-inline: 10px;
+}
+
+.dropdown-caret {
+  font-size: 0.72rem;
+  opacity: 0.78;
+}
+
 .dropdown-menu {
   position: absolute;
   top: calc(100% + 8px);

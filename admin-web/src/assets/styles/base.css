@@ -19,16 +19,6 @@ pre {
   border-radius: 6px;
 }
 
-.nf {
-  font-family:
-    "Symbols Nerd Font",
-    "Symbols Nerd Font Mono",
-    "Nerd Font Symbols",
-    monospace;
-  font-style: normal;
-  line-height: 1;
-}
-
 .muted {
   color: var(--muted);
 }

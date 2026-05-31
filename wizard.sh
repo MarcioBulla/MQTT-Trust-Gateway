@@ -689,9 +689,13 @@ PY
 fix_step_ca_permissions() {
   if [ -d "${BASE_DIR}/step-ca" ]; then
     chown -R 1000:1000 "${BASE_DIR}/step-ca"
-    chmod 700 "${BASE_DIR}/step-ca/secrets"
+    [ ! -d "${BASE_DIR}/step-ca/secrets" ] || chmod 700 "${BASE_DIR}/step-ca/secrets"
     [ ! -f "${BASE_DIR}/step-ca/secrets/password" ] || chmod 600 "${BASE_DIR}/step-ca/secrets/password"
   fi
+}
+
+step_ca_config_exists() {
+  [ -f "${BASE_DIR}/step-ca/config/ca.json" ] && [ -f "${BASE_DIR}/step-ca/secrets/password" ]
 }
 
 ensure_admin_mqtt_certificate() {
@@ -1067,6 +1071,7 @@ run_update() {
     wt_textbox_text "Update preview summary" "$(install_summary)
 
 Preview mode: would optionally run git pull, then rebuild and recreate:
+- ${CONTAINER_NAME}-step-ca
 - ${CONTAINER_NAME}-certbot-init
 - ${CONTAINER_NAME}-certbot-renew
 - ${CONTAINER_NAME}
@@ -1097,6 +1102,16 @@ Preview mode: would optionally run git pull, then rebuild and recreate:
     return 1
   fi
 
+  if ! step_ca_config_exists; then
+    wt_msg "step-ca runtime is incomplete.\n\nMissing one of:\n${BASE_DIR}/step-ca/config/ca.json\n${BASE_DIR}/step-ca/secrets/password\n\nRun Install and initialize step-ca before updating."
+    return 1
+  fi
+
+  if ! wt_progress_command "Repairing step-ca permissions" fix_step_ca_permissions; then
+    wt_msg "step-ca permission repair failed. Review the log shown by the wizard."
+    return 1
+  fi
+
   if ! wt_progress_command "Preparing Admin MQTT certificate" ensure_admin_mqtt_certificate; then
     wt_msg "Admin MQTT certificate setup failed. Review the log shown by the wizard before updating containers."
     return 1
@@ -1110,6 +1125,11 @@ Preview mode: would optionally run git pull, then rebuild and recreate:
   wt_progress_command "Stopping gateway" run_compose --env-file broker.env down --remove-orphans || true
   remove_update_containers
 
+  if ! wt_progress_command "Starting step-ca" run_compose --env-file broker.env -f step-ca/compose.step-ca.yaml up -d; then
+    wt_msg "step-ca container startup failed. Review the log shown by the wizard."
+    return 1
+  fi
+
   if ! wt_progress_command "Updating gateway" run_compose --env-file broker.env up -d --build; then
     wt_msg "Update failed. Review the log shown by the wizard."
     return 1
@@ -1118,6 +1138,7 @@ Preview mode: would optionally run git pull, then rebuild and recreate:
   wt_textbox_text "Update summary" "$(install_summary)
 
 Updated containers:
+- ${CONTAINER_NAME}-step-ca
 - ${CONTAINER_NAME}-certbot-init
 - ${CONTAINER_NAME}-certbot-renew
 - ${CONTAINER_NAME}
