@@ -1,0 +1,69 @@
+.passkey,
+.topic-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+}
+
+.topic-row.selected {
+  background: var(--surface-strong);
+  margin-inline: -8px;
+  padding-inline: 8px;
+  border-radius: 6px;
+}
+
+.topic-main {
+  flex: 1 1 auto;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.topic-main:hover .topic-name {
+  color: var(--primary);
+}
+
+.topic-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.topic-tools {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 260px);
+}
+
+.topic-meta {
+  color: var(--muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.topic-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.topic-messages {
+  margin-top: 16px;
+}
+
+.message-row {
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+}
+
+.message-row pre {
+  margin-bottom: 0;
+  white-space: pre-wrap;
+}

@@ -1,0 +1,19 @@
+@font-face {
+  font-family: "NerdSymbols";
+  src: url("/assets/fonts/SymbolsNerdFont-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+.nf {
+  font-family:
+    "NerdSymbols",
+    "Symbols Nerd Font",
+    "Symbols Nerd Font Mono",
+    "Nerd Font Symbols",
+    monospace;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1;
+}

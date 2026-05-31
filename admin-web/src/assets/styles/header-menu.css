@@ -1,0 +1,87 @@
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 220px;
+}
+
+.brand .icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: white;
+  font-size: 1.2rem;
+}
+
+.main-nav button,
+.menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dropdown {
+  position: relative;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+.menu-item {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  justify-content: flex-start;
+}
+
+button.menu-item,
+button.menu-item.danger {
+  background: transparent;
+  color: var(--text);
+}
+
+.menu-item.danger,
+button.menu-item.danger,
+.menu-item.danger .nf,
+button.menu-item.danger .nf {
+  color: var(--text);
+}
+
+.menu-item:hover,
+button.menu-item:hover {
+  background: var(--surface-strong);
+}
+
+.menu-item.danger:hover,
+button.menu-item.danger:hover {
+  background: var(--surface-strong);
+  color: var(--error);
+}
+
+.menu-item.danger:hover .nf,
+button.menu-item.danger:hover .nf {
+  color: var(--error);
+}

@@ -1,0 +1,13 @@
+#notice {
+  min-height: 24px;
+  margin: 12px 0;
+  color: var(--notice);
+}
+
+#notice.ok {
+  color: var(--ok);
+}
+
+#notice.error {
+  color: var(--error);
+}

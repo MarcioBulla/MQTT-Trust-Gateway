@@ -1,0 +1,41 @@
+label {
+  display: block;
+  color: var(--label);
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  padding: 10px;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface-strong);
+  color: var(--text);
+  margin: 6px 0 12px;
+}
+
+textarea {
+  min-height: 150px;
+  resize: vertical;
+}
+
+.checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-bottom: 12px;
+}
+
+.checkbox input {
+  width: auto;
+  margin: 0;
+}
