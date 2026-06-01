@@ -2,7 +2,7 @@ export function signaturesSection() {
   return `<div id="signaturesView" hidden>
     <div class="panel-head">
       <div>
-        <h2>Assinaturas</h2>
+        <h2>Signatures</h2>
         <p class="muted">Sign device CSRs with the configured step-ca provisioner.</p>
       </div>
     </div>
@@ -19,16 +19,6 @@ export function signaturesSection() {
         <button id="downloadCaButton" class="secondary" type="button"><span class="nf">&#xf019;</span> Download CA</button>
       </div>
       <pre id="cert"></pre>
-      <div class="panel nested certificate-list-panel">
-        <div class="panel-head">
-          <div>
-            <h3>Issued certificates</h3>
-            <p class="muted">Certificates issued from this Admin Web instance.</p>
-          </div>
-          <button id="refreshCertificatesButton" class="secondary" type="button"><span class="nf">&#xf021;</span> Refresh</button>
-        </div>
-        <div id="certificateList" class="certificate-list"></div>
-      </div>
       <button id="csrHelpToggle" class="secondary" type="button"><span class="nf">&#xf059;</span> Show CSR help</button>
       <section id="csrHelp" class="panel nested" hidden>
         <div class="help-head">
@@ -56,6 +46,29 @@ export function signaturesSection() {
           </article>
         </div>
       </section>
+      <div class="panel nested certificate-list-panel">
+        <div class="panel-head">
+          <div>
+            <h3>Issued certificates</h3>
+            <p class="muted">Certificates issued from this Admin Web instance.</p>
+          </div>
+          <button id="refreshCertificatesButton" class="secondary" type="button"><span class="nf">&#xf021;</span> Refresh</button>
+        </div>
+        <div class="certificate-tools">
+          <label>Search<input id="certificateSearch" placeholder="Filter device, serial, status, or subject"></label>
+          <label>Sort<select id="certificateSort">
+            <option value="issuedDesc">Newest issued</option>
+            <option value="issuedAsc">Oldest issued</option>
+            <option value="validToAsc">Expires soon</option>
+            <option value="validToDesc">Expires later</option>
+            <option value="deviceAsc">Device A-Z</option>
+            <option value="deviceDesc">Device Z-A</option>
+            <option value="statusAsc">Status A-Z</option>
+            <option value="statusDesc">Status Z-A</option>
+          </select></label>
+        </div>
+        <div id="certificateList" class="certificate-list"></div>
+      </div>
     </section>
   </div>`;
 }

@@ -17,6 +17,13 @@ function passwordFileArgs(passwordFile) {
   ];
 }
 
+function stepSerial(serial) {
+  const value = String(serial || '').trim();
+  if (/^0x/i.test(value) || /^[0-9]+$/.test(value)) return value;
+  if (/^[0-9a-f]+$/i.test(value)) return `0x${value}`;
+  return value;
+}
+
 export function certificateMetadata(certificatePem) {
   const certificate = new crypto.X509Certificate(certificatePem);
   return {
@@ -53,18 +60,19 @@ export async function signDeviceCsr({ deviceId, csr, provisionerPassword }) {
 export async function revokeCertificate({ serial, provisionerPassword, reason = 'keyCompromise' }) {
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mqtt-trust-revoke-'));
   const passwordFile = path.join(workDir, 'password');
+  const serialNumber = stepSerial(serial);
 
   try {
     await fs.writeFile(passwordFile, `${provisionerPassword}\n`, { mode: 0o600 });
     const { stdout: token } = await execFileAsync('step', [
-      'ca', 'token', serial,
+      'ca', 'token', serialNumber,
       '--revoke',
       '--ca-url', env.stepCaUrl,
       '--root', env.clientCaFile,
       ...passwordFileArgs(passwordFile),
     ], { timeout: 30000 });
     await execFileAsync('step', [
-      'ca', 'revoke', serial,
+      'ca', 'revoke', serialNumber,
       '--ca-url', env.stepCaUrl,
       '--root', env.clientCaFile,
       '--token', token.trim(),

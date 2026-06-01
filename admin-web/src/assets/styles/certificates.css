@@ -3,6 +3,13 @@
   gap: 10px;
 }
 
+.certificate-tools {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 260px);
+  margin: 12px 0;
+}
+
 .certificate-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -55,6 +62,10 @@
 }
 
 @media (max-width: 760px) {
+  .certificate-tools {
+    grid-template-columns: 1fr;
+  }
+
   .certificate-row {
     grid-template-columns: 1fr;
     align-items: stretch;
