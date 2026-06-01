@@ -10,7 +10,7 @@ Key advantages:
 - Local device CA with Smallstep `step-ca`, giving you controlled certificate issuance, root fingerprint validation, CSR signing, and certificate TTLs.
 - Admin access protected by passkeys/WebAuthn, including KeePassXC-compatible passkey registration and login.
 - Public HTTPS and MQTT TLS through Let's Encrypt, with Certbot renewal containers included in the stack.
-- Browser Admin Web for signing CSRs, downloading certificates, managing passkeys, publishing MQTT messages, and inspecting topic traffic.
+- Browser Admin Web for signing CSRs, listing issued certificates, revoking/renewing certificates, managing passkeys, publishing MQTT messages, and inspecting topic traffic.
 - MQTT over both MQTTS and secure WebSocket, useful for native devices, web clients, dashboards, and diagnostics.
 - Wizard-driven VPS setup that checks DNS, firewall, ports, runtime paths, step-ca, certificates, and containers.
 - Integration tests with `uv` and Python for key generation, CSR signing, MQTTS, and WSS message roundtrips.
@@ -23,7 +23,7 @@ It provides:
 - an Admin Web interface protected by passkeys/WebAuthn
 - an MQTT Manager for observed topics, message history, publish, search, sort, clean, and remove actions
 - monthly MQTT cleanup for observed retained messages and local MQTT Manager history
-- CSR signing from the Admin Web with paste, upload, certificate download, and CA download
+- CSR signing from the Admin Web with paste, upload, issued certificate list, revocation, renewal, certificate download, and CA download
 - Nginx for the public HTTPS admin endpoint
 - a setup wizard for DNS, firewall, certificates, and container startup
 
@@ -214,6 +214,7 @@ Current features:
 - dark and light mode with bundled Nerd Font symbols
 - MQTT Manager with observed topic list, search, sort, message history, publish, clean messages, and remove topic
 - CSR signing with paste or file upload
+- issued certificate list with validity, download, revoke, and renew actions
 - download issued device certificate
 - download MQTT CA certificate
 - settings menu for username, passkeys, theme, and logout

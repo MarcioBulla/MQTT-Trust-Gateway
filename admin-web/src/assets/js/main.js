@@ -1,6 +1,6 @@
 import { requestJson } from './api.js';
 import { loginPasskey, logout, registerPasskey } from './auth.js';
-import { downloadCaCertificate, downloadCertificate, loadCsrFile, signCsr, toggleCsrHelp } from './certificates.js';
+import { bindCertificateList, downloadCaCertificate, downloadCertificate, loadCertificates, loadCsrFile, signCsr, toggleCsrHelp, updateCsrHelpCommands } from './certificates.js';
 import { bindSettingsMenu, closeSettingsMenu, toggleSettingsMenu } from './menu.js';
 import { bindTopicTools, loadStatus, loadTopics, publishMessage } from './mqtt-manager.js';
 import { setNotice } from './notice.js';
@@ -39,7 +39,7 @@ window.addEventListener('unhandledrejection', (event) => setNotice(event.reason?
 document.getElementById('registerPasskeyButton').addEventListener('click', () => runAction(registerPasskey));
 document.getElementById('loginPasskeyButton').addEventListener('click', () => runAction(() => loginPasskey()));
 document.getElementById('mqttManagerTab').addEventListener('click', () => runAction(async () => { showView('mqttManagerView'); await loadStatus(); await loadTopics(); }));
-document.getElementById('signaturesTab').addEventListener('click', () => showView('signaturesView'));
+document.getElementById('signaturesTab').addEventListener('click', () => runAction(async () => { showView('signaturesView'); updateCsrHelpCommands(); await loadCertificates(); }));
 document.getElementById('settingsMenuButton').addEventListener('click', (event) => { event.stopPropagation(); toggleSettingsMenu(); });
 document.getElementById('settingsTab').addEventListener('click', () => { closeSettingsMenu(); showView('settingsView'); if (getCurrentUser()) renderUser(getCurrentUser()); });
 document.getElementById('themeToggleButton').addEventListener('click', () => { toggleTheme(); closeSettingsMenu(); });
@@ -58,10 +58,14 @@ document.getElementById('signCsrButton').addEventListener('click', () => runActi
 document.getElementById('downloadCertButton').addEventListener('click', () => runAction(downloadCertificate));
 document.getElementById('downloadCaButton').addEventListener('click', downloadCaCertificate);
 document.getElementById('csrFile').addEventListener('change', (event) => runAction(() => loadCsrFile(event.target.files[0])));
+document.getElementById('deviceId').addEventListener('input', updateCsrHelpCommands);
+document.getElementById('refreshCertificatesButton').addEventListener('click', () => runAction(loadCertificates));
 document.getElementById('csrHelpToggle').addEventListener('click', toggleCsrHelp);
 document.getElementById('saveUsernameButton').addEventListener('click', () => runAction(saveUsername));
 document.getElementById('addPasskeyButton').addEventListener('click', () => runAction(addPasskey));
 applyTheme();
 bindSettingsMenu();
 bindTopicTools();
+bindCertificateList();
+updateCsrHelpCommands();
 init();

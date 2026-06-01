@@ -19,6 +19,16 @@ export function signaturesSection() {
         <button id="downloadCaButton" class="secondary" type="button"><span class="nf">&#xf019;</span> Download CA</button>
       </div>
       <pre id="cert"></pre>
+      <div class="panel nested certificate-list-panel">
+        <div class="panel-head">
+          <div>
+            <h3>Issued certificates</h3>
+            <p class="muted">Certificates issued from this Admin Web instance.</p>
+          </div>
+          <button id="refreshCertificatesButton" class="secondary" type="button"><span class="nf">&#xf021;</span> Refresh</button>
+        </div>
+        <div id="certificateList" class="certificate-list"></div>
+      </div>
       <button id="csrHelpToggle" class="secondary" type="button"><span class="nf">&#xf059;</span> Show CSR help</button>
       <section id="csrHelp" class="panel nested" hidden>
         <div class="help-head">
@@ -32,24 +42,17 @@ export function signaturesSection() {
           <article class="help-step">
             <strong>1. Choose the device id</strong>
             <p class="muted">This becomes the certificate common name.</p>
-            <pre>DEVICE_ID="device-01"
-mkdir -p "devices/\${DEVICE_ID}"</pre>
+            <pre id="csrHelpDeviceCommand"></pre>
           </article>
           <article class="help-step">
             <strong>2. Generate the private key</strong>
             <p class="muted">Keep this file on the device. Do not upload it here.</p>
-            <pre>openssl genrsa \
-  -out "devices/\${DEVICE_ID}/\${DEVICE_ID}.key" \
-  2048</pre>
+            <pre id="csrHelpKeyCommand"></pre>
           </article>
           <article class="help-step">
             <strong>3. Generate the CSR</strong>
             <p class="muted">Upload the generated .csr file or paste its PEM content.</p>
-            <pre>openssl req -new \
-  -key "devices/\${DEVICE_ID}/\${DEVICE_ID}.key" \
-  -out "devices/\${DEVICE_ID}/\${DEVICE_ID}.csr" \
-  -subj "/CN=\${DEVICE_ID}" \
-  -addext "subjectAltName=DNS:\${DEVICE_ID},URI:urn:mqtt-trust-gateway:device:\${DEVICE_ID}"</pre>
+            <pre id="csrHelpCsrCommand"></pre>
           </article>
         </div>
       </section>
