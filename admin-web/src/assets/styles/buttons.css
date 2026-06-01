@@ -18,6 +18,13 @@ button .nf {
   margin-right: 6px;
 }
 
+.inline,
+.download-actions,
+.certificate-actions,
+.topic-actions {
+  gap: 12px;
+}
+
 .icon-button {
   display: grid;
   place-items: center;

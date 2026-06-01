@@ -1,7 +1,47 @@
-import { post } from './api.js';
+import { get, post } from './api.js';
 import { setNotice } from './notice.js';
 
 let lastCertificate = '';
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]));
+}
+
+function formatDate(value) {
+  if (!value) return 'not available';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function provisionerPassword() {
+  return document.getElementById('provisionerPassword').value;
+}
+
+function currentDeviceId() {
+  const value = document.getElementById('deviceId').value.trim();
+  return value || 'device-01';
+}
+
+export function updateCsrHelpCommands() {
+  const deviceId = currentDeviceId();
+  document.getElementById('csrHelpDeviceCommand').textContent = `DEVICE_ID="${deviceId}"
+mkdir -p "devices/\${DEVICE_ID}"`;
+  document.getElementById('csrHelpKeyCommand').textContent = `openssl genrsa \\
+  -out "devices/\${DEVICE_ID}/\${DEVICE_ID}.key" \\
+  2048`;
+  document.getElementById('csrHelpCsrCommand').textContent = `openssl req -new \\
+  -key "devices/\${DEVICE_ID}/\${DEVICE_ID}.key" \\
+  -out "devices/\${DEVICE_ID}/\${DEVICE_ID}.csr" \\
+  -subj "/CN=\${DEVICE_ID}" \\
+  -addext "subjectAltName=DNS:\${DEVICE_ID},URI:urn:mqtt-trust-gateway:device:\${DEVICE_ID}"`;
+}
 
 function downloadText(filename, content) {
   const blob = new Blob([content], { type: 'application/x-pem-file' });
@@ -25,12 +65,13 @@ export async function loadCsrFile(file) {
 export async function signCsr() {
   const data = await post('/api/certificates/sign', {
     deviceId: document.getElementById('deviceId').value,
-    provisionerPassword: document.getElementById('provisionerPassword').value,
+    provisionerPassword: provisionerPassword(),
     csr: document.getElementById('csr').value,
   });
   lastCertificate = data.certificate;
   document.getElementById('cert').textContent = lastCertificate;
   document.getElementById('downloadCertButton').disabled = false;
+  await loadCertificates();
 }
 
 export function downloadCertificate() {
@@ -43,7 +84,84 @@ export function downloadCaCertificate() {
   window.location.assign('/api/certificates/ca');
 }
 
+function certificateActions(certificate) {
+  const disabledDownload = certificate.canDownload ? '' : ' disabled';
+  const disabledRenew = certificate.canRenew ? '' : ' disabled';
+  const disabledRevoke = certificate.canRevoke ? '' : ' disabled';
+  return '<div class="certificate-actions">' +
+    `<button class="secondary" type="button" data-download-certificate="${escapeHtml(certificate.id)}"${disabledDownload}><span class="nf">&#xf019;</span> Download</button>` +
+    `<button class="secondary" type="button" data-renew-certificate="${escapeHtml(certificate.id)}"${disabledRenew}><span class="nf">&#xf021;</span> Renew</button>` +
+    `<button class="danger" type="button" data-revoke-certificate="${escapeHtml(certificate.id)}"${disabledRevoke}><span class="nf">&#xf1f8;</span> Revoke</button>` +
+    '</div>';
+}
+
+function renderCertificate(certificate) {
+  const status = certificate.status || 'active';
+  const renewed = certificate.renewedFrom ? `<div class="certificate-meta">Renewed from: ${escapeHtml(certificate.renewedFrom)}</div>` : '';
+  const revoked = certificate.revokedAt ? `<div class="certificate-meta">Revoked: ${escapeHtml(formatDate(certificate.revokedAt))}</div>` : '';
+  return '<div class="certificate-row">' +
+    '<div>' +
+      `<div class="certificate-title">${escapeHtml(certificate.deviceId || 'Unknown device')}</div>` +
+      `<div class="certificate-meta">Serial: ${escapeHtml(certificate.serial || 'not available')}</div>` +
+      `<div class="certificate-meta">Valid from: ${escapeHtml(formatDate(certificate.validFrom))}</div>` +
+      `<div class="certificate-meta">Valid to: ${escapeHtml(formatDate(certificate.validTo))}</div>` +
+      `<div class="certificate-meta">Issued: ${escapeHtml(formatDate(certificate.issuedAt))} by ${escapeHtml(certificate.issuedBy || 'unknown')}</div>` +
+      renewed +
+      revoked +
+      `<span class="certificate-status ${escapeHtml(status)}">${escapeHtml(status)}</span>` +
+    '</div>' +
+    certificateActions(certificate) +
+  '</div>';
+}
+
+export async function loadCertificates() {
+  const target = document.getElementById('certificateList');
+  const data = await get('/api/certificates');
+  if (!data.certificates.length) {
+    target.innerHTML = '<p class="muted">No certificates issued yet.</p>';
+    return;
+  }
+  target.innerHTML = data.certificates.map(renderCertificate).join('');
+}
+
+export function downloadIssuedCertificate(id) {
+  window.location.assign('/api/certificates/' + encodeURIComponent(id) + '/download');
+}
+
+export async function revokeIssuedCertificate(id) {
+  if (!provisionerPassword()) throw new Error('Provisioner password is required to revoke a certificate.');
+  if (!window.confirm('Revoke this certificate? This cannot be undone.')) return;
+  await post('/api/certificates/' + encodeURIComponent(id) + '/revoke', {
+    provisionerPassword: provisionerPassword(),
+  });
+  setNotice('Certificate revoked.', 'ok');
+  await loadCertificates();
+}
+
+export async function renewIssuedCertificate(id) {
+  if (!provisionerPassword()) throw new Error('Provisioner password is required to renew a certificate.');
+  const data = await post('/api/certificates/' + encodeURIComponent(id) + '/renew', {
+    provisionerPassword: provisionerPassword(),
+  });
+  lastCertificate = data.certificate;
+  document.getElementById('cert').textContent = lastCertificate;
+  document.getElementById('downloadCertButton').disabled = false;
+  setNotice('Certificate renewed.', 'ok');
+  await loadCertificates();
+}
+
+export function bindCertificateList() {
+  document.getElementById('certificateList').addEventListener('click', (event) => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    if (button.dataset.downloadCertificate) downloadIssuedCertificate(button.dataset.downloadCertificate);
+    if (button.dataset.revokeCertificate) revokeIssuedCertificate(button.dataset.revokeCertificate).catch((error) => setNotice(error.message || String(error), 'error'));
+    if (button.dataset.renewCertificate) renewIssuedCertificate(button.dataset.renewCertificate).catch((error) => setNotice(error.message || String(error), 'error'));
+  });
+}
+
 export function toggleCsrHelp() {
+  updateCsrHelpCommands();
   const help = document.getElementById('csrHelp');
   const button = document.getElementById('csrHelpToggle');
   help.hidden = !help.hidden;

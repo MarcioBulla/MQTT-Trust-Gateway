@@ -1,0 +1,68 @@
+.certificate-list {
+  display: grid;
+  gap: 10px;
+}
+
+.certificate-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+}
+
+.certificate-row:first-child {
+  border-top: 0;
+}
+
+.certificate-title {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.certificate-meta {
+  color: var(--muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.certificate-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.certificate-status.active {
+  color: var(--ok);
+}
+
+.certificate-status.revoked {
+  color: var(--error);
+}
+
+.certificate-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 760px) {
+  .certificate-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .certificate-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+}
