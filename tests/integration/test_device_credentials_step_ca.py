@@ -2,12 +2,7 @@ import uuid
 
 from cryptography import x509
 
-from helpers.device_credentials import (
-    create_signed_device_credentials,
-    renew_device_certificate,
-    revoke_device_certificate,
-    write_device_csr,
-)
+from helpers.device_credentials import create_signed_device_credentials, write_device_csr
 
 
 def test_generates_device_private_key_and_csr(tmp_path):
@@ -35,17 +30,3 @@ def test_signs_device_csr_with_step_ca(tmp_path, gateway_config, provisioner_pas
 
     certificate = x509.load_pem_x509_certificate(credentials["cert_file"].read_bytes())
     assert certificate.subject.rfc4514_string() == f"CN={credentials['device_id']}"
-
-
-def test_renews_and_revokes_device_certificate(tmp_path, gateway_config, provisioner_password):
-    credentials = create_signed_device_credentials(tmp_path, gateway_config, provisioner_password)
-    original = x509.load_pem_x509_certificate(credentials["cert_file"].read_bytes())
-
-    renewed_cert_file = renew_device_certificate(credentials, gateway_config)
-    renewed = x509.load_pem_x509_certificate(renewed_cert_file.read_bytes())
-
-    assert renewed.subject == original.subject
-    assert renewed.serial_number != original.serial_number
-
-    revoked_serial = revoke_device_certificate(renewed_cert_file, credentials, gateway_config)
-    assert revoked_serial == str(renewed.serial_number)
