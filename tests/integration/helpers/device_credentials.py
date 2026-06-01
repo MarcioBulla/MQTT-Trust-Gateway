@@ -89,5 +89,78 @@ def create_signed_device_credentials(workdir, gateway_config, provisioner_passwo
     return {
         "device_id": device_id,
         "key_file": key_file,
+        "csr_file": csr_file,
         "cert_file": cert_file,
+        "password_file": password_file,
+        "steppath": steppath,
     }
+
+
+def renew_device_certificate(credentials, gateway_config):
+    renewed_cert_file = credentials["cert_file"].with_name(f"{credentials['device_id']}.renewed.crt")
+    run_step(
+        [
+            "step",
+            "ca",
+            "sign",
+            str(credentials["csr_file"]),
+            str(renewed_cert_file),
+            "--ca-url",
+            gateway_config.step_ca_url,
+            "--root",
+            str(credentials["steppath"] / "certs" / "root_ca.crt"),
+            "--provisioner",
+            gateway_config.step_ca_provisioner,
+            "--provisioner-password-file",
+            str(credentials["password_file"]),
+            "--not-after",
+            gateway_config.device_cert_ttl,
+            "--force",
+        ],
+        credentials["steppath"],
+    )
+    return renewed_cert_file
+
+
+def revoke_device_certificate(cert_file, credentials, gateway_config):
+    certificate = x509.load_pem_x509_certificate(cert_file.read_bytes())
+    serial = str(certificate.serial_number)
+    token = subprocess.run(
+        [
+            "step",
+            "ca",
+            "token",
+            serial,
+            "--revoke",
+            "--ca-url",
+            gateway_config.step_ca_url,
+            "--root",
+            str(credentials["steppath"] / "certs" / "root_ca.crt"),
+            "--provisioner",
+            gateway_config.step_ca_provisioner,
+            "--provisioner-password-file",
+            str(credentials["password_file"]),
+        ],
+        env={**os.environ, "STEPPATH": str(credentials["steppath"])},
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    run_step(
+        [
+            "step",
+            "ca",
+            "revoke",
+            serial,
+            "--ca-url",
+            gateway_config.step_ca_url,
+            "--root",
+            str(credentials["steppath"] / "certs" / "root_ca.crt"),
+            "--token",
+            token,
+            "--reason",
+            "keyCompromise",
+        ],
+        credentials["steppath"],
+    )
+    return serial
