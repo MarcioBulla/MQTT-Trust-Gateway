@@ -19,8 +19,9 @@ function passwordFileArgs(passwordFile) {
 
 function stepSerial(serial) {
   const value = String(serial || '').trim();
-  if (/^0x/i.test(value) || /^[0-9]+$/.test(value)) return value;
-  if (/^[0-9a-f]+$/i.test(value)) return `0x${value}`;
+  if (/^0x[0-9a-f]+$/i.test(value)) return BigInt(value).toString(10);
+  if (/^[0-9]+$/.test(value)) return value;
+  if (/^[0-9a-f]+$/i.test(value)) return BigInt(`0x${value}`).toString(10);
   return value;
 }
 
