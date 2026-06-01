@@ -6,7 +6,7 @@ services:
     image: ${IMAGE_NAME}-certbot
     container_name: ${CONTAINER_NAME}-certbot-init
     env_file:
-      - broker.env
+      - gateway.env
     environment:
       CERTBOT_MODE: init
     network_mode: host
@@ -21,7 +21,7 @@ services:
     image: ${IMAGE_NAME}-certbot
     container_name: ${CONTAINER_NAME}-certbot-renew
     env_file:
-      - broker.env
+      - gateway.env
     environment:
       CERTBOT_MODE: renew
     restart: unless-stopped
@@ -40,7 +40,7 @@ services:
     image: ${IMAGE_NAME}
     container_name: ${CONTAINER_NAME}
     env_file:
-      - broker.env
+      - gateway.env
     restart: unless-stopped
     depends_on:
       certbot-init:
@@ -58,7 +58,7 @@ services:
     image: ${IMAGE_NAME}-admin-web
     container_name: ${CONTAINER_NAME}-admin-web
     env_file:
-      - broker.env
+      - gateway.env
     restart: unless-stopped
     depends_on:
       broker:
@@ -76,7 +76,7 @@ services:
     image: ${IMAGE_NAME}-admin-nginx
     container_name: ${CONTAINER_NAME}-admin-nginx
     env_file:
-      - broker.env
+      - gateway.env
     restart: unless-stopped
     depends_on:
       admin-web:

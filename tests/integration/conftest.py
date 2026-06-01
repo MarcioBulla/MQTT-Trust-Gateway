@@ -28,9 +28,9 @@ def pytest_addoption(parser):
     )
 
 
-def load_broker_env():
-    env_file = Path("broker.env")
-    if not env_file.exists():
+def load_env_file():
+    env_file = next((path for path in (Path("gateway.env"), Path("broker.env")) if path.exists()), None)
+    if env_file is None:
         return {}
 
     values = {}
@@ -52,9 +52,9 @@ def config_value(name, broker_env, default=""):
 
 @pytest.fixture(scope="session")
 def gateway_config():
-    broker_env = load_broker_env()
-    domain = config_value("MQTT_DOMAIN", broker_env)
-    fingerprint = config_value("STEP_CA_FINGERPRINT", broker_env)
+    env_file_values = load_env_file()
+    domain = config_value("MQTT_DOMAIN", env_file_values)
+    fingerprint = config_value("STEP_CA_FINGERPRINT", env_file_values)
 
     missing = []
     if not domain:
@@ -66,13 +66,13 @@ def gateway_config():
 
     return GatewayConfig(
         domain=domain,
-        step_ca_url=config_value("STEP_CA_URL", broker_env, f"https://{domain}:9000"),
+        step_ca_url=config_value("STEP_CA_URL", env_file_values, f"https://{domain}:9000"),
         step_ca_fingerprint=fingerprint,
-        step_ca_provisioner=config_value("STEP_CA_PROVISIONER", broker_env, "mqtt-devices"),
-        device_cert_ttl=config_value("STEP_CA_DEVICE_CERT_TTL", broker_env, "24h"),
-        topic_prefix=config_value("MQTT_TOPIC_PREFIX", broker_env, "devices"),
-        mqtt_tls_port=int(config_value("MQTT_TLS_PORT", broker_env, "8883")),
-        mqtt_ws_tls_port=int(config_value("MQTT_WS_TLS_PORT", broker_env, "8443")),
+        step_ca_provisioner=config_value("STEP_CA_PROVISIONER", env_file_values, "mqtt-devices"),
+        device_cert_ttl=config_value("STEP_CA_DEVICE_CERT_TTL", env_file_values, "24h"),
+        topic_prefix=config_value("MQTT_TOPIC_PREFIX", env_file_values, "devices"),
+        mqtt_tls_port=int(config_value("MQTT_TLS_PORT", env_file_values, "8883")),
+        mqtt_ws_tls_port=int(config_value("MQTT_WS_TLS_PORT", env_file_values, "8443")),
     )
 
 

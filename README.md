@@ -106,7 +106,7 @@ The wizard:
 - lets you choose install/update or uninstall from the first menu
 - includes an `Info` screen with URLs, setup token, ports, runtime path, and step-ca fingerprint
 - accepts an optional Let's Encrypt contact email
-- writes `broker.env`
+- writes `gateway.env`
 - checks container engine, DNS, firewall, and ports
 - initializes `step-ca`
 - exports the MQTT client CA
@@ -129,7 +129,7 @@ https://<MQTT_DOMAIN>
 Use the setup token printed by the wizard to register the first passkey.
 
 > [!IMPORTANT]
-> The step-ca provisioner password is separate from the Admin setup token. Anyone with the provisioner password can issue MQTT device certificates trusted by the broker. Do not commit it, store it in `broker.env`, paste it in tickets/chat, or share it with untrusted users.
+> The step-ca provisioner password is separate from the Admin setup token. Anyone with the provisioner password can issue MQTT device certificates trusted by the broker. Do not commit it, store it in `gateway.env`, paste it in tickets/chat, or share it with untrusted users.
 
 ## MQTT Cleanup
 
@@ -143,7 +143,7 @@ MQTT_MONTHLY_CLEANUP_DAY=1
 MQTT_MONTHLY_CLEANUP_HOUR=3
 ```
 
-Set `MQTT_MONTHLY_CLEANUP_ENABLED=no` in `broker.env` to disable the monthly cleanup. The cleanup can only clear topics that MQTT Manager has observed.
+Set `MQTT_MONTHLY_CLEANUP_ENABLED=no` in `gateway.env` to disable the monthly cleanup. The cleanup can only clear topics that MQTT Manager has observed.
 
 For uninstall, choose `Stop and clean the stack` in the same wizard. It stops and removes the containers first. It asks separately before deleting runtime data, certificates, CA files, admin data, local images, or local iptables rules. It does not delete repository files.
 
@@ -168,15 +168,17 @@ The update flow:
 - starts `step-ca`
 - rebuilds and recreates the application containers
 
-If `broker.env` has local VPS values and blocks `git pull`, keep the VPS copy:
+If an older VPS still has local values in the legacy `broker.env` file and blocks `git pull`, keep that VPS copy and let the updated wizard migrate it to `gateway.env`:
 
 ```bash
-cp broker.env /tmp/broker.env.vps.backup
-git stash push -m "vps broker env" -- broker.env
+cp broker.env /tmp/gateway.env.vps.backup
+git stash push -m "legacy broker env" -- broker.env
 git pull --ff-only
-cp /tmp/broker.env.vps.backup broker.env
+cp /tmp/gateway.env.vps.backup gateway.env
 sudo ./wizard.sh update
 ```
+
+For current installs, keep local values in `gateway.env`. This file is intentionally ignored by Git. `gateway.env.example` is the tracked template.
 
 If a previous `sudo git pull` broke `.git` permissions:
 
@@ -255,7 +257,7 @@ You can also upload or paste the CSR into the Admin Web and sign it there. After
 
 ## Integration Tests
 
-The repository includes Python integration tests managed with `uv`. They create a temporary device private key and CSR, sign the CSR with `step-ca`, then publish and receive test messages over both MQTTS and WSS.
+The repository includes Python integration tests managed with `uv`. They verify device key and CSR generation, sign a CSR with `step-ca`, then publish and receive test messages over both MQTTS and WSS.
 
 Required on the test machine:
 
@@ -267,12 +269,12 @@ Run from the repository root:
 
 ```bash
 set -a
-. ./broker.env
+. ./gateway.env
 set +a
 uv run pytest -s tests/integration
 ```
 
-The tests also read `broker.env` directly when it exists, but `set -a` exports the same values for tools such as `step`. The `-s` flag lets the test prompt for the step-ca provisioner password without showing it on screen. For non-interactive automation, pass `--provisioner-password` or set `STEP_CA_PROVISIONER_PASSWORD`, but avoid storing that value in shell history, CI logs, or committed files.
+The tests also read `gateway.env` directly when it exists, with fallback support for legacy `broker.env`, but `set -a` exports the same values for tools such as `step`. The `-s` flag lets the test prompt for the step-ca provisioner password without showing it on screen. For non-interactive automation, pass `--provisioner-password` or set `STEP_CA_PROVISIONER_PASSWORD`, but avoid storing that value in shell history, CI logs, or committed files.
 
 ## Troubleshooting
 
@@ -302,7 +304,7 @@ The update flow repairs the `runtime/step-ca` ownership and password permissions
 
 ## Security Notes
 
-- Do not commit `runtime/`, private keys, passwords, issued device keys, or production `broker.env` secrets.
+- Do not commit `runtime/`, private keys, passwords, issued device keys, or production `gateway.env` secrets.
 - Restrict `9000/tcp` where practical.
 - Prefer generating device private keys on a trusted provisioning workstation or directly on the device.
 - Protect the step-ca provisioner password. It can issue MQTT device certificates and is separate from the Admin setup token.

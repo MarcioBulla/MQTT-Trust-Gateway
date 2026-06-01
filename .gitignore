@@ -1,4 +1,6 @@
 runtime/
+gateway.env
+broker.env
 devices/
 *.key
 *.csr
