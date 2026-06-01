@@ -35,6 +35,23 @@ export function certificateMetadata(certificatePem) {
   };
 }
 
+export async function validateProvisionerPassword(provisionerPassword) {
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mqtt-trust-provisioner-check-'));
+  const passwordFile = path.join(workDir, 'password');
+
+  try {
+    await fs.writeFile(passwordFile, `${provisionerPassword}\n`, { mode: 0o600 });
+    await execFileAsync('step', [
+      'ca', 'token', 'provisioner-password-check',
+      '--ca-url', env.stepCaUrl,
+      '--root', env.clientCaFile,
+      ...passwordFileArgs(passwordFile),
+    ], { timeout: 30000 });
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true });
+  }
+}
+
 export async function signDeviceCsr({ deviceId, csr, provisionerPassword }) {
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mqtt-trust-csr-'));
   const csrFile = path.join(workDir, `${deviceId}.csr`);

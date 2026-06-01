@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { requireAuth } from '../auth.js';
 import { loadDb, saveDb } from '../db.js';
 import { env } from '../config.js';
-import { certificateMetadata, revokeCertificate, signDeviceCsr } from '../services/certificate-service.js';
+import { certificateMetadata, revokeCertificate, signDeviceCsr, validateProvisionerPassword } from '../services/certificate-service.js';
 
 function publicCertificate(certificate) {
   return {
@@ -40,6 +40,17 @@ function ensureCertificateIds(db) {
   return changed;
 }
 
+function clearExpiredRevokedCertificates(db) {
+  const cutoff = Date.now() - 300000;
+  const before = db.certificates.length;
+  db.certificates = db.certificates.filter((certificate) => {
+    if ((certificate.status || 'active') !== 'revoked') return true;
+    if (!certificate.revokedAt) return true;
+    return new Date(certificate.revokedAt).getTime() > cutoff;
+  });
+  return db.certificates.length !== before;
+}
+
 function storeIssuedCertificate(db, { deviceId, csr, certificate, issuedBy, renewedFrom = '' }) {
   const metadata = certificateMetadata(certificate);
   const record = {
@@ -64,13 +75,32 @@ export function registerCertificateRoutes(app) {
 
   app.get('/api/certificates', requireAuth(async (_req, res) => {
     const db = await loadDb();
-    if (ensureCertificateIds(db)) await saveDb(db);
+    const idsChanged = ensureCertificateIds(db);
+    const revokedChanged = clearExpiredRevokedCertificates(db);
+    const changed = idsChanged || revokedChanged;
+    if (changed) await saveDb(db);
     res.json({ certificates: db.certificates.map(publicCertificate) });
+  }));
+
+  app.post('/api/certificates/provisioner-password/verify', requireAuth(async (req, res) => {
+    const provisionerPassword = String(req.body.provisionerPassword || '');
+    if (!provisionerPassword) return res.status(400).json({ error: 'provisioner password is required' });
+    try {
+      await validateProvisionerPassword(provisionerPassword);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(403).json({ error: error.stderr || error.message });
+    }
   }));
 
   app.get('/api/certificates/:id/download', requireAuth(async (req, res) => {
     const provisionerPassword = String(req.query.provisionerPassword || '');
     if (!provisionerPassword) return res.status(400).json({ error: 'provisioner password is required' });
+    try {
+      await validateProvisionerPassword(provisionerPassword);
+    } catch (error) {
+      return res.status(403).json({ error: error.stderr || error.message });
+    }
     const db = await loadDb();
     const certificate = findCertificate(db, req.params.id);
     if (!certificate?.certificate) return res.status(404).json({ error: 'certificate not found' });

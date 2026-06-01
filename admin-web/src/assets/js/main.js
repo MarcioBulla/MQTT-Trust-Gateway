@@ -1,6 +1,6 @@
 import { requestJson } from './api.js';
 import { loginPasskey, logout, registerPasskey } from './auth.js';
-import { bindCertificateList, downloadCaCertificate, downloadCertificate, loadCertificates, loadCsrFile, scheduleProvisionerPasswordClear, signCsr, toggleCsrHelp, updateCsrHelpCommands } from './certificates.js';
+import { bindCertificateList, downloadCaCertificate, downloadCertificate, loadCertificates, loadCsrFile, scheduleProvisionerPasswordClear, signCsr, toggleCsrHelp, unlockProvisionerPassword, updateCsrHelpCommands } from './certificates.js';
 import { bindSettingsMenu, closeSettingsMenu, toggleSettingsMenu } from './menu.js';
 import { bindTopicTools, loadStatus, loadTopics, publishMessage } from './mqtt-manager.js';
 import { setNotice } from './notice.js';
@@ -60,6 +60,7 @@ document.getElementById('downloadCaButton').addEventListener('click', downloadCa
 document.getElementById('csrFile').addEventListener('change', (event) => runAction(() => loadCsrFile(event.target.files[0])));
 document.getElementById('deviceId').addEventListener('input', updateCsrHelpCommands);
 document.getElementById('provisionerPassword').addEventListener('input', scheduleProvisionerPasswordClear);
+document.getElementById('submitProvisionerPasswordButton').addEventListener('click', () => runAction(unlockProvisionerPassword));
 document.getElementById('refreshCertificatesButton').addEventListener('click', () => runAction(loadCertificates));
 document.getElementById('csrHelpToggle').addEventListener('click', toggleCsrHelp);
 document.getElementById('saveUsernameButton').addEventListener('click', () => runAction(saveUsername));
