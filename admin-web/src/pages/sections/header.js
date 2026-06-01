@@ -9,7 +9,7 @@ export function appHeader() {
     </div>
     <nav class="main-nav">
       <button id="mqttManagerTab" class="secondary" type="button"><span class="nf">&#xf233;</span> MQTT Manager</button>
-      <button id="signaturesTab" class="secondary" type="button"><span class="nf">&#xf0e3;</span> Assinaturas</button>
+      <button id="signaturesTab" class="secondary" type="button"><span class="nf">&#xf0e3;</span> Signatures</button>
     </nav>
     <div class="header-actions">
       <div class="dropdown">

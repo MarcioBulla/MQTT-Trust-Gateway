@@ -2,6 +2,7 @@ import { get, post } from './api.js';
 import { setNotice } from './notice.js';
 
 let lastCertificate = '';
+let cachedCertificates = [];
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -18,6 +19,15 @@ function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function dateValue(value) {
+  const date = new Date(value || 0);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function textValue(value) {
+  return String(value || '').toLowerCase();
 }
 
 function provisionerPassword() {
@@ -114,14 +124,47 @@ function renderCertificate(certificate) {
   '</div>';
 }
 
-export async function loadCertificates() {
+function certificateSearchText(certificate) {
+  return [
+    certificate.deviceId,
+    certificate.serial,
+    certificate.subject,
+    certificate.status,
+    certificate.issuedBy,
+    certificate.validFrom,
+    certificate.validTo,
+  ].map((value) => String(value || '')).join(' ').toLowerCase();
+}
+
+function sortedCertificates(certificates) {
+  const sort = document.getElementById('certificateSort').value;
+  return [...certificates].sort((a, b) => {
+    if (sort === 'issuedAsc') return dateValue(a.issuedAt) - dateValue(b.issuedAt);
+    if (sort === 'validToAsc') return dateValue(a.validTo) - dateValue(b.validTo);
+    if (sort === 'validToDesc') return dateValue(b.validTo) - dateValue(a.validTo);
+    if (sort === 'deviceAsc') return textValue(a.deviceId).localeCompare(textValue(b.deviceId));
+    if (sort === 'deviceDesc') return textValue(b.deviceId).localeCompare(textValue(a.deviceId));
+    if (sort === 'statusAsc') return textValue(a.status).localeCompare(textValue(b.status));
+    if (sort === 'statusDesc') return textValue(b.status).localeCompare(textValue(a.status));
+    return dateValue(b.issuedAt) - dateValue(a.issuedAt);
+  });
+}
+
+export function renderCertificates() {
   const target = document.getElementById('certificateList');
-  const data = await get('/api/certificates');
-  if (!data.certificates.length) {
+  const search = document.getElementById('certificateSearch').value.trim().toLowerCase();
+  const filtered = cachedCertificates.filter((certificate) => certificateSearchText(certificate).includes(search));
+  if (!filtered.length) {
     target.innerHTML = '<p class="muted">No certificates issued yet.</p>';
     return;
   }
-  target.innerHTML = data.certificates.map(renderCertificate).join('');
+  target.innerHTML = sortedCertificates(filtered).map(renderCertificate).join('');
+}
+
+export async function loadCertificates() {
+  const data = await get('/api/certificates');
+  cachedCertificates = data.certificates;
+  renderCertificates();
 }
 
 export function downloadIssuedCertificate(id) {
@@ -158,6 +201,9 @@ export function bindCertificateList() {
     if (button.dataset.revokeCertificate) revokeIssuedCertificate(button.dataset.revokeCertificate).catch((error) => setNotice(error.message || String(error), 'error'));
     if (button.dataset.renewCertificate) renewIssuedCertificate(button.dataset.renewCertificate).catch((error) => setNotice(error.message || String(error), 'error'));
   });
+  document.getElementById('certificateSearch').addEventListener('input', renderCertificates);
+  document.getElementById('certificateSort').addEventListener('input', renderCertificates);
+  document.getElementById('certificateSort').addEventListener('change', renderCertificates);
 }
 
 export function toggleCsrHelp() {
