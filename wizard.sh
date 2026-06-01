@@ -2,7 +2,9 @@
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-ENV_FILE="${SCRIPT_DIR}/broker.env"
+GATEWAY_ENV_FILE="${SCRIPT_DIR}/gateway.env"
+LEGACY_ENV_FILE="${SCRIPT_DIR}/broker.env"
+ENV_FILE="${GATEWAY_ENV_FILE}"
 WT_BACKTITLE="MQTT Trust Gateway Wizard"
 WIZARD_PREVIEW="no"
 WIZARD_AUTO_UPDATE="no"
@@ -70,7 +72,25 @@ if ! command -v whiptail >/dev/null 2>&1; then
   exit 1
 fi
 
+select_env_file() {
+  if [ -f "${GATEWAY_ENV_FILE}" ]; then
+    ENV_FILE="${GATEWAY_ENV_FILE}"
+  elif [ -f "${LEGACY_ENV_FILE}" ]; then
+    ENV_FILE="${LEGACY_ENV_FILE}"
+  else
+    ENV_FILE="${GATEWAY_ENV_FILE}"
+  fi
+}
+
+ensure_gateway_env_file() {
+  if [ ! -f "${GATEWAY_ENV_FILE}" ] && [ -f "${LEGACY_ENV_FILE}" ]; then
+    cp "${LEGACY_ENV_FILE}" "${GATEWAY_ENV_FILE}"
+  fi
+  ENV_FILE="${GATEWAY_ENV_FILE}"
+}
+
 load_env_file() {
+  select_env_file
   [ -f "${ENV_FILE}" ] || return 0
 
   while IFS= read -r line || [ -n "${line}" ]; do
@@ -110,6 +130,33 @@ absolute_path() {
 
 normalize_admin_name() {
   printf "%s" "$1" | sed 's/[[:space:]]\+/_/g'
+}
+
+normalize_yes_no() {
+  case "$(printf "%s" "$1" | tr '[:upper:]' '[:lower:]')" in
+    yes|y|true|1|on) printf "yes\n" ;;
+    no|n|false|0|off) printf "no\n" ;;
+    *) printf "%s\n" "$2" ;;
+  esac
+}
+
+clamp_number() {
+  value="$1"
+  fallback="$2"
+  min="$3"
+  max="$4"
+
+  case "${value}" in
+    ''|*[!0-9]*) value="${fallback}" ;;
+  esac
+
+  if [ "${value}" -lt "${min}" ]; then
+    value="${min}"
+  elif [ "${value}" -gt "${max}" ]; then
+    value="${max}"
+  fi
+
+  printf "%s\n" "${value}"
 }
 
 random_secret() {
@@ -299,9 +346,9 @@ defaults() {
   ADMIN_APP_PORT="${ADMIN_APP_PORT:-8080}"
   BASE_DIR="${BASE_DIR:-./runtime}"
   MQTT_TOPIC_PREFIX="${MQTT_TOPIC_PREFIX:-devices}"
-  MQTT_MONTHLY_CLEANUP_ENABLED="${MQTT_MONTHLY_CLEANUP_ENABLED:-yes}"
-  MQTT_MONTHLY_CLEANUP_DAY="${MQTT_MONTHLY_CLEANUP_DAY:-1}"
-  MQTT_MONTHLY_CLEANUP_HOUR="${MQTT_MONTHLY_CLEANUP_HOUR:-3}"
+  MQTT_MONTHLY_CLEANUP_ENABLED="$(normalize_yes_no "${MQTT_MONTHLY_CLEANUP_ENABLED:-yes}" "yes")"
+  MQTT_MONTHLY_CLEANUP_DAY="$(clamp_number "${MQTT_MONTHLY_CLEANUP_DAY:-1}" 1 1 28)"
+  MQTT_MONTHLY_CLEANUP_HOUR="$(clamp_number "${MQTT_MONTHLY_CLEANUP_HOUR:-3}" 3 0 23)"
   STEP_CA_PORT="${STEP_CA_PORT:-9000}"
   STEP_CA_PROVISIONER="${STEP_CA_PROVISIONER:-mqtt-devices}"
   STEP_CA_FINGERPRINT="${STEP_CA_FINGERPRINT:-}"
@@ -526,6 +573,7 @@ EOF
 }
 
 run_compose() {
+  ensure_gateway_env_file
   env \
     MQTT_DOMAIN="${MQTT_DOMAIN}" \
     MQTT_USE_PUBLIC_IP="${MQTT_USE_PUBLIC_IP}" \
@@ -564,6 +612,7 @@ write_env() {
     return 0
   fi
 
+  ENV_FILE="${GATEWAY_ENV_FILE}"
   cat > "${ENV_FILE}" <<EOF
 # Domain
 MQTT_DOMAIN=${MQTT_DOMAIN}
@@ -660,7 +709,7 @@ install_summary() {
     "" \
     "Provisioner password disclaimer:" \
     "  The step-ca provisioner password can issue MQTT device certificates." \
-    "  It is not the Admin setup token and is not stored in broker.env." \
+    "  It is not the Admin setup token and is not stored in gateway.env." \
     "  Do not commit it or share it with untrusted users." \
     "" \
     "Admin passkey RP name: ${ADMIN_RP_NAME}" \
@@ -873,9 +922,9 @@ configure_basic() {
   ADMIN_HTTPS_PORT="${ADMIN_HTTPS_PORT:-443}"
   ADMIN_APP_PORT="${ADMIN_APP_PORT:-8080}"
   MQTT_TOPIC_PREFIX="${MQTT_TOPIC_PREFIX:-devices}"
-  MQTT_MONTHLY_CLEANUP_ENABLED="${MQTT_MONTHLY_CLEANUP_ENABLED:-yes}"
-  MQTT_MONTHLY_CLEANUP_DAY="${MQTT_MONTHLY_CLEANUP_DAY:-1}"
-  MQTT_MONTHLY_CLEANUP_HOUR="${MQTT_MONTHLY_CLEANUP_HOUR:-3}"
+  MQTT_MONTHLY_CLEANUP_ENABLED="$(normalize_yes_no "${MQTT_MONTHLY_CLEANUP_ENABLED:-yes}" "yes")"
+  MQTT_MONTHLY_CLEANUP_DAY="$(clamp_number "${MQTT_MONTHLY_CLEANUP_DAY:-1}" 1 1 28)"
+  MQTT_MONTHLY_CLEANUP_HOUR="$(clamp_number "${MQTT_MONTHLY_CLEANUP_HOUR:-3}" 3 0 23)"
   STEP_CA_PORT="${STEP_CA_PORT:-9000}"
   STEP_CA_PROVISIONER="${STEP_CA_PROVISIONER:-mqtt-devices}"
   STEP_CA_DEVICE_CERT_TTL="${STEP_CA_DEVICE_CERT_TTL:-17520h}"
@@ -898,9 +947,12 @@ configure_advanced() {
   ADMIN_APP_PORT="$(wt_input "Advanced" "Internal Admin Web port." "${ADMIN_APP_PORT}")" || return 1
   MQTT_TOPIC_PREFIX="$(wt_input "Advanced" "MQTT topic prefix." "${MQTT_TOPIC_PREFIX}")" || return 1
   MQTT_MONTHLY_CLEANUP_ENABLED="$(wt_input "Advanced" "Monthly MQTT cleanup enabled? Use yes or no." "${MQTT_MONTHLY_CLEANUP_ENABLED}")" || return 1
+  MQTT_MONTHLY_CLEANUP_ENABLED="$(normalize_yes_no "${MQTT_MONTHLY_CLEANUP_ENABLED}" "yes")"
   MQTT_MONTHLY_CLEANUP_DAY="$(wt_input "Advanced" "Monthly MQTT cleanup day. Use 1-28." "${MQTT_MONTHLY_CLEANUP_DAY}")" || return 1
+  MQTT_MONTHLY_CLEANUP_DAY="$(clamp_number "${MQTT_MONTHLY_CLEANUP_DAY}" 1 1 28)"
   MQTT_MONTHLY_CLEANUP_HOUR="$(wt_input "Advanced" "Monthly MQTT cleanup hour. Use 0-23." "${MQTT_MONTHLY_CLEANUP_HOUR}")" || return 1
-  admin_rp_input="$(wt_input "Advanced" "Admin passkey display name. Spaces are saved as underscores in broker.env." "${ADMIN_RP_NAME}")" || return 1
+  MQTT_MONTHLY_CLEANUP_HOUR="$(clamp_number "${MQTT_MONTHLY_CLEANUP_HOUR}" 3 0 23)"
+  admin_rp_input="$(wt_input "Advanced" "Admin passkey display name. Spaces are saved as underscores in gateway.env." "${ADMIN_RP_NAME}")" || return 1
   ADMIN_RP_NAME="$(normalize_admin_name "${admin_rp_input}")"
   STEP_CA_PORT="$(wt_input "Advanced" "step-ca external port." "${STEP_CA_PORT}")" || return 1
   STEP_CA_PROVISIONER="$(wt_input "Advanced" "step-ca provisioner name." "${STEP_CA_PROVISIONER}")" || return 1
@@ -968,7 +1020,7 @@ Preview mode: no files were written, no certificates were initialized, and no co
       wt_msg "Firewall port setup failed. Review the log shown by the wizard before starting containers."
       return 1
     fi
-    if ! wt_progress_command "Starting step-ca" run_compose --env-file broker.env -f step-ca/compose.step-ca.yaml up -d; then
+    if ! wt_progress_command "Starting step-ca" run_compose --env-file "${ENV_FILE}" -f step-ca/compose.step-ca.yaml up -d; then
       wt_msg "step-ca container startup failed. Review the log shown by the wizard."
       return 1
     fi
@@ -976,7 +1028,7 @@ Preview mode: no files were written, no certificates were initialized, and no co
       wt_msg "step-ca was started, but the MQTT client CA was not found at:\n\n${BASE_DIR}/pki/step-ca/ca.crt\n\nRun install again and initialize step-ca before starting the broker."
       return 0
     fi
-    if ! wt_progress_command "Starting gateway" run_compose --env-file broker.env up -d --build; then
+    if ! wt_progress_command "Starting gateway" run_compose --env-file "${ENV_FILE}" up -d --build; then
       wt_msg "Gateway startup failed. Review the log shown by the wizard."
       return 1
     fi
@@ -1040,8 +1092,9 @@ run_uninstall() {
   BASE_DIR="$(absolute_path "${BASE_DIR}")"
   CONTAINER_ENGINE="${CONTAINER_ENGINE:-$(preferred_container_engine)}"
   derive_public_endpoints
+  ensure_gateway_env_file
   if [ "${WIZARD_PREVIEW}" = "yes" ]; then
-    wt_msg "Preview mode is active.\n\nYou can navigate the uninstall wizard, but no containers, images, runtime data, repository files, broker.env, or iptables rules will be changed."
+    wt_msg "Preview mode is active.\n\nYou can navigate the uninstall wizard, but no containers, images, runtime data, repository files, gateway.env, or iptables rules will be changed."
   fi
 
   choose_engine || return 0
@@ -1060,7 +1113,7 @@ run_uninstall() {
     if wt_yesno_default "Preview removing local iptables ACCEPT rules for configured ports?" "no"; then
       :
     fi
-    wt_msg "Uninstall preview finished.\n\nNo containers, images, runtime data, repository files, broker.env, or iptables rules were changed."
+    wt_msg "Uninstall preview finished.\n\nNo containers, images, runtime data, repository files, gateway.env, or iptables rules were changed."
     return 0
   fi
 
@@ -1070,15 +1123,15 @@ run_uninstall() {
   fi
 
   cd "${SCRIPT_DIR}"
-  wt_progress_command "Stopping gateway" run_compose --env-file broker.env down --remove-orphans || true
-  wt_progress_command "Stopping step-ca" run_compose --env-file broker.env -f step-ca/compose.step-ca.yaml down --remove-orphans || true
+  wt_progress_command "Stopping gateway" run_compose --env-file "${ENV_FILE}" down --remove-orphans || true
+  wt_progress_command "Stopping step-ca" run_compose --env-file "${ENV_FILE}" -f step-ca/compose.step-ca.yaml down --remove-orphans || true
   remove_named_containers
 
   if wt_yesno_default "Remove locally built images?" "no"; then
     remove_images
   fi
 
-  if wt_yesno_default "Delete runtime data at ${BASE_DIR}?\n\nThis removes certificates, CA files, admin DB, and Mosquitto data.\n\nRepository files and broker.env will not be deleted." "no"; then
+  if wt_yesno_default "Delete runtime data at ${BASE_DIR}?\n\nThis removes certificates, CA files, admin DB, and Mosquitto data.\n\nRepository files and gateway.env will not be deleted." "no"; then
     rm -rf "${BASE_DIR}"
   fi
 
@@ -1097,6 +1150,7 @@ run_update() {
   defaults
   BASE_DIR="$(absolute_path "${BASE_DIR}")"
   derive_public_endpoints
+  ensure_gateway_env_file
   if [ "${WIZARD_AUTO_UPDATE:-no}" = "yes" ]; then
     CONTAINER_ENGINE="$(preferred_container_engine)"
     printf "Running automatic update with %s compose.\n" "${CONTAINER_ENGINE}"
@@ -1167,15 +1221,15 @@ Preview mode: would optionally run git pull, then rebuild and recreate:
     return 1
   fi
 
-  wt_progress_command "Stopping gateway" run_compose --env-file broker.env down --remove-orphans || true
+  wt_progress_command "Stopping gateway" run_compose --env-file "${ENV_FILE}" down --remove-orphans || true
   remove_update_containers
 
-  if ! wt_progress_command "Starting step-ca" run_compose --env-file broker.env -f step-ca/compose.step-ca.yaml up -d; then
+  if ! wt_progress_command "Starting step-ca" run_compose --env-file "${ENV_FILE}" -f step-ca/compose.step-ca.yaml up -d; then
     notify_message "step-ca container startup failed. Review the log shown by the wizard."
     return 1
   fi
 
-  if ! wt_progress_command "Updating gateway" run_compose --env-file broker.env up -d --build; then
+  if ! wt_progress_command "Updating gateway" run_compose --env-file "${ENV_FILE}" up -d --build; then
     notify_message "Update failed. Review the log shown by the wizard."
     return 1
   fi
