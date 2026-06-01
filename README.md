@@ -2,6 +2,19 @@
 
 MQTT Trust Gateway is a secure MQTT broker stack for VPS deployments.
 
+It is built for deployments where MQTT access should be tied to device identity instead of shared passwords. Devices connect with client certificates, admins sign in with passkeys, and the VPS exposes a managed HTTPS control panel for certificates, topics, and operations.
+
+Key advantages:
+
+- Certificate-based device identity with mutual TLS, so each device gets its own credential instead of sharing a broker password.
+- Local device CA with Smallstep `step-ca`, giving you controlled certificate issuance, root fingerprint validation, CSR signing, and certificate TTLs.
+- Admin access protected by passkeys/WebAuthn, including KeePassXC-compatible passkey registration and login.
+- Public HTTPS and MQTT TLS through Let's Encrypt, with Certbot renewal containers included in the stack.
+- Browser Admin Web for signing CSRs, downloading certificates, managing passkeys, publishing MQTT messages, and inspecting topic traffic.
+- MQTT over both MQTTS and secure WebSocket, useful for native devices, web clients, dashboards, and diagnostics.
+- Wizard-driven VPS setup that checks DNS, firewall, ports, runtime paths, step-ca, certificates, and containers.
+- Integration tests with `uv` and Python for key generation, CSR signing, MQTTS, and WSS message roundtrips.
+
 It provides:
 
 - Mosquitto with public TLS using Let's Encrypt
