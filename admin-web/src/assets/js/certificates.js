@@ -4,6 +4,8 @@ import { setNotice } from './notice.js';
 let lastCertificate = '';
 let cachedCertificates = [];
 let passwordClearTimer = null;
+let revokedCleanupTimer = null;
+let provisionerPasswordSubmitted = false;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -35,13 +37,38 @@ function provisionerPassword() {
   return document.getElementById('provisionerPassword').value;
 }
 
-export function scheduleProvisionerPasswordClear() {
+function setSensitiveActionsLocked(locked) {
+  provisionerPasswordSubmitted = !locked;
+  const status = document.getElementById('provisionerPasswordState');
+  status.textContent = locked
+    ? 'Sensitive certificate actions are locked.'
+    : 'Sensitive certificate actions are unlocked for 5 minutes.';
+  document.getElementById('signCsrButton').hidden = locked;
+  document.getElementById('downloadCertButton').hidden = locked || !lastCertificate;
+  renderCertificates();
+}
+
+function clearProvisionerPassword() {
+  const input = document.getElementById('provisionerPassword');
+  input.value = '';
+  setSensitiveActionsLocked(true);
+  setNotice('Provisioner password cleared from the page.', 'ok');
+}
+
+export function scheduleProvisionerPasswordClear(lockNow = true) {
+  if (lockNow) setSensitiveActionsLocked(true);
   if (passwordClearTimer) clearTimeout(passwordClearTimer);
-  passwordClearTimer = setTimeout(() => {
-    const input = document.getElementById('provisionerPassword');
-    input.value = '';
-    setNotice('Provisioner password cleared from the page.', 'ok');
-  }, 300000);
+  if (!provisionerPassword()) {
+    document.getElementById('provisionerPassword').value = '';
+    return;
+  }
+  passwordClearTimer = setTimeout(clearProvisionerPassword, 300000);
+}
+
+function requireUnlockedProvisionerPassword(action) {
+  if (!provisionerPasswordSubmitted || !provisionerPassword()) {
+    throw new Error(`Submit the provisioner password before ${action}.`);
+  }
 }
 
 function currentDeviceId() {
@@ -82,7 +109,17 @@ export async function loadCsrFile(file) {
   setNotice('CSR file loaded.', 'ok');
 }
 
+export async function unlockProvisionerPassword() {
+  if (!provisionerPassword()) throw new Error('Provisioner password is required.');
+  await post('/api/certificates/provisioner-password/verify', {
+    provisionerPassword: provisionerPassword(),
+  });
+  setSensitiveActionsLocked(false);
+  scheduleProvisionerPasswordClear(false);
+}
+
 export async function signCsr() {
+  requireUnlockedProvisionerPassword('signing a CSR');
   const data = await post('/api/certificates/sign', {
     deviceId: document.getElementById('deviceId').value,
     provisionerPassword: provisionerPassword(),
@@ -91,6 +128,7 @@ export async function signCsr() {
   lastCertificate = data.certificate;
   document.getElementById('cert').textContent = lastCertificate;
   document.getElementById('downloadCertButton').disabled = false;
+  document.getElementById('downloadCertButton').hidden = !provisionerPasswordSubmitted;
   await loadCertificates();
 }
 
@@ -105,44 +143,49 @@ export function downloadCaCertificate() {
 }
 
 function certificateActions(certificate) {
-  const disabledDownload = certificate.canDownload ? '' : ' disabled';
-  const disabledRenew = certificate.canRenew ? '' : ' disabled';
-  const disabledRevoke = certificate.canRevoke ? '' : ' disabled';
-  const disabledClear = certificate.status === 'revoked' ? '' : ' disabled';
-  return '<div class="certificate-actions">' +
-    `<button class="secondary" type="button" data-download-certificate="${escapeHtml(certificate.id)}"${disabledDownload}><span class="nf">&#xf019;</span> Download</button>` +
-    `<button class="secondary" type="button" data-renew-certificate="${escapeHtml(certificate.id)}"${disabledRenew}><span class="nf">&#xf021;</span> Renew</button>` +
-    `<button class="danger" type="button" data-revoke-certificate="${escapeHtml(certificate.id)}"${disabledRevoke}><span class="nf">&#xf1f8;</span> Revoke</button>` +
-    `<button class="danger" type="button" data-clear-certificate="${escapeHtml(certificate.id)}"${disabledClear}><span class="nf">&#xf00d;</span> Clear</button>` +
-    '</div>';
+  if (!provisionerPasswordSubmitted) return '';
+  const downloadDisabled = certificate.canDownload ? '' : ' disabled';
+  const renewDisabled = certificate.canRenew ? '' : ' disabled';
+  const revokeDisabled = certificate.canRevoke ? '' : ' disabled';
+  const clearDisabled = certificate.status === 'revoked' ? '' : ' disabled';
+
+  return `<div class="certificate-actions">
+    <button class="secondary" type="button" data-download-certificate="${escapeHtml(certificate.id)}"${downloadDisabled}><span class="nf">&#xf019;</span> Download</button>
+    <button class="secondary" type="button" data-renew-certificate="${escapeHtml(certificate.id)}"${renewDisabled}><span class="nf">&#xf021;</span> Renew</button>
+    <button class="danger" type="button" data-revoke-certificate="${escapeHtml(certificate.id)}"${revokeDisabled}><span class="nf">&#xf05e;</span> Revoke</button>
+    <button class="danger" type="button" data-clear-certificate="${escapeHtml(certificate.id)}"${clearDisabled}><span class="nf">&#xf1f8;</span> Clear</button>
+  </div>`;
 }
 
 function renderCertificate(certificate) {
   const status = certificate.status || 'active';
-  const renewed = certificate.renewedFrom ? `<div class="certificate-meta">Renewed from: ${escapeHtml(certificate.renewedFrom)}</div>` : '';
-  const revoked = certificate.revokedAt ? `<div class="certificate-meta">Revoked: ${escapeHtml(formatDate(certificate.revokedAt))}</div>` : '';
-  return '<div class="certificate-row">' +
-    '<div>' +
-      `<div class="certificate-title">${escapeHtml(certificate.deviceId || 'Unknown device')}</div>` +
-      `<div class="certificate-meta">Serial: ${escapeHtml(certificate.serial || 'not available')}</div>` +
-      `<div class="certificate-meta">Valid from: ${escapeHtml(formatDate(certificate.validFrom))}</div>` +
-      `<div class="certificate-meta">Valid to: ${escapeHtml(formatDate(certificate.validTo))}</div>` +
-      `<div class="certificate-meta">Issued: ${escapeHtml(formatDate(certificate.issuedAt))} by ${escapeHtml(certificate.issuedBy || 'unknown')}</div>` +
-      renewed +
-      revoked +
-      `<span class="certificate-status ${escapeHtml(status)}">${escapeHtml(status)}</span>` +
-    '</div>' +
-    certificateActions(certificate) +
-  '</div>';
+  return `<article class="certificate-row">
+    <div>
+      <div class="certificate-title">${escapeHtml(certificate.subject || certificate.deviceId || 'Unknown certificate')}</div>
+      <div class="certificate-meta">Serial: ${escapeHtml(certificate.serial || 'not available')}</div>
+      <div class="certificate-meta">Valid: ${escapeHtml(formatDate(certificate.validFrom))} -> ${escapeHtml(formatDate(certificate.validTo))}</div>
+      <div class="certificate-meta">Issued: ${escapeHtml(formatDate(certificate.issuedAt))} by ${escapeHtml(certificate.issuedBy || 'unknown')}</div>
+      ${certificate.renewedFrom ? `<div class="certificate-meta">Renewed from: ${escapeHtml(certificate.renewedFrom)}</div>` : ''}
+      ${certificate.revokedAt ? `<div class="certificate-meta">Revoked: ${escapeHtml(formatDate(certificate.revokedAt))} by ${escapeHtml(certificate.revokedBy || 'unknown')}</div>` : ''}
+      <span class="certificate-status ${escapeHtml(status)}">${escapeHtml(status)}</span>
+    </div>
+    ${certificateActions(certificate)}
+  </article>`;
 }
 
 function certificateGroup(deviceId, certificates) {
+  const search = document.getElementById('certificateSearch').value.trim();
+  const open = search ? ' open' : '';
   const activeCount = certificates.filter((certificate) => (certificate.status || 'active') === 'active').length;
-  const revokedCount = certificates.length - activeCount;
-  return '<details class="certificate-device-group" open>' +
-    `<summary><span>${escapeHtml(deviceId || 'Unknown device')}</span><span class="certificate-meta">${activeCount} active, ${revokedCount} revoked</span></summary>` +
-    certificates.map(renderCertificate).join('') +
-  '</details>';
+  const revokedCount = certificates.filter((certificate) => certificate.status === 'revoked').length;
+
+  return `<details class="certificate-device-group"${open}>
+    <summary>
+      <span>${escapeHtml(deviceId)}</span>
+      <span class="certificate-group-meta">${activeCount} active / ${revokedCount} revoked</span>
+    </summary>
+    ${certificates.map(renderCertificate).join('')}
+  </details>`;
 }
 
 function certificateSearchText(certificate) {
@@ -191,16 +234,17 @@ export async function loadCertificates() {
   const data = await get('/api/certificates');
   cachedCertificates = data.certificates;
   renderCertificates();
+  scheduleRevokedCertificateCleanup();
 }
 
 export function downloadIssuedCertificate(id) {
-  if (!provisionerPassword()) throw new Error('Provisioner password is required to download a certificate.');
+  requireUnlockedProvisionerPassword('downloading a certificate');
   const query = new URLSearchParams({ provisionerPassword: provisionerPassword() });
   window.location.assign('/api/certificates/' + encodeURIComponent(id) + '/download?' + query.toString());
 }
 
 export async function revokeIssuedCertificate(id) {
-  if (!provisionerPassword()) throw new Error('Provisioner password is required to revoke a certificate.');
+  requireUnlockedProvisionerPassword('revoking a certificate');
   if (!window.confirm('Revoke this certificate? This cannot be undone.')) return;
   await post('/api/certificates/' + encodeURIComponent(id) + '/revoke', {
     provisionerPassword: provisionerPassword(),
@@ -210,13 +254,14 @@ export async function revokeIssuedCertificate(id) {
 }
 
 export async function renewIssuedCertificate(id) {
-  if (!provisionerPassword()) throw new Error('Provisioner password is required to renew a certificate.');
+  requireUnlockedProvisionerPassword('renewing a certificate');
   const data = await post('/api/certificates/' + encodeURIComponent(id) + '/renew', {
     provisionerPassword: provisionerPassword(),
   });
   lastCertificate = data.certificate;
   document.getElementById('cert').textContent = lastCertificate;
   document.getElementById('downloadCertButton').disabled = false;
+  document.getElementById('downloadCertButton').hidden = !provisionerPasswordSubmitted;
   setNotice('Certificate renewed.', 'ok');
   await loadCertificates();
 }
@@ -225,6 +270,18 @@ export async function clearIssuedCertificate(id) {
   await del('/api/certificates/' + encodeURIComponent(id));
   setNotice('Revoked certificate cleared from the list.', 'ok');
   await loadCertificates();
+}
+
+function scheduleRevokedCertificateCleanup() {
+  if (revokedCleanupTimer) clearTimeout(revokedCleanupTimer);
+  const now = Date.now();
+  const revoked = cachedCertificates
+    .filter((certificate) => certificate.status === 'revoked' && certificate.revokedAt)
+    .map((certificate) => dateValue(certificate.revokedAt) + 300000)
+    .filter((timestamp) => timestamp > now);
+
+  if (!revoked.length) return;
+  revokedCleanupTimer = setTimeout(loadCertificates, Math.max(1000, Math.min(...revoked) - now + 1000));
 }
 
 export function bindCertificateList() {

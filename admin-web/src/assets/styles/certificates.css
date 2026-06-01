@@ -10,6 +10,10 @@
   margin: 12px 0;
 }
 
+.provisioner-unlock {
+  margin-bottom: 12px;
+}
+
 .certificate-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -36,6 +40,12 @@
   cursor: pointer;
   font-weight: 700;
   padding: 8px 0;
+}
+
+.certificate-group-meta {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 
 .certificate-row:first-child {

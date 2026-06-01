@@ -11,11 +11,15 @@ export function signaturesSection() {
         <label>Device ID<input id="deviceId" placeholder="device-01"></label>
         <label>Provisioner password<input id="provisionerPassword" placeholder="Provisioner password" type="password"></label>
       </div>
+      <div class="inline provisioner-unlock">
+        <button id="submitProvisionerPasswordButton" class="secondary" type="button"><span class="nf">&#xf023;</span> Submit password</button>
+        <span id="provisionerPasswordState" class="muted">Sensitive certificate actions are locked.</span>
+      </div>
       <label>CSR file<input id="csrFile" type="file" accept=".csr,.pem,.txt,application/pkcs10"></label>
       <label>CSR PEM<textarea id="csr" placeholder="Paste CSR PEM here"></textarea></label>
-      <button id="signCsrButton" type="button"><span class="nf">&#xf084;</span> Sign CSR</button>
+      <button id="signCsrButton" type="button" hidden><span class="nf">&#xf084;</span> Sign CSR</button>
       <div class="inline download-actions">
-        <button id="downloadCertButton" class="secondary" type="button" disabled><span class="nf">&#xf019;</span> Download certificate</button>
+        <button id="downloadCertButton" class="secondary" type="button" disabled hidden><span class="nf">&#xf019;</span> Download certificate</button>
         <button id="downloadCaButton" class="secondary" type="button"><span class="nf">&#xf019;</span> Download CA</button>
       </div>
       <pre id="cert"></pre>
