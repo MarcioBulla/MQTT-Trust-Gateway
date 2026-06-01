@@ -69,12 +69,24 @@ export function registerCertificateRoutes(app) {
   }));
 
   app.get('/api/certificates/:id/download', requireAuth(async (req, res) => {
+    const provisionerPassword = String(req.query.provisionerPassword || '');
+    if (!provisionerPassword) return res.status(400).json({ error: 'provisioner password is required' });
     const db = await loadDb();
     const certificate = findCertificate(db, req.params.id);
     if (!certificate?.certificate) return res.status(404).json({ error: 'certificate not found' });
     res.setHeader('content-type', 'application/x-pem-file');
     res.setHeader('content-disposition', `attachment; filename="${certificate.deviceId || 'device'}.crt"`);
     res.send(certificate.certificate);
+  }));
+
+  app.delete('/api/certificates/:id', requireAuth(async (req, res) => {
+    const db = await loadDb();
+    const certificate = findCertificate(db, req.params.id);
+    if (!certificate) return res.status(404).json({ error: 'certificate not found' });
+    if ((certificate.status || 'active') !== 'revoked') return res.status(409).json({ error: 'only revoked certificates can be cleared' });
+    db.certificates = db.certificates.filter((item) => item.id !== certificate.id);
+    await saveDb(db);
+    res.json({ ok: true });
   }));
 
   app.post('/api/certificates/sign', requireAuth(async (req, res) => {

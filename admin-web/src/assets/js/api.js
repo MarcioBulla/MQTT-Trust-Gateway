@@ -16,3 +16,7 @@ export function post(url, body) {
 export function get(url) {
   return requestJson(url);
 }
+
+export function del(url) {
+  return requestJson(url, { method: 'DELETE' });
+}
