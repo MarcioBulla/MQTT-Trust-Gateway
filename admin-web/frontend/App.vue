@@ -50,8 +50,13 @@ onMounted(() => action(refreshUser));
   <v-app>
     <v-navigation-drawer v-if="state.user" v-model="drawer">
       <div class="pa-6">
-        <div class="text-overline text-primary">MQTT / TRUST</div>
-        <div class="text-h6 font-weight-bold">Gateway console</div>
+        <div class="d-flex align-center ga-3">
+          <img src="/MyMosquitto.svg" alt="" width="40" height="40" class="flex-shrink-0" />
+          <div>
+            <div class="text-overline text-primary">MQTT / TRUST</div>
+            <div class="text-subtitle-1 font-weight-bold">Gateway console</div>
+          </div>
+        </div>
         <div class="text-caption text-medium-emphasis mt-1">
           Local control. Verified identities.
         </div>
@@ -74,7 +79,16 @@ onMounted(() => action(refreshUser));
     <v-app-bar flat border
       ><v-app-bar-nav-icon v-if="state.user" @click="drawer = !drawer" /><v-app-bar-title
         class="font-weight-bold"
-        >MQTT Trust Gateway</v-app-bar-title
+        ><span class="d-flex align-center ga-3"
+          ><img
+            src="/MyMosquitto.svg"
+            alt=""
+            width="36"
+            height="36"
+            class="flex-shrink-0"
+            :class="{ 'd-lg-none': state.user }"
+          /><span class="text-truncate">MQTT Trust Gateway</span></span
+        ></v-app-bar-title
       ><v-btn icon="mdi-theme-light-dark" aria-label="Toggle theme" @click="toggleTheme" /><v-btn
         v-if="state.user"
         prepend-icon="mdi-logout"
@@ -131,9 +145,7 @@ onMounted(() => action(refreshUser));
               @click="copy(state.bootstrapHelp.command)"
               >Copy command</v-btn
             >
-            <p class="text-body-2">
-              Paste the command's output into Bootstrap token below.
-            </p>
+            <p class="text-body-2">Paste the command's output into Bootstrap token below.</p>
           </v-alert>
           <v-form @submit.prevent="login"
             ><v-text-field
