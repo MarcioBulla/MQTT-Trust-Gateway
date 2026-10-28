@@ -16,16 +16,16 @@ const devices = ref([]),
 const form = ref({ id: '', name: '', description: '' }),
   issue = ref({ deviceId: '', csr: '', days: 90, previous: null });
 const headers = [
-  { title: 'Device', key: 'id' },
-  { title: 'Name', key: 'name' },
-  { title: 'Provisioning', key: 'latestCertificate.provisioningMethod' },
-  { title: 'Issuer', key: 'latestCertificate.issuerName' },
-  { title: 'Algorithm', key: 'latestCertificate.algorithm' },
-  { title: 'Expires', key: 'latestCertificate.validTo' },
-  { title: 'Certificate', key: 'latestCertificate.status' },
-  { title: 'Authorization', key: 'enabled' },
-  { title: 'Connection', key: 'connectionStatus' },
-  { title: 'Actions', key: 'actions', sortable: false },
+  { title: 'Device', key: 'id', width: '130px', maxWidth: '150px' },
+  { title: 'Name', key: 'name', width: '130px', maxWidth: '150px' },
+  { title: 'Provisioning', key: 'latestCertificate.provisioningMethod', width: '135px', maxWidth: '150px' },
+  { title: 'Issuer', key: 'latestCertificate.issuerName', width: '150px', maxWidth: '170px' },
+  { title: 'Algorithm', key: 'latestCertificate.algorithm', width: '130px', maxWidth: '145px' },
+  { title: 'Expires', key: 'latestCertificate.validTo', width: '145px', maxWidth: '160px' },
+  { title: 'Certificate', key: 'latestCertificate.status', width: '120px', maxWidth: '130px' },
+  { title: 'Authorization', key: 'enabled', width: '135px', maxWidth: '150px' },
+  { title: 'Connection', key: 'connectionStatus', width: '110px', maxWidth: '120px' },
+  { title: 'Actions', key: 'actions', width: '300px', maxWidth: '320px', sortable: false },
 ];
 const identityRows = computed(() => devices.value.map((device) => ({
   ...device,
@@ -156,7 +156,7 @@ const licenseCounts = (status) =>
       :items="identityRows"
       :search="search"
       :loading="!!state.busy"
-      class="mt-4"
+      class="mt-4 identity-table"
     >
       <template #item.enabled="{ item }"
         ><v-chip size="small" :color="item.enabled && item.trusted !== false ? 'success' : 'warning'">{{
@@ -349,3 +349,10 @@ const licenseCounts = (status) =>
     ></v-dialog
   >
 </template>
+
+<style scoped>
+.identity-table :deep(table) { table-layout: fixed; min-width: 1450px; }
+.identity-table :deep(th),
+.identity-table :deep(td) { white-space: normal !important; overflow-wrap: anywhere; word-break: normal; vertical-align: top; }
+.identity-table :deep(td:last-child > *) { max-width: 100%; }
+</style>
