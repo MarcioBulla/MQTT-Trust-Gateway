@@ -1,68 +1,77 @@
 import crypto from 'node:crypto';
 import { env } from './config.js';
-import { loadDb } from './db.js';
-
-const authAttempts = new Map();
-
+import { loadDb, saveDb } from './db.js';
+const attempts = new Map();
 export function rateLimit(req, res, next) {
-  const key = req.ip || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
-  const windowMs = 60000;
-  const maxAttempts = 20;
-  const entry = authAttempts.get(key) || { count: 0, resetAt: now + windowMs };
-  if (entry.resetAt < now) {
-    entry.count = 0;
-    entry.resetAt = now + windowMs;
-  }
-  entry.count += 1;
-  authAttempts.set(key, entry);
-  if (entry.count > maxAttempts) return res.status(429).json({ error: 'too many attempts' });
-  return next();
+  for (const [key, entry] of attempts) if (entry.until < now) attempts.delete(key);
+  const key = `${req.ip}:${req.path}`;
+  const entry = attempts.get(key) || { count: 0, until: now + 60000 };
+  entry.count++;
+  attempts.set(key, entry);
+  if (attempts.size > 10000) attempts.delete(attempts.keys().next().value);
+  if (entry.count > 10)
+    return res.status(429).json({ error: 'Too many attempts. Try again in one minute.' });
+  next();
 }
-
-export function signSession(sessionId) {
-  return crypto.createHmac('sha256', env.sessionSecret).update(sessionId).digest('base64url');
-}
-
 export function parseCookies(header = '') {
-  return Object.fromEntries(header.split(';').map((part) => {
+  const result = {};
+  for (const part of header.split(';')) {
     const index = part.indexOf('=');
-    if (index === -1) return ['', ''];
-    return [part.slice(0, index).trim(), decodeURIComponent(part.slice(index + 1))];
-  }).filter(([key]) => key));
+    if (index < 1) continue;
+    try {
+      result[part.slice(0, index).trim()] = decodeURIComponent(part.slice(index + 1));
+    } catch {
+      /* malformed cookie */
+    }
+  }
+  return result;
 }
-
-export async function currentUser(req) {
-  const cookies = parseCookies(req.headers.cookie);
-  const [sessionId, signature] = (cookies.admin_session || '').split('.');
-  if (!sessionId || signature !== signSession(sessionId)) return null;
-
-  const db = await loadDb();
-  const session = db.sessions[sessionId];
-  if (!session || session.expiresAt < Date.now()) return null;
-  return db.users.find((user) => user.id === session.userId) || null;
+export const sessionKey = (req) =>
+  crypto
+    .createHash('sha256')
+    .update(parseCookies(req.headers.cookie).admin_session || '')
+    .digest('hex');
+export function currentUser(req) {
+  const db = loadDb(),
+    session = db.sessions[sessionKey(req)];
+  if (!session || session.expiresAt <= Date.now()) return null;
+  return db.users.find((u) => u.id === session.userId) || null;
 }
-
+export function createSession(db, user, req, res) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  for (const [id, s] of Object.entries(db.sessions))
+    if (s.expiresAt <= Date.now()) delete db.sessions[id];
+  db.sessions[crypto.createHash('sha256').update(token).digest('hex')] = {
+    userId: user.id,
+    expiresAt: Date.now() + env.sessionHours * 3600000,
+  };
+  res.setHeader(
+    'Set-Cookie',
+    `admin_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${env.sessionHours * 3600}${req.secure ? '; Secure' : ''}`,
+  );
+}
+export function clearSessionCookie(req, res) {
+  res.setHeader(
+    'Set-Cookie',
+    `admin_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${req.secure ? '; Secure' : ''}`,
+  );
+}
 export function requireAuth(handler) {
   return async (req, res, next) => {
     try {
-      const user = await currentUser(req);
-      if (!user) return res.status(401).json({ error: 'authentication required' });
-      req.user = user;
-      return handler(req, res, next);
+      req.user = currentUser(req);
+      if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+      return await handler(req, res, next);
     } catch (error) {
-      return next(error);
+      next(error);
     }
   };
 }
-
-export function setSessionCookie(res, sessionId) {
-  const value = `${sessionId}.${signSession(sessionId)}`;
-  res.setHeader('Set-Cookie', [
-    `admin_session=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=43200`,
-  ]);
-}
-
-export function clearSessionCookie(res) {
-  res.setHeader('Set-Cookie', 'admin_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT');
+export function logout(req, res) {
+  const db = loadDb();
+  delete db.sessions[sessionKey(req)];
+  saveDb(db);
+  clearSessionCookie(req, res);
+  res.json({ ok: true });
 }

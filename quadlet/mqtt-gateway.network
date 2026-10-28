@@ -1,0 +1,4 @@
+[Unit]
+Description=Shared rootless MQTT gateway network
+[Network]
+NetworkName=mqtt-gateway

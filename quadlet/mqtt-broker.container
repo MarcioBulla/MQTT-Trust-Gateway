@@ -1,0 +1,25 @@
+[Unit]
+Description=MQTT Trust Gateway broker
+[Container]
+Image=localhost/mqtt-trust-broker:latest
+ContainerName=mqtt-broker
+Network=mqtt-gateway.network
+NetworkAlias=mqtt-broker
+UserNS=keep-id
+User=@UID@:@GID@
+PodmanArgs=--image-volume=ignore
+DropCapability=all
+NoNewPrivileges=true
+EnvironmentFile=@ENV@
+Volume=@DATA@/broker:/broker:rw,z
+Volume=@DATA@/mosquitto:/mosquitto/data:rw,Z
+PublishPort=@MQTT_BIND@:@TLS_PORT@:8883
+PublishPort=@MQTT_BIND@:@WS_PORT@:8443
+ReadOnly=true
+Tmpfs=/tmp:rw,noexec,nosuid,size=16m
+[Service]
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=120
+[Install]
+WantedBy=default.target

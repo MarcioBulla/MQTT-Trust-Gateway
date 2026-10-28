@@ -1,0 +1,25 @@
+[Unit]
+Description=MQTT Trust Gateway administration
+After=mqtt-broker.service
+Wants=mqtt-broker.service
+[Container]
+Image=localhost/mqtt-trust-admin:latest
+ContainerName=mqtt-admin
+Network=mqtt-gateway.network
+NetworkAlias=mqtt-admin
+UserNS=keep-id
+User=@UID@:@GID@
+DropCapability=all
+NoNewPrivileges=true
+EnvironmentFile=@ENV@
+Volume=@DATA@/admin:/data:rw,Z
+Volume=@DATA@/broker:/broker:rw,z
+PublishPort=@ADMIN_BIND@:@ADMIN_PORT@:@ADMIN_PORT@
+ReadOnly=true
+Tmpfs=/tmp:rw,noexec,nosuid,size=32m
+[Service]
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=120
+[Install]
+WantedBy=default.target

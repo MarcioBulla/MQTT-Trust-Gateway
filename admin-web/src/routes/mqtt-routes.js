@@ -1,37 +1,87 @@
-import { requireAuth } from '../auth.js';
-import { clearTopicMessages, listTopics, publishMessage, removeTopic, topicMessages } from '../services/mqtt-service.js';
-
+import { requireAuth, currentUser } from '../auth.js';
+import { audit, loadDb, saveDb } from '../db.js';
+import {
+  events,
+  mqttHistory,
+  clearHistory,
+  subscribe,
+  publishMessage,
+} from '../services/mqtt-service.js';
 export function registerMqttRoutes(app) {
-  app.get('/api/mqtt/topics', requireAuth(async (_req, res) => {
-    res.json({ topics: await listTopics() });
-  }));
-
-  app.get('/api/mqtt/messages', requireAuth(async (req, res) => {
-    const topic = String(req.query.topic || '').trim();
-    if (!topic) return res.status(400).json({ error: 'topic is required' });
-    res.json({ topic, messages: await topicMessages(topic) });
-  }));
-
-  app.delete('/api/mqtt/messages', requireAuth(async (req, res) => {
-    const topic = String(req.query.topic || '').trim();
-    if (!topic) return res.status(400).json({ error: 'topic is required' });
-    res.json({ ok: await clearTopicMessages(topic) });
-  }));
-
-  app.delete('/api/mqtt/topics', requireAuth(async (req, res) => {
-    const topic = String(req.query.topic || '').trim();
-    if (!topic) return res.status(400).json({ error: 'topic is required' });
-    res.json({ ok: await removeTopic(topic) });
-  }));
-
-  app.post('/api/mqtt/publish', requireAuth(async (req, res) => {
-    const topic = String(req.body.topic || '').trim();
-    const payload = String(req.body.payload || '');
-    const qos = Number(req.body.qos || 0);
-    const retain = Boolean(req.body.retain);
-    if (!topic || topic.includes('#') || topic.includes('+')) return res.status(400).json({ error: 'publish topic must not contain wildcards' });
-    if (![0, 1, 2].includes(qos)) return res.status(400).json({ error: 'invalid qos' });
-    await publishMessage({ topic, payload, qos, retain });
-    res.json({ ok: true });
-  }));
+  app.get(
+    '/api/mqtt/history',
+    requireAuth((_req, res) => res.json(mqttHistory())),
+  );
+  app.get(
+    '/api/mqtt/events',
+    requireAuth((req, res) => {
+      res.set({
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-store',
+        'X-Accel-Buffering': 'no',
+      });
+      res.flushHeaders();
+      let blocked = false;
+      const listener = (message) => {
+        if (!blocked) blocked = !res.write(`data: ${JSON.stringify(message)}\n\n`);
+      };
+      res.on('drain', () => {
+        blocked = false;
+      });
+      events.on('message', listener);
+      const timer = setInterval(() => {
+        if (!currentUser(req)) return res.end();
+        res.write(': heartbeat\n\n');
+      }, 15000);
+      req.on('close', () => {
+        events.off('message', listener);
+        clearInterval(timer);
+      });
+    }),
+  );
+  app.post(
+    '/api/mqtt/subscribe',
+    requireAuth(async (req, res) => {
+      await subscribe(req.body.filter);
+      res.json({ ok: true });
+    }),
+  );
+  app.post(
+    '/api/mqtt/publish',
+    requireAuth(async (req, res) => {
+      await publishMessage(req.body);
+      audit(req.user.username, 'mqtt.publish', req.body.topic);
+      res.json({ ok: true });
+    }),
+  );
+  app.delete(
+    '/api/mqtt/retained',
+    requireAuth(async (req, res) => {
+      if (req.body.confirm !== req.body.topic)
+        return res.status(400).json({ error: 'Confirm the exact topic' });
+      await publishMessage({ topic: req.body.topic, payload: '', retain: true, qos: 1 });
+      audit(req.user.username, 'mqtt.retained.deleted', req.body.topic);
+      res.json({ ok: true });
+    }),
+  );
+  app.delete(
+    '/api/mqtt/history',
+    requireAuth((_req, res) => {
+      clearHistory();
+      res.json({ ok: true });
+    }),
+  );
+  app.patch(
+    '/api/mqtt/settings',
+    requireAuth((req, res) => {
+      const limit = Number(req.body.historyLimit);
+      if (!Number.isInteger(limit) || limit < 10 || limit > 2000)
+        return res.status(400).json({ error: 'History limit must be 10–2000' });
+      const db = loadDb();
+      db.settings.historyLimit = limit;
+      saveDb(db);
+      audit(req.user.username, 'mqtt.settings', limit);
+      res.json({ ok: true });
+    }),
+  );
 }

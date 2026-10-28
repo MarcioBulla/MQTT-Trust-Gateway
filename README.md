@@ -1,325 +1,232 @@
 # MQTT Trust Gateway
 
-MQTT Trust Gateway is a secure MQTT broker stack for VPS deployments.
+A small MQTT gateway with individual device certificates, a local CA, and a
+Vue 3 / Vuetify 3 administrative console. Two rootless containers run the entire
+gateway: **Eclipse Mosquitto** and **Node/Express + compiled Vue frontend**.
+SQLite persists identities, credentials, certificate history, settings and audit
+records. OpenSSL handles signing and CRLs. There is no step-ca, integrated proxy,
+Certbot, Docker, Compose, Redis or external database dependency.
 
-It is built for deployments where MQTT access should be tied to device identity instead of shared passwords. Devices connect with client certificates, admins sign in with passkeys, and the VPS exposes a managed HTTPS control panel for certificates, topics, and operations.
+> Existing installation? Read [migration](docs/migration.md) first. The installer
+> never replaces an existing device CA automatically. Legacy step-ca hierarchy
+> conversion requires offline review; it is not an automatic migration.
 
-Key advantages:
+## Install
 
-- Certificate-based device identity with mutual TLS, so each device gets its own credential instead of sharing a broker password.
-- Local device CA with Smallstep `step-ca`, giving you controlled certificate issuance, root fingerprint validation, CSR signing, and certificate TTLs.
-- Admin access protected by passkeys/WebAuthn, including KeePassXC-compatible passkey registration and login.
-- Public HTTPS and MQTT TLS through Let's Encrypt, with Certbot renewal containers included in the stack.
-- Browser Admin Web for signing CSRs, listing issued certificates, revoking/renewing certificates, managing passkeys, publishing MQTT messages, and inspecting topic traffic.
-- MQTT over both MQTTS and secure WebSocket, useful for native devices, web clients, dashboards, and diagnostics.
-- Wizard-driven VPS setup that checks DNS, firewall, ports, runtime paths, step-ca, certificates, and containers.
-- Integration tests with `uv` and Python for key generation, CSR signing, MQTTS, and WSS message roundtrips.
+Requirements: Linux, rootless Podman with Quadlet support (5+ recommended),
+a working user systemd manager, Python 3.12+, subordinate UID/GID ranges and a
+rootless network backend. Bun is needed only for development; image builds use
+Bun internally. Run everything as your normal user.
 
-It provides:
-
-- Mosquitto with public TLS using Let's Encrypt
-- device authentication with mutual TLS
-- a Smallstep `step-ca` certificate authority for device certificates
-- an Admin Web interface protected by passkeys/WebAuthn
-- an MQTT Manager for observed topics, message history, publish, search, sort, clean, and remove actions
-- monthly MQTT cleanup for observed retained messages and local MQTT Manager history
-- CSR signing from the Admin Web with paste, upload, issued certificate list, revocation, renewal, certificate download, and CA download
-- Nginx for the public HTTPS admin endpoint
-- a setup wizard for DNS, firewall, certificates, and container startup
-
-## Layout
-
-```text
-https://<MQTT_DOMAIN>          -> Admin Web with passkey login
-mqtts://<MQTT_DOMAIN>:8883     -> MQTT TLS with device mTLS
-wss://<MQTT_DOMAIN>:8443       -> MQTT over secure WebSocket with device mTLS
-https://<MQTT_DOMAIN>:9000     -> step-ca API
+```sh
+cp gateway.env.example gateway.env
+# Optional: edit gateway.env. Defaults require no domain or external proxy.
+./gateway install
+./gateway status
+./gateway logs
 ```
 
-## Requirements
+The installer validates configuration, builds the two local images, initializes
+the CA only when safe, prepares persistent directories, installs Quadlets in
+`~/.config/containers/systemd/`, reloads the user manager and starts services.
+It is idempotent and parses the environment file without executing shell code.
+The admin interface binds to loopback by default. Open http://localhost:8080 .
+Read the one-time token locally from `runtime/admin/bootstrap-token`, then create
+your username and password in the browser. There are no default credentials.
+The token is deleted after bootstrap. Do not paste it into issue reports/logs.
 
-On the VPS:
+For access from another computer, use an SSH local port forward or configure
+native HTTPS or your own proxy as described in [proxy integration](docs/proxy.md).
+Remote HTTP administration is rejected. HTTPS can use a locally trusted CA and
+a LAN hostname; no public domain is mandatory. Passkeys require HTTPS or localhost.
 
-- Ubuntu 24.04 LTS or similar Linux server
-- Docker Compose or Podman Compose
-- DNS record for `<MQTT_DOMAIN>` pointing to the VPS public IP, unless using IP-only mode
-- inbound ports `80/tcp`, `443/tcp`, `8883/tcp`, `8443/tcp`, and `9000/tcp`
-
-VPS dependencies:
-
-- `docker` with `docker compose`, or `podman` with `podman compose`
-- `step`, the Smallstep CLI used to initialize and manage `step-ca`
-- `bash` and `whiptail`, used by the interactive wizard
-- `openssl`, used for certificate and secret generation
-- `python3`, used by the setup wizard to update `step-ca` configuration
-- `curl`, used by the setup wizard for public IP detection
-- `dig`, used by the setup wizard for DNS checks. It is provided by `dnsutils`, `bind-utils`, or `bind-tools`, depending on the distribution.
-- `ss` or `lsof`, used by the setup wizard for local port checks
-- `ufw`, `firewalld`, or `iptables`, used to inspect or adjust local firewall rules
-- `netfilter-persistent`, optional, used to persist `iptables` rules across reboots on Ubuntu/Debian
-
-Install the base OS tools with the package manager for your distribution.
-
-Ubuntu/Debian:
-
-```bash
-sudo apt update
-sudo apt install -y whiptail bash ca-certificates curl gnupg openssl python3 dnsutils iproute2 lsof ufw iptables
+```sh
+systemctl --user start mqtt-broker.service mqtt-admin.service
+systemctl --user restart mqtt-broker.service mqtt-admin.service
+journalctl --user -u mqtt-admin.service -u mqtt-broker.service -f
+# Optional, subject to your host's policy:
+loginctl enable-linger "$USER"
 ```
 
-Arch Linux:
+Quadlets include WantedBy=default.target; the generator handles boot activation.
+Do not `systemctl enable` the generated transient services. Linger permits the
+user manager to start at boot without a login. No privileged container, rootful
+Podman, Podman socket mount or sudo is used.
 
-```bash
-sudo pacman -Syu --needed libnewt bash ca-certificates curl gnupg openssl python dnsutils iproute2 lsof ufw iptables
+## Configuration and storage
+
+`gateway.env.example` documents every supported setting. Copy it to `gateway.env`
+and keep it private (`chmod 600 gateway.env`). No environment file is sourced as
+shell code. `DATA_DIR` defaults to `runtime` in the checkout; set an absolute path
+for durable deployments independent of the checkout. Paths must not contain
+whitespace or systemd specifier characters. Changes take effect after update.
+
+| Host port (default) | Purpose |
+|---|---|
+| 8080, loopback only | Admin HTTP (or native HTTPS when TLS files configured) |
+| 8883 | MQTT TLS with mandatory mTLS |
+| 8443 | MQTT WebSocket TLS with mandatory mTLS |
+
+The broker's internal ports stay 8883/8443. Change host ports in gateway.env.
+`ADMIN_APP_PORT` configures both the admin listener and published port.
+Device authentication is always mTLS; no anonymous/password device listener is
+provided. `MQTT_RETAIN_ENABLED=false` disables retained publishing in the broker
+and backend. Message history is bounded in memory and intentionally not durable;
+the history limit is configurable in the console and persisted in SQLite.
+
+Persistent data:
+
+- `admin/gateway.sqlite` and its WAL: administrative state and audit records.
+- `admin/ca/`: signing key (0600), CA certificate, OpenSSL index, issued certs, CRL.
+- `admin/mqtt-client.*`: private backend MQTT identity.
+- `admin/totp-encryption.key`: key encrypting authenticator seeds in SQLite.
+- `broker/`: server certificate/key, CA certificate, CRL, ACL and applied revision.
+- `mosquitto/`: broker persistence, including retained messages and sessions.
+
+Directories are private to the user. The broker cannot mount the CA key or admin
+state. Device private keys remain on devices. The running CA key is unencrypted
+for unattended issuance, protected by filesystem permissions and container
+isolation; protect the host and encrypt backups. No web endpoint exports keys.
+
+## Administration
+
+Password hashes use Argon2id. Sessions expire, logout invalidates the server-side
+session, and changing a password invalidates other sessions. Mutations require
+an allowed Origin and JSON. Authentication attempts are rate limited per source.
+Passkeys use verified RP ID, origin, challenge, signature, counter and required
+user verification. Manage them in Account. Existing legacy credentials are
+preserved when importing the JSON database.
+
+Account also supports TOTP (Google Authenticator, KeePassXC and compatible apps).
+Click **Set up authenticator**, scan the QR code or enter the manual secret shown
+under it, then verify a six-digit code. Setup expires after ten minutes. Enabled
+TOTP is required with password login; passkeys remain independently usable.
+Seeds are encrypted with AES-256-GCM. Used time steps cannot be replayed. Keep a
+passkey fallback; there is no insecure web bypass if all factors are lost.
+
+Overview shows real backend/broker connection state, certificate counts, CA and
+server expiry, configured endpoints and a copyable quick-start guide. Public IP
+is displayed only if explicitly configured; no discovery service is contacted.
+Individual device online status and last activity are **unavailable** without a
+verified connection feed. They are never inferred from certificate validity.
+
+## Devices, certificates and licenses
+
+1. Register `sensor-01` in Devices.
+2. Generate a private key and CSR on that device:
+
+```sh
+openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+  -keyout sensor-01.key -out sensor-01.csr -subj /CN=sensor-01
+chmod 600 sensor-01.key
 ```
 
-Fedora/RHEL:
+3. Choose Issue, paste the CSR and select validity (default 90, maximum 365 days).
+4. Download the public device certificate from Licenses and download the CA.
+5. Connect using the configured hostname (it must match the broker certificate):
 
-```bash
-sudo dnf install -y newt bash ca-certificates curl gnupg2 openssl python3 bind-utils iproute lsof ufw iptables
+```sh
+mosquitto_sub -h localhost -p 8883 --cafile gateway-ca.crt \
+  --cert sensor-01.crt --key sensor-01.key -t 'devices/sensor-01/#' -q 2
+mosquitto_pub -h localhost -p 8883 --cafile gateway-ca.crt \
+  --cert sensor-01.crt --key sensor-01.key -t devices/sensor-01/hello -m hello -q 1
 ```
 
-Alpine:
+ACLs allow only `<device-id>/#` and `<MQTT_TOPIC_PREFIX>/<device-id>/#` for
+registered/enabled devices with valid certificates. The backend MQTT identity
+can manage all topics; its private credentials never reach the browser.
+CSR signatures/key strength are verified and the requested CN/extensions are
+overridden. Device certificates cannot acquire CA or serverAuth capabilities.
 
-```bash
-sudo apk add newt bash ca-certificates curl gnupg openssl python3 bind-tools iproute2 lsof ufw iptables
+Certificate validity is the **license**, enforced during TLS authentication;
+there is no duplicate licensing token. Renewing issues a new serial and preserves
+history. Supply a new CSR for key rotation, or reuse the original CSR. Renewal
+does not revoke the old serial: revoke it explicitly when the rollout is complete.
+Revoke individual serials permanently, or disable a device to remove all topic
+authorization. Re-enabling a device does not undo certificate revocation.
+
+Revocations update the CRL and request a broker restart. The broker supervisor
+checks the revision every second and restarts Mosquitto, disconnecting existing
+sessions. Overview reports pending/applied revisions. If the broker is down,
+enforcement remains pending until restart; do not treat an API response alone as
+proof of enforcement. Expired authorization ACLs are reconciled every 30 seconds.
+CRLs are refreshed daily with seven-day validity; prolonged admin outage causes
+fail-closed certificate validation when the CRL expires. Service certificates
+renew automatically within 30 days of expiry. CA rotation is an explicit
+maintenance task; it never happens silently.
+
+## MQTT Manager
+
+The console receives messages through authenticated SSE, with timestamps, topic
+filters, QoS, retain indicators and text/JSON/base64 views. Add wildcard
+subscriptions, pause the display and clear bounded history without deleting broker
+messages. Publish text or base64 payloads at QoS 0/1/2 and optional retain. Delete
+retained values only by confirming the exact topic. The backend uses MQTT 5 with retain-as-published to track live retained changes
+and rebuilds the snapshot on reconnect (maximum 1,000 topics). Payloads are capped at 16 KiB.
+
+Native MQTT clients may use `wss://HOST:8443/mqtt` with the same device CA,
+certificate and key. Browser JavaScript cannot select TLS client certificates;
+browser/OS certificate provisioning is required if supported. The console avoids
+this limitation by using its protected backend MQTT bridge.
+
+## Shared rootless network
+
+`mqtt-gateway.network` creates the persistent network named `mqtt-gateway`.
+Other rootless Quadlets belonging to the **same user** can join it:
+
+```ini
+[Container]
+Network=mqtt-gateway
 ```
 
-openSUSE:
+For a managed dependency use `Network=mqtt-gateway.network` when that Quadlet is
+available in the same user search path. The broker resolves as `mqtt-broker` and
+the console as `mqtt-admin`. Use `mqtt-broker:8883`, not the host-published port.
+Joining the network grants no MQTT authorization: clients still need individual
+certificates and trusted CA material. Do not share the CA signing key.
 
-```bash
-sudo zypper install -y newt bash ca-certificates curl gpg2 openssl python3 bind-utils iproute2 lsof ufw iptables
+## Update, backup, restore and uninstall
+
+```sh
+./gateway update              # rebuild, prepare safely, restart; preserves all data
+./gateway restart
+./gateway stop
+./gateway backup --file /safe/path/gateway-backup.tar.gz
+./gateway uninstall           # removes only managed units; preserves data/images/network
 ```
 
-Install `step-cli` and `step-ca` using the official Smallstep guide:
+Backups stop both services for a consistent copy, include all private state and
+gateway.env, and restart services afterward. Encrypt archives before off-host
+storage. Restore into an empty DATA_DIR (never over live existing data):
 
-[Smallstep step-ca installation guide](https://smallstep.com/docs/step-ca/installation/)
-
-Install either Docker Compose or Podman Compose before running the wizard.
-
-Port usage:
-
-- `80/tcp`: Let's Encrypt HTTP challenge
-- `443/tcp`: Admin Web HTTPS
-- `8883/tcp`: MQTT TLS
-- `8443/tcp`: MQTT over secure WebSocket
-- `9000/tcp`: step-ca API, preferably restricted to trusted networks
-
-## Wizard
-
-Run the single wizard from the project root:
-
-```bash
-chmod +x wizard.sh
-sudo ./wizard.sh
+```sh
+./gateway restore --file /safe/path/gateway-backup.tar.gz
+# Review gateway.restored.env, merge configuration, then:
+./gateway install
 ```
 
-The wizard:
+Restore validates archive paths and rejects links/special files. It keeps the
+services stopped for review. Store the CA key, index, SQLite and TOTP encryption
+key together; losing the TOTP encryption key makes enrolled seeds unusable.
+Installer updates never delete identities or certificates. Take a backup before
+upgrades. Removing old CA/proxy/Compose services is a deliberate legacy operator
+step after migration; the new installer never manages those services.
 
-- lets you choose install/update or uninstall from the first menu
-- includes an `Info` screen with URLs, setup token, ports, runtime path, and step-ca fingerprint
-- accepts an optional Let's Encrypt contact email
-- writes `gateway.env`
-- checks container engine, DNS, firewall, and ports
-- initializes `step-ca`
-- exports the MQTT client CA
-- generates the Admin Web MQTT client certificate used by MQTT Manager
-- saves the root CA fingerprint
-- generates an Admin Web first-registration setup token
-- enables monthly MQTT cleanup by default
-- starts or updates `step-ca`, Certbot, Mosquitto, Admin Web, and Nginx
-- repairs `runtime/step-ca` ownership and password-file permissions during update
+## Development and verification
 
-> [!NOTE]
-> When the wizard asks if you have a DNS domain, choose `No` to use the detected public VPS IP directly instead of a DNS name. In IP-only mode, DNS checks are skipped and Certbot is configured for Let's Encrypt IP address certificates with the `shortlived` profile.
-
-After startup, open:
-
-```text
-https://<MQTT_DOMAIN>
+```sh
+cd admin-web
+bun install --frozen-lockfile
+bun run build
+bun run test
+bun audit
+# After installing an isolated test gateway:
+GATEWAY_TEST_URL=http://localhost:8080 \
+GATEWAY_TEST_DATA=../runtime/test bun run test:integration
 ```
 
-Use the setup token printed by the wizard to register the first passkey.
-
-> [!IMPORTANT]
-> The step-ca provisioner password is separate from the Admin setup token. Anyone with the provisioner password can issue MQTT device certificates trusted by the broker. Do not commit it, store it in `gateway.env`, paste it in tickets/chat, or share it with untrusted users.
-
-## MQTT Cleanup
-
-The Admin Web starts a monthly cleanup job by default. On the configured day and hour, it uses the Admin MQTT identity to publish an empty retained payload to every topic observed by MQTT Manager. That clears retained messages from the broker for those topics and also clears the local MQTT Manager message history.
-
-Defaults written by the wizard:
-
-```text
-MQTT_MONTHLY_CLEANUP_ENABLED=yes
-MQTT_MONTHLY_CLEANUP_DAY=1
-MQTT_MONTHLY_CLEANUP_HOUR=3
-```
-
-Set `MQTT_MONTHLY_CLEANUP_ENABLED=no` in `gateway.env` to disable the monthly cleanup. The cleanup can only clear topics that MQTT Manager has observed.
-
-For uninstall, choose `Stop and clean the stack` in the same wizard. It stops and removes the containers first. It asks separately before deleting runtime data, certificates, CA files, admin data, local images, or local iptables rules. It does not delete repository files.
-
-## Updating A VPS
-
-Use Git as the regular SSH user and use `sudo` only for the wizard and containers:
-
-```bash
-cd ~/MQTT-Trust-Gateway
-git pull --ff-only
-sudo ./wizard.sh update
-```
-
-The update flow:
-
-- runs automatically when started with `sudo ./wizard.sh update`, without confirmation prompts
-- runs `git pull --ff-only` and reexecutes the updated wizard
-- checks that `runtime/step-ca/config/ca.json` and `runtime/step-ca/secrets/password` exist
-- fixes `runtime/step-ca` ownership for the `smallstep/step-ca` container user
-- regenerates the Admin Web MQTT client certificate
-- opens configured firewall ports
-- starts `step-ca`
-- rebuilds and recreates the application containers
-
-If an older VPS still has local values in the legacy `broker.env` file and blocks `git pull`, keep that VPS copy and let the updated wizard migrate it to `gateway.env`:
-
-```bash
-cp broker.env /tmp/gateway.env.vps.backup
-git stash push -m "legacy broker env" -- broker.env
-git pull --ff-only
-cp /tmp/gateway.env.vps.backup gateway.env
-sudo ./wizard.sh update
-```
-
-For current installs, keep local values in `gateway.env`. This file is intentionally ignored by Git. `gateway.env.example` is the tracked template.
-
-If a previous `sudo git pull` broke `.git` permissions:
-
-```bash
-sudo chown -R "$USER:$USER" .git
-git pull --ff-only
-```
-
-## Admin Web
-
-The Admin Web is available at:
-
-```text
-https://<MQTT_DOMAIN>
-```
-
-Current features:
-
-- passkey/WebAuthn setup and login
-- dark and light mode with bundled Nerd Font symbols
-- MQTT Manager with observed topic list, search, sort, message history, publish, clean messages, and remove topic
-- CSR signing with paste or file upload
-- issued certificate list with validity, download, revoke, and renew actions
-- download issued device certificate
-- download MQTT CA certificate
-- settings menu for username, passkeys, theme, and logout
-
-## Device Credentials
-
-Create device credentials from an operator/provisioning machine, not on the VPS when possible.
-
-First time on the operator machine:
-
-```bash
-export MQTT_DOMAIN="<mqtt-domain>"
-export STEP_CA_URL="https://${MQTT_DOMAIN}:<step-ca-port>"
-export STEP_CA_PROVISIONER="<step-ca-provisioner>"
-export STEP_CA_FINGERPRINT="<root-ca-fingerprint-from-broker-env>"
-export STEP_CA_DEVICE_CERT_TTL="<device-certificate-ttl>"
-export MQTT_TOPIC_PREFIX="<mqtt-topic-prefix>"
-
-step ca bootstrap \
-  --ca-url "${STEP_CA_URL}" \
-  --fingerprint "${STEP_CA_FINGERPRINT}"
-```
-
-Create one device credential:
-
-```bash
-export DEVICE_ID="<device-id>"
-DEVICE_DIR=./devices/${DEVICE_ID}
-mkdir -p "${DEVICE_DIR}"
-
-openssl genrsa -out "${DEVICE_DIR}/${DEVICE_ID}.key" 2048
-chmod 600 "${DEVICE_DIR}/${DEVICE_ID}.key"
-
-openssl req \
-  -new \
-  -key "${DEVICE_DIR}/${DEVICE_ID}.key" \
-  -out "${DEVICE_DIR}/${DEVICE_ID}.csr" \
-  -subj "/CN=${DEVICE_ID}" \
-  -addext "subjectAltName=DNS:${DEVICE_ID},URI:urn:mqtt-trust-gateway:device:${DEVICE_ID}"
-
-step ca sign \
-  "${DEVICE_DIR}/${DEVICE_ID}.csr" \
-  "${DEVICE_DIR}/${DEVICE_ID}.crt" \
-  --provisioner "${STEP_CA_PROVISIONER}" \
-  --not-after "${STEP_CA_DEVICE_CERT_TTL}"
-```
-
-The private key stays on the operator machine or device. The CA receives only the CSR.
-
-You can also upload or paste the CSR into the Admin Web and sign it there. After signing, download the issued certificate and the MQTT CA certificate from the same page.
-
-> [!IMPORTANT]
-> Signing a CSR requires the step-ca provisioner password. That password authorizes certificate issuance; it is not a login password and it is not the Admin setup token.
-
-## Integration Tests
-
-The repository includes Python integration tests managed with `uv`. They verify device key and CSR generation, sign a CSR with `step-ca`, then publish and receive test messages over both MQTTS and WSS.
-
-Required on the test machine:
-
-- `uv`
-- `step` CLI
-- network access to the VPS ports `9000/tcp`, `8883/tcp`, and `8443/tcp`
-
-Run from the repository root:
-
-```bash
-set -a
-. ./gateway.env
-set +a
-uv run pytest -s tests/integration
-```
-
-The tests also read `gateway.env` directly when it exists, with fallback support for legacy `broker.env`, but `set -a` exports the same values for tools such as `step`. The `-s` flag lets the test prompt for the step-ca provisioner password without showing it on screen. For non-interactive automation, pass `--provisioner-password` or set `STEP_CA_PROVISIONER_PASSWORD`, but avoid storing that value in shell history, CI logs, or committed files.
-
-## Troubleshooting
-
-If `step-ca` is not listening on port `9000`, check:
-
-```bash
-sudo podman ps -a | grep step-ca
-sudo ss -lntp | grep ':9000'
-sudo podman logs --tail=100 mqtt-trust-gateway-step-ca
-```
-
-If the log says `there is no ca.json config file`, initialize step-ca with:
-
-```bash
-sudo ./wizard.sh install
-```
-
-Choose `Yes` for `Initialize or update step-ca now?`.
-
-If the log says `error reading /home/step/secrets/password: permission denied`, run:
-
-```bash
-sudo ./wizard.sh update
-```
-
-The update flow repairs the `runtime/step-ca` ownership and password permissions before starting `step-ca`.
-
-## Security Notes
-
-- Do not commit `runtime/`, private keys, passwords, issued device keys, or production `gateway.env` secrets.
-- Restrict `9000/tcp` where practical.
-- Prefer generating device private keys on a trusted provisioning workstation or directly on the device.
-- Protect the step-ca provisioner password. It can issue MQTT device certificates and is separate from the Admin setup token.
-- Use passkeys for Admin Web access and remove stale admin data before handing the VPS to another operator.
+Node 24 is the backend runtime (built-in SQLite). Bun handles dependency locking,
+frontend builds and test command execution. See [test evidence](docs/testing.md),
+[architecture](docs/architecture.md), [migration limits](docs/migration.md), and
+[optional Nginx/external proxy examples](docs/proxy.md). Dependencies and their licenses
+are recorded in [THIRD_PARTY_LICENSES.json](THIRD_PARTY_LICENSES.json).
