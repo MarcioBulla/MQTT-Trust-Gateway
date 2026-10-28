@@ -40,9 +40,26 @@ export function publicCertificate(c) {
   return { ...publicData, status: c.status === 'active' && c.brokerTrusted === false ? 'untrusted' : state(c), canDownload: Boolean(certificate) };
 }
 const deviceRecord = (db, id) => db.devices.find((device) => device.id === id);
-const normalizeLabels = (value) => [...new Set((Array.isArray(value) ? value : String(value || '').split(','))
-  .map((label) => String(label).trim().slice(0, 40))
-  .filter(Boolean))].slice(0, 20);
+const LABEL_COLORS = new Set(['primary', 'blue', 'teal', 'green', 'amber', 'orange', 'red', 'purple', 'grey']);
+const normalizeLabels = (value) => {
+  const labels = Array.isArray(value) ? value : String(value || '').split(',');
+  const unique = new Map();
+  for (const entry of labels) {
+    const name = String(typeof entry === 'string' ? entry : entry?.name || '').trim().slice(0, 40);
+    if (!name) continue;
+    const key = name.toLocaleLowerCase();
+    if (!unique.has(key)) unique.set(key, {
+      name,
+      color: LABEL_COLORS.has(entry?.color) ? entry.color : 'primary',
+    });
+  }
+  return [...unique.values()].slice(0, 20);
+};
+const hasUsableCredential = (db, deviceId) => {
+  const credentials = db.certificates.filter((certificate) => certificate.deviceId === deviceId);
+  return !credentials.length || credentials.some((certificate) =>
+    certificate.status === 'active' && certificate.brokerTrusted !== false && Date.parse(certificate.validTo) > Date.now());
+};
 const ensureIdentity = (db, { id, name = id, description = '' }) => {
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(id) || id === env.adminMqttClientId)
     throw Object.assign(new Error('Invalid or reserved device identifier'), { status: 400 });
@@ -53,8 +70,8 @@ const ensureIdentity = (db, { id, name = id, description = '' }) => {
     device = { id, name: String(name || id).slice(0, 100), description: String(description || '').slice(0, 1000), enabled: true, trusted: true, status: 'active', createdAt: new Date().toISOString() };
     db.devices.push(device);
   }
-  if (device.status !== 'active' || !device.enabled || device.trusted === false)
-    throw Object.assign(new Error('Device identity is not active and approved'), { status: 409 });
+  if (device.status !== 'active')
+    throw Object.assign(new Error('Only active device identities can be provisioned'), { status: 409 });
   return device;
 };
 function addIssuedRecord(db, { deviceId, certificate, method, issuer = 'local', brokerTrusted = true, csr = '', renewedFrom = '', issuedBy }) {
@@ -70,8 +87,8 @@ async function issue(req, res, previous) {
   const db = loadDb(),
     deviceId = previous?.deviceId || String(req.body.deviceId || '');
   const device = db.devices.find((d) => d.id === deviceId);
-  if (!device?.enabled || device.status === 'archived' || device.status === 'deleted' || device.trusted === false)
-    return res.status(409).json({ error: 'Register or enable the device first' });
+  if (!device || device.status !== 'active')
+    return res.status(409).json({ error: 'Register or restore the device before provisioning' });
   const csr = req.body.csr || previous?.csr;
   if (typeof csr !== 'string' || !csr.includes('BEGIN CERTIFICATE REQUEST'))
     return res.status(400).json({ error: 'A PEM CSR is required' });
@@ -166,7 +183,7 @@ export function registerCertificateRoutes(app) {
     const db = loadDb(), record = find(db, req.params.id);
     if (record.status !== 'pending_external_signature') return res.status(409).json({ error: 'No pending external CSR exists' });
     const device = deviceRecord(db, record.deviceId);
-    if (device?.status !== 'active' || !device.enabled || device.trusted === false) return res.status(409).json({ error: 'Device identity is not approved for key delivery' });
+    if (device?.status !== 'active') return res.status(409).json({ error: 'Only active device identities can receive a pending provisioned key' });
     const key = await takePendingPrivateKey(record.id, record.deviceId);
     if (!key) return res.status(410).json({ error: 'Private-key delivery expired or already used; generate a new CSR' });
     res.set('Cache-Control', 'no-store').attachment(`${record.deviceId}.key`).type('application/x-pem-file').send(key);
@@ -283,6 +300,8 @@ export function registerCertificateRoutes(app) {
         d.description = req.body.description.slice(0, 1000);
       if (Array.isArray(req.body.labels) || typeof req.body.labels === 'string')
         d.labels = normalizeLabels(req.body.labels);
+      if (req.body.enabled === true && !hasUsableCredential(db, d.id))
+        return res.status(409).json({ error: 'Cannot authorize this identity without a valid, trusted, unrevoked certificate' });
       if (typeof req.body.enabled === 'boolean') { d.enabled = req.body.enabled; d.trusted = req.body.enabled; }
       saveDb(db);
       await syncBroker(true);
@@ -323,6 +342,7 @@ export function registerCertificateRoutes(app) {
     const db = loadDb(), device = deviceRecord(db, req.params.id);
     if (!device || device.status !== 'active') return res.status(404).json({ error: 'Active device not found' });
     if (req.body.confirm !== device.id) return res.status(400).json({ error: 'Confirm approval by entering the exact device identifier' });
+    if (!hasUsableCredential(db, device.id)) return res.status(409).json({ error: 'Cannot authorize this identity without a valid, trusted, unrevoked certificate' });
     device.enabled = true; device.trusted = true; device.approvedAt = new Date().toISOString(); device.approvedBy = req.user.username;
     saveDb(db); await syncBroker(true); audit(req.user.username, 'device.approved', device.id);
     res.json({ ok: true, enforcement: 'Broker revision requested.' });

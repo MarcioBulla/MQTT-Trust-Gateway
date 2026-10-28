@@ -11,16 +11,15 @@ const devices = ref([]),
   issueDialog = ref(false),
   confirm = ref(null),
   details = ref(null),
-  labelsDialog = ref(false),
   tab = ref('active'),
   confirmText = ref(''),
-  labelsDevice = ref(null),
-  labelsDraft = ref('');
+  labelSearch = ref(''),
+  labelColor = ref('blue'),
+  labelMenuDevice = ref(null);
 const form = ref({ id: '', name: '', description: '', labels: '' }),
   issue = ref({ deviceId: '', csr: '', days: 90, previous: null });
 const headers = [
-  { title: 'Device', key: 'id', width: '145px', maxWidth: '160px' },
-  { title: 'Name', key: 'name', width: '145px', maxWidth: '160px' },
+  { title: 'Name', key: 'name', width: '180px', maxWidth: '200px' },
   { title: 'Labels', key: 'labels', width: '170px', maxWidth: '190px' },
   { title: 'Provisioning', key: 'latestCertificate.provisioningMethod', width: '145px', maxWidth: '160px' },
   { title: 'Issuer', key: 'latestCertificate.issuerName', width: '170px', maxWidth: '190px' },
@@ -33,6 +32,12 @@ const identityRows = computed(() => devices.value.map((device) => ({
   ...device,
   latestCertificate: [...(device.certificates || [])].sort((a, b) => Date.parse(b.issuedAt || 0) - Date.parse(a.issuedAt || 0))[0] || null,
 })));
+const labelColors = [
+  { title: 'Blue', value: 'blue' }, { title: 'Teal', value: 'teal' },
+  { title: 'Green', value: 'green' }, { title: 'Amber', value: 'amber' },
+  { title: 'Orange', value: 'orange' }, { title: 'Red', value: 'red' },
+  { title: 'Purple', value: 'purple' }, { title: 'Grey', value: 'grey' },
+];
 const certHeaders = [
   { title: 'Device', key: 'deviceId' },
   { title: 'Serial', key: 'serial' },
@@ -65,6 +70,7 @@ function create() {
 }
 function updateAuthorization(device, enabled) {
   if (enabled) {
+    if (!canAuthorize(device)) return;
     confirm.value = { device, action: 'approve' };
     return;
   }
@@ -73,18 +79,56 @@ function updateAuthorization(device, enabled) {
     await load();
   }, 'Device authorization disabled. Broker sessions are being disconnected.');
 }
-function editLabels(device) {
-  labelsDevice.value = device;
-  labelsDraft.value = (device.labels || []).join(', ');
-  labelsDialog.value = true;
+const canAuthorize = (device) => {
+  const credentials = device.certificates || [];
+  return !credentials.length || credentials.some((certificate) =>
+    ['active', 'expiring'].includes(certificate.status) && certificate.brokerTrusted !== false && Date.parse(certificate.validTo) > Date.now());
+};
+const isAuthorized = (device) => device.enabled && device.trusted !== false;
+const labelValue = (label) => typeof label === 'string' ? { name: label, color: 'primary' } : { name: label.name, color: label.color || 'primary' };
+const allLabels = computed(() => {
+  const labels = new Map();
+  for (const device of [...devices.value, ...archived.value]) {
+    for (const rawLabel of device.labels || []) {
+      const label = labelValue(rawLabel);
+      if (label.name && !labels.has(label.name.toLocaleLowerCase())) labels.set(label.name.toLocaleLowerCase(), label);
+    }
+  }
+  return [...labels.values()].sort((a, b) => a.name.localeCompare(b.name));
+});
+function labelsFor(device) { return (device.labels || []).map(labelValue).filter((label) => label.name); }
+function filteredLabels(device) {
+  const attached = new Set(labelsFor(device).map((label) => label.name.toLocaleLowerCase()));
+  return allLabels.value.filter((label) => !attached.has(label.name.toLocaleLowerCase()) && label.name.toLocaleLowerCase().includes(labelSearch.value.trim().toLocaleLowerCase()));
 }
-function saveLabels() {
+function canCreateLabel() {
+  const name = labelSearch.value.trim();
+  return name && !allLabels.value.some((label) => label.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+}
+function openLabelMenu(device, open) {
+  if (open) { labelMenuDevice.value = device; labelSearch.value = ''; labelColor.value = 'blue'; }
+  else if (labelMenuDevice.value?.id === device.id) labelMenuDevice.value = null;
+}
+async function saveDeviceLabels(device, labels) {
   action(async () => {
-    await api(`/devices/${labelsDevice.value.id}`, 'PATCH', { labels: labelsDraft.value.split(',').map((label) => label.trim()).filter(Boolean) });
-    labelsDialog.value = false;
+    await api(`/devices/${device.id}`, 'PATCH', { labels });
     await load();
     return 'Device labels updated.';
-  }).then((message) => { if (message) state.notice = message; });
+  });
+}
+function attachLabel(device, label) {
+  const current = labelsFor(device);
+  if (current.some((item) => item.name.toLocaleLowerCase() === label.name.toLocaleLowerCase())) return;
+  saveDeviceLabels(device, [...current, label]);
+  labelSearch.value = '';
+}
+function createLabel(device) {
+  const name = labelSearch.value.trim().slice(0, 40);
+  if (!name || !canCreateLabel()) return;
+  attachLabel(device, { name, color: labelColor.value });
+}
+function removeLabel(device, name) {
+  saveDeviceLabels(device, labelsFor(device).filter((label) => label.name !== name));
 }
 const connectionColor = (status) => ({ connected: 'success', online: 'success', offline: 'error', disconnected: 'error' })[String(status || '').toLowerCase()] || 'medium-emphasis';
 function openIssue(id, previous = null) {
@@ -184,23 +228,21 @@ const licenseCounts = (status) =>
       :loading="!!state.busy"
       class="mt-4 identity-table"
     >
-      <template #item.id="{ item }"><v-tooltip :text="`Connection: ${item.connectionStatus === 'unknown' ? 'status unavailable' : item.connectionStatus}`"><template #activator="{ props: tooltipProps }"><span v-bind="tooltipProps" class="device-id" :class="`text-${connectionColor(item.connectionStatus)}`">{{ item.id }}</span></template></v-tooltip></template>
-      <template #item.name="{ item }"><v-tooltip :text="`Device ID: ${item.id} · Click to copy device name`"><template #activator="{ props: tooltipProps }"><v-btn v-bind="tooltipProps" variant="text" density="compact" class="name-copy text-none px-0" :aria-label="`Copy device name ${item.name || item.id}`" @click="copy(item.name || item.id)">{{ item.name || item.id }}</v-btn></template></v-tooltip></template>
-      <template #item.labels="{ item }"><div class="d-flex flex-wrap ga-1"> <v-chip v-for="label in item.labels || []" :key="label" size="x-small" variant="tonal">{{ label }}</v-chip><span v-if="!item.labels?.length" class="text-medium-emphasis">—</span></div></template>
+      <template #item.name="{ item }"><v-tooltip :text="`ID: ${item.id}`" location="top" :open-delay="650" :close-delay="150"><template #activator="{ props: tooltipProps }"><v-btn v-bind="tooltipProps" variant="text" density="compact" :class="['name-copy', 'text-none', 'px-0', `text-${connectionColor(item.connectionStatus)}`]" :aria-label="`Copy device name ${item.name || item.id}`" @click="copy(item.name || item.id)">{{ item.name || item.id }}</v-btn></template></v-tooltip></template>
+      <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="rawLabel in item.labels || []" :key="labelValue(rawLabel).name" size="small" closable :color="labelValue(rawLabel).color" variant="tonal" @click:close="removeLabel(item, labelValue(rawLabel).name)">{{ labelValue(rawLabel).name }}</v-chip><v-menu location="bottom start" :close-on-content-click="false" @update:model-value="openLabelMenu(item, $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="tonal" color="primary" :aria-label="`Add label to ${item.name || item.id}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLabels(item).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLabels(item)" :key="label.name" :title="label.name" @click="attachLabel(item, label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLabel(item)">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div><span v-if="!item.labels?.length" class="text-caption text-medium-emphasis">Add label</span></template>
       <template #item.latestCertificate.provisioningMethod="{ item }">{{ item.latestCertificate?.provisioningMethod || '—' }}</template>
       <template #item.latestCertificate.issuerName="{ item }"><span>{{ item.latestCertificate?.issuerName || item.latestCertificate?.issuer || '—' }}</span><span v-if="item.latestCertificate?.brokerTrusted === false" class="text-warning"> (not trusted)</span></template>
       <template #item.latestCertificate.algorithm="{ item }">{{ item.latestCertificate?.algorithm || '—' }}</template>
       <template #item.latestCertificate.status="{ item }"><div v-if="item.latestCertificate" class="d-flex flex-column align-start ga-1"><v-chip size="small" :color="color(item.latestCertificate.status)">{{ item.latestCertificate.status }}</v-chip><span class="text-caption text-medium-emphasis">Expires {{ item.latestCertificate.validTo || '—' }}</span></div><span v-else class="text-medium-emphasis">No certificate</span></template>
-      <template #item.enabled="{ item }"><div class="d-flex align-center ga-2"><v-switch :model-value="item.enabled && item.trusted !== false" color="success" density="compact" hide-details :aria-label="`Authorize ${item.id} for MQTT`" @update:model-value="updateAuthorization(item, $event)" /><span class="text-caption">{{ item.enabled && item.trusted !== false ? 'Authorized' : 'Disabled' }}</span></div></template>
+      <template #item.enabled="{ item }"><div class="d-flex align-center ga-2"><v-switch :model-value="isAuthorized(item)" :disabled="!canAuthorize(item) && !isAuthorized(item)" color="success" density="compact" hide-details :aria-label="`Authorize ${item.id} for MQTT`" @update:model-value="updateAuthorization(item, $event)" /><span class="text-caption">{{ isAuthorized(item) ? 'Authorized' : canAuthorize(item) ? 'Disabled' : 'No valid credential' }}</span></div></template>
       <template #item.actions="{ item }"
         ><v-menu location="bottom end"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-vertical" variant="text" size="small" aria-label="Device actions" /></template><v-list density="compact">
         <v-list-item prepend-icon="mdi-information-outline" title="Details" @click="details = item" />
         <v-list-item v-if="item.latestCertificate?.canDownload" prepend-icon="mdi-download" title="Download certificate" :href="`/api/certificates/${item.latestCertificate.id}/download`" />
         <v-list-item v-if="item.latestCertificate && ['active', 'expiring', 'untrusted'].includes(item.latestCertificate.status)" prepend-icon="mdi-autorenew" title="Renew / replace certificate" @click="openIssue(item.id, item.latestCertificate.id)" />
         <v-list-item v-if="item.latestCertificate && ['active', 'expiring', 'untrusted'].includes(item.latestCertificate.status)" prepend-icon="mdi-cancel" title="Revoke certificate" @click="confirm = { cert: item.latestCertificate }" />
-        <v-list-item prepend-icon="mdi-tag-edit-outline" title="Edit labels" @click="editLabels(item)" />
-        <v-list-item prepend-icon="mdi-certificate-plus" title="Issue certificate" :disabled="!item.enabled" @click="openIssue(item.id)" />
-        <v-list-item prepend-icon="mdi-shield-check-outline" :title="item.enabled ? 'Disable authorization' : 'Approve & authorize'" @click="item.enabled ? updateAuthorization(item, false) : updateAuthorization(item, true)" />
+        <v-list-item prepend-icon="mdi-certificate-plus" title="Issue certificate" :disabled="item.status !== 'active'" @click="openIssue(item.id)" />
+        <v-list-item prepend-icon="mdi-shield-check-outline" :title="isAuthorized(item) ? 'Disable authorization' : 'Approve & authorize'" :disabled="!isAuthorized(item) && !canAuthorize(item)" @click="isAuthorized(item) ? updateAuthorization(item, false) : updateAuthorization(item, true)" />
         <v-list-item prepend-icon="mdi-archive-arrow-down-outline" title="Archive device" @click="confirm = { device: item, action: 'archive' }" />
         <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete device" class="text-error" @click="confirm = { device: item, action: 'delete' }" />
         </v-list></v-menu
@@ -271,7 +313,6 @@ const licenseCounts = (status) =>
       ></v-card
     ></v-dialog
   >
-  <v-dialog v-model="labelsDialog" max-width="500"><v-card class="pa-6"><h2 class="text-h5 mb-2">Edit labels</h2><p class="text-body-2 text-medium-emphasis">Labels for {{ labelsDevice?.id }}. Separate multiple labels with commas.</p><v-text-field v-model="labelsDraft" label="Labels" autofocus @keyup.enter="saveLabels" /><div class="d-flex justify-end ga-2"><v-btn @click="labelsDialog = false">Cancel</v-btn><v-btn color="primary" :loading="!!state.busy" @click="saveLabels">Save labels</v-btn></div></v-card></v-dialog>
   <v-dialog v-model="issueDialog" max-width="720"
     ><v-card class="pa-6"
       ><h2 class="text-h5 mb-3">
@@ -353,7 +394,6 @@ const licenseCounts = (status) =>
 .identity-table :deep(th),
 .identity-table :deep(td) { white-space: normal !important; overflow-wrap: anywhere; word-break: normal; vertical-align: top; }
 .identity-table :deep(td:last-child > *) { max-width: 100%; }
-.device-id { display: inline-block; font-family: var(--font-monospace, monospace); font-weight: 600; overflow-wrap: anywhere; }
 .name-copy { max-width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .confirmation-copy-button { max-width: 100%; height: auto !important; min-height: 32px; padding-block: 6px; white-space: normal; }
 .confirmation-copy-button :deep(.v-btn__content) { white-space: normal; overflow-wrap: anywhere; text-align: left; }
