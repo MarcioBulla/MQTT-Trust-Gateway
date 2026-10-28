@@ -131,11 +131,8 @@ onMounted(() => action(refreshUser));
               @click="copy(state.bootstrapHelp.command)"
               >Copy command</v-btn
             >
-            <p class="text-body-2">File location on that computer:</p>
-            <p class="mono text-body-2 my-2">{{ state.bootstrapHelp.hostFile }}</p>
             <p class="text-body-2">
-              Relative paths start in the gateway checkout. Paste the command's output into
-              Bootstrap token below. The file is deleted after your administrator is created.
+              Paste the command's output into Bootstrap token below.
             </p>
           </v-alert>
           <v-form @submit.prevent="login"

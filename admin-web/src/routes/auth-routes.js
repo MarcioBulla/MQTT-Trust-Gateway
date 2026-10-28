@@ -64,7 +64,6 @@ export function registerAuthRoutes(app) {
           ? null
           : {
               command: 'podman exec mqtt-admin cat /data/bootstrap-token',
-              hostFile: path.join(process.env.DATA_DIR || 'runtime', 'admin', 'bootstrap-token'),
             },
       });
     }),
