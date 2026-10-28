@@ -39,13 +39,13 @@ const labelColors = [
   { title: 'Purple', value: 'purple' }, { title: 'Grey', value: 'grey' },
 ];
 const certHeaders = [
-  { title: 'Device', key: 'deviceId' },
-  { title: 'Labels', key: 'labels' },
-  { title: 'Serial', key: 'serial' },
-  { title: 'Issued', key: 'issuedAt' },
-  { title: 'Expires', key: 'validTo' },
-  { title: 'Status', key: 'status' },
-  { title: 'Actions', key: 'actions', sortable: false },
+  { title: 'Device', key: 'deviceId', width: '150px', maxWidth: '170px' },
+  { title: 'Labels', key: 'labels', width: '190px', maxWidth: '210px' },
+  { title: 'Serial', key: 'serial', width: '150px', maxWidth: '170px' },
+  { title: 'Issued', key: 'issuedAt', width: '160px', maxWidth: '180px' },
+  { title: 'Expires', key: 'validTo', width: '160px', maxWidth: '180px' },
+  { title: 'Status', key: 'status', width: '130px', maxWidth: '150px' },
+  { title: '', key: 'actions', width: '64px', maxWidth: '64px', sortable: false },
 ];
 const archivedHeaders = [
   { title: 'Device', key: 'id' }, { title: 'Archived (UTC)', key: 'archivedAt' },
@@ -260,7 +260,7 @@ const licenseCounts = (status) =>
       :items="certs.filter((c) => filter === 'All' || c.status === filter)"
       :search="search"
       :loading="!!state.busy"
-      class="mt-4"
+      class="mt-4 identity-table"
     >
       <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="rawLabel in licenseDevice(item.deviceId).labels || []" :key="labelValue(rawLabel).name" size="small" :closable="licenseDevice(item.deviceId).status === 'active'" :color="labelValue(rawLabel).color" variant="tonal" @click:close="removeLabel(licenseDevice(item.deviceId), labelValue(rawLabel).name)">{{ labelValue(rawLabel).name }}</v-chip><v-menu v-if="licenseDevice(item.deviceId).status === 'active'" location="bottom start" :close-on-content-click="false" @update:model-value="openLabelMenu(licenseDevice(item.deviceId), $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to ${licenseDevice(item.deviceId).name || item.deviceId}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLabels(licenseDevice(item.deviceId)).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLabels(licenseDevice(item.deviceId))" :key="label.name" :title="label.name" @click="attachLabel(licenseDevice(item.deviceId), label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLabel(licenseDevice(item.deviceId))">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
       <template #item.serial="{ item }"
@@ -268,25 +268,13 @@ const licenseCounts = (status) =>
       ><template #item.status="{ item }"
         ><v-chip size="small" :color="color(item.status)">{{ item.status }}</v-chip></template
       >
-      <template #item.actions="{ item }"
-        ><div class="d-flex flex-wrap ga-1"><v-btn
-          v-if="item.canDownload"
-          size="small"
-          variant="tonal"
-          prepend-icon="mdi-download"
-          :href="`/api/certificates/${item.id}/download`"
-          >Download</v-btn
-        ><v-btn size="small" variant="tonal" prepend-icon="mdi-autorenew" @click="openIssue(item.deviceId, item.id)">Renew / replace</v-btn
-        ><v-btn
-          v-if="item.status !== 'revoked'"
-          size="small"
-          color="error"
-          variant="tonal"
-          prepend-icon="mdi-cancel"
-          @click="confirm = { cert: item }"
-          >Revoke</v-btn
-        ><v-btn v-if="licenseDevice(item.deviceId).status === 'active'" size="small" color="warning" variant="tonal" prepend-icon="mdi-archive-arrow-down-outline" @click="confirm = { device: licenseDevice(item.deviceId), action: 'archive' }">Archive device</v-btn><v-btn size="small" color="error" variant="tonal" prepend-icon="mdi-delete-forever-outline" @click="confirm = { device: licenseDevice(item.deviceId), action: 'delete' }">Delete device</v-btn></div></template
-      >
+      <template #item.actions="{ item }"><v-menu location="bottom end"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-vertical" variant="text" size="small" aria-label="License actions" /></template><v-list density="compact">
+        <v-list-item v-if="item.canDownload" prepend-icon="mdi-download" title="Download certificate" :href="`/api/certificates/${item.id}/download`" />
+        <v-list-item prepend-icon="mdi-autorenew" title="Renew / replace" @click="openIssue(item.deviceId, item.id)" />
+        <v-list-item v-if="item.status !== 'revoked'" prepend-icon="mdi-cancel" title="Revoke certificate" class="text-error" @click="confirm = { cert: item }" />
+        <v-list-item v-if="licenseDevice(item.deviceId).status === 'active'" prepend-icon="mdi-archive-arrow-down-outline" title="Archive device" @click="confirm = { device: licenseDevice(item.deviceId), action: 'archive' }" />
+        <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete device" class="text-error" @click="confirm = { device: licenseDevice(item.deviceId), action: 'delete' }" />
+      </v-list></v-menu></template>
     </v-data-table>
   </v-card>
   <v-alert type="info" variant="tonal" class="mt-5"
