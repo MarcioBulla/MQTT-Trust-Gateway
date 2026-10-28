@@ -316,7 +316,7 @@ const licenseCounts = (status) =>
       <p v-else>Change access for {{ confirm?.device?.id }}?</p>
       <template v-if="confirm?.action === 'archive' || confirm?.action === 'delete'">
         <div class="d-flex align-center flex-wrap ga-2 mt-5 mb-2">
-          <span>Type</span><v-btn icon="mdi-content-copy" size="small" color="primary" variant="tonal" rounded="lg" :aria-label="`Copy ${confirmationPhrase()} to clipboard`" title="Copy confirmation text" @click="copy(confirmationPhrase())" /><v-chip label size="small" class="font-weight-medium">{{ confirmationPhrase() }}</v-chip><span>to confirm.</span>
+          <span>Type</span><v-btn prepend-icon="mdi-content-copy" size="small" color="primary" variant="tonal" rounded="pill" class="confirmation-copy-button" :aria-label="`Copy ${confirmationPhrase()} to clipboard`" title="Copy confirmation text" @click="copy(confirmationPhrase())">{{ confirmationPhrase() }}</v-btn><span>to confirm.</span>
         </div>
         <v-text-field v-model="confirmText" label="Enter confirmation" autocomplete="off" autocapitalize="off" spellcheck="false" />
       </template>
@@ -355,4 +355,6 @@ const licenseCounts = (status) =>
 .identity-table :deep(th),
 .identity-table :deep(td) { white-space: normal !important; overflow-wrap: anywhere; word-break: normal; vertical-align: top; }
 .identity-table :deep(td:last-child > *) { max-width: 100%; }
+.confirmation-copy-button { max-width: 100%; height: auto !important; min-height: 32px; padding-block: 6px; white-space: normal; }
+.confirmation-copy-button :deep(.v-btn__content) { white-space: normal; overflow-wrap: anywhere; text-align: left; }
 </style>
