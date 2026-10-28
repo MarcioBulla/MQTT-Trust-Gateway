@@ -9,11 +9,13 @@ import App from './App.vue';
 import Dashboard from './pages/Dashboard.vue';
 import Devices from './pages/Devices.vue';
 import Identities from './pages/Identities.vue';
+import Certificates from './pages/Certificates.vue';
 import Mqtt from './pages/Mqtt.vue';
 import Account from './pages/Account.vue';
 const routes = [
   { path: '/', component: Dashboard },
   { path: '/devices', component: Identities },
+  { path: '/devices/:deviceId/certificates', component: Certificates, props: (route) => ({ deviceId: String(route.params.deviceId) }) },
   { path: '/certificates', redirect: { path: '/devices', query: { view: 'certificates' } } },
   { path: '/licenses', component: Devices, props: { licenses: true } },
   { path: '/mqtt', component: Mqtt },

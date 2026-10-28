@@ -1,7 +1,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api, action, state, copy } from '../api';
+import { certificateMethods } from '../certificate-methods';
 const props = defineProps({ licenses: Boolean });
+const emit = defineEmits(['add-certificate']);
+const router = useRouter();
 const devices = ref([]),
   archived = ref([]),
   certs = ref([]),
@@ -21,12 +25,11 @@ const form = ref({ id: '', name: '', description: '', labels: '' }),
 const headers = [
   { title: 'Name', key: 'name', width: '180px', maxWidth: '200px' },
   { title: 'Labels', key: 'labels', width: '170px', maxWidth: '190px' },
-  { title: 'Provisioning', key: 'latestCertificate.provisioningMethod', width: '145px', maxWidth: '160px' },
   { title: 'Issuer', key: 'latestCertificate.issuerName', width: '170px', maxWidth: '190px' },
   { title: 'Algorithm', key: 'latestCertificate.algorithm', width: '145px', maxWidth: '160px' },
-  { title: 'Credential', key: 'latestCertificate.status', width: '150px', maxWidth: '170px' },
+  { title: 'Status', key: 'latestCertificate.status', width: '150px', maxWidth: '170px' },
   { title: 'Authorization', key: 'enabled', width: '130px', maxWidth: '145px' },
-  { title: '', key: 'actions', width: '64px', maxWidth: '64px', sortable: false },
+  { title: '', key: 'actions', width: '145px', maxWidth: '150px', sortable: false },
 ];
 const identityRows = computed(() => devices.value.map((device) => ({
   ...device,
@@ -45,7 +48,7 @@ const certHeaders = [
   { title: 'Issued', key: 'issuedAt', width: '160px', maxWidth: '180px' },
   { title: 'Expires', key: 'validTo', width: '160px', maxWidth: '180px' },
   { title: 'Status', key: 'status', width: '130px', maxWidth: '150px' },
-  { title: '', key: 'actions', width: '64px', maxWidth: '64px', sortable: false },
+  { title: '', key: 'actions', width: '145px', maxWidth: '150px', sortable: false },
 ];
 const archivedHeaders = [
   { title: 'Device', key: 'id' }, { title: 'Archived (UTC)', key: 'archivedAt' },
@@ -136,6 +139,9 @@ function openIssue(id, previous = null) {
   issue.value = { deviceId: id, previous, csr: '', days: issue.value.days };
   issueDialog.value = true;
 }
+function editCredentials(deviceId) {
+  router.push(`/devices/${encodeURIComponent(deviceId)}/certificates`);
+}
 function sign() {
   action(async () => {
     const i = issue.value;
@@ -194,9 +200,10 @@ const licenseCounts = (status) =>
         }}
       </p>
     </div>
-    <v-btn v-if="!props.licenses" color="primary" prepend-icon="mdi-plus" @click="dialog = true"
-      >Register device</v-btn
-    >
+    <div v-if="!props.licenses" class="d-flex flex-wrap ga-2">
+      <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" variant="tonal" prepend-icon="mdi-certificate-outline">Add certificate</v-btn></template><v-list><v-list-item v-for="method in certificateMethods" :key="method.value" :title="method.title" @click="emit('add-certificate', method.value)" /></v-list></v-menu>
+      <v-btn color="primary" prepend-icon="mdi-plus" @click="dialog = true">Register device</v-btn>
+    </div>
   </div>
   <v-row v-if="props.licenses" class="mb-4" dense>
     <v-col v-for="item in [{ key: 'active', label: 'Active licenses', icon: 'mdi-shield-check-outline', color: 'success' }, { key: 'expiring', label: 'Expiring soon', icon: 'mdi-clock-alert-outline', color: 'warning' }, { key: 'inactive', label: 'Expired or revoked', icon: 'mdi-shield-off-outline', color: 'error' }]" :key="item.key" cols="12" sm="4">
@@ -231,13 +238,11 @@ const licenseCounts = (status) =>
     >
       <template #item.name="{ item }"><v-tooltip :text="`ID: ${item.id}`" location="top" :open-delay="650" :close-delay="150"><template #activator="{ props: tooltipProps }"><v-btn v-bind="tooltipProps" variant="text" density="compact" :class="['name-copy', 'text-none', 'px-0', `text-${connectionColor(item.connectionStatus)}`]" :aria-label="`Copy device name ${item.name || item.id}`" @click="copy(item.name || item.id)">{{ item.name || item.id }}</v-btn></template></v-tooltip></template>
       <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="rawLabel in item.labels || []" :key="labelValue(rawLabel).name" size="small" closable :color="labelValue(rawLabel).color" variant="tonal" @click:close="removeLabel(item, labelValue(rawLabel).name)">{{ labelValue(rawLabel).name }}</v-chip><v-menu location="bottom start" :close-on-content-click="false" @update:model-value="openLabelMenu(item, $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to ${item.name || item.id}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLabels(item).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLabels(item)" :key="label.name" :title="label.name" @click="attachLabel(item, label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLabel(item)">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
-      <template #item.latestCertificate.provisioningMethod="{ item }">{{ item.latestCertificate?.provisioningMethod || '—' }}</template>
       <template #item.latestCertificate.issuerName="{ item }"><span>{{ item.latestCertificate?.issuerName || item.latestCertificate?.issuer || '—' }}</span><span v-if="item.latestCertificate?.brokerTrusted === false" class="text-warning"> (not trusted)</span></template>
       <template #item.latestCertificate.algorithm="{ item }">{{ item.latestCertificate?.algorithm || '—' }}</template>
-      <template #item.latestCertificate.status="{ item }"><div v-if="item.latestCertificate" class="d-flex flex-column align-start ga-1"><v-chip size="small" :color="color(item.latestCertificate.status)">{{ item.latestCertificate.status }}</v-chip><span class="text-caption text-medium-emphasis">Expires {{ item.latestCertificate.validTo || '—' }}</span></div><span v-else class="text-medium-emphasis">No certificate</span></template>
+      <template #item.latestCertificate.status="{ item }"><v-tooltip v-if="item.latestCertificate" :text="`Expires ${item.latestCertificate.validTo || '—'}`" location="top"><template #activator="{ props: tooltipProps }"><v-chip v-bind="tooltipProps" size="small" :color="color(item.latestCertificate.status)">{{ item.latestCertificate.status }}</v-chip></template></v-tooltip><span v-else class="text-medium-emphasis">No certificate</span></template>
       <template #item.enabled="{ item }"><div class="d-flex align-center ga-2"><v-switch :model-value="isAuthorized(item)" :disabled="!canAuthorize(item) && !isAuthorized(item)" color="success" density="compact" hide-details :aria-label="`Authorize ${item.id} for MQTT`" @update:model-value="updateAuthorization(item, $event)" /><span class="text-caption">{{ isAuthorized(item) ? 'Authorized' : canAuthorize(item) ? 'Disabled' : 'No valid credential' }}</span></div></template>
-      <template #item.actions="{ item }"
-        ><v-menu location="bottom end"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-vertical" variant="text" size="small" aria-label="Device actions" /></template><v-list density="compact">
+      <template #item.actions="{ item }"><div class="d-flex align-center justify-end ga-1"><v-btn size="small" variant="tonal" prepend-icon="mdi-pencil-outline" @click="editCredentials(item.id)">Edit</v-btn><v-menu location="bottom end"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-vertical" variant="text" size="small" aria-label="Device actions" /></template><v-list density="compact">
         <v-list-item prepend-icon="mdi-information-outline" title="Details" @click="details = item" />
         <v-list-item v-if="item.latestCertificate?.canDownload" prepend-icon="mdi-download" title="Download certificate" :href="`/api/certificates/${item.latestCertificate.id}/download`" />
         <v-list-item v-if="item.latestCertificate && ['active', 'expiring', 'untrusted'].includes(item.latestCertificate.status)" prepend-icon="mdi-autorenew" title="Renew / replace certificate" @click="openIssue(item.id, item.latestCertificate.id)" />
@@ -246,9 +251,7 @@ const licenseCounts = (status) =>
         <v-list-item prepend-icon="mdi-shield-check-outline" :title="isAuthorized(item) ? 'Disable authorization' : 'Approve & authorize'" :disabled="!isAuthorized(item) && !canAuthorize(item)" @click="isAuthorized(item) ? updateAuthorization(item, false) : updateAuthorization(item, true)" />
         <v-list-item prepend-icon="mdi-archive-arrow-down-outline" title="Archive device" @click="confirm = { device: item, action: 'archive' }" />
         <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete device" class="text-error" @click="confirm = { device: item, action: 'delete' }" />
-        </v-list></v-menu
-        ></template
-      >
+        </v-list></v-menu></div></template>
     </v-data-table>
     <v-data-table v-if="!props.licenses && tab === 'archived'" :headers="archivedHeaders" :items="archived" :search="search" :loading="!!state.busy" class="mt-4">
       <template #item.daysRemaining="{ item }"><v-chip size="small" :color="item.daysRemaining <= 3 ? 'warning' : 'default'">{{ item.daysRemaining }} days</v-chip></template>
@@ -268,13 +271,13 @@ const licenseCounts = (status) =>
       ><template #item.status="{ item }"
         ><v-chip size="small" :color="color(item.status)">{{ item.status }}</v-chip></template
       >
-      <template #item.actions="{ item }"><v-menu location="bottom end"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-vertical" variant="text" size="small" aria-label="License actions" /></template><v-list density="compact">
+      <template #item.actions="{ item }"><div class="d-flex align-center justify-end ga-1"><v-btn size="small" variant="tonal" prepend-icon="mdi-pencil-outline" @click="editCredentials(item.deviceId)">Edit</v-btn><v-menu location="bottom end"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-vertical" variant="text" size="small" aria-label="License actions" /></template><v-list density="compact">
         <v-list-item v-if="item.canDownload" prepend-icon="mdi-download" title="Download certificate" :href="`/api/certificates/${item.id}/download`" />
         <v-list-item prepend-icon="mdi-autorenew" title="Renew / replace" @click="openIssue(item.deviceId, item.id)" />
         <v-list-item v-if="item.status !== 'revoked'" prepend-icon="mdi-cancel" title="Revoke certificate" class="text-error" @click="confirm = { cert: item }" />
         <v-list-item v-if="licenseDevice(item.deviceId).status === 'active'" prepend-icon="mdi-archive-arrow-down-outline" title="Archive device" @click="confirm = { device: licenseDevice(item.deviceId), action: 'archive' }" />
         <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete device" class="text-error" @click="confirm = { device: licenseDevice(item.deviceId), action: 'delete' }" />
-      </v-list></v-menu></template>
+      </v-list></v-menu></div></template>
     </v-data-table>
   </v-card>
   <v-alert type="info" variant="tonal" class="mt-5"
@@ -380,7 +383,7 @@ const licenseCounts = (status) =>
 </template>
 
 <style scoped>
-.identity-table :deep(table) { table-layout: fixed; min-width: 1280px; }
+.identity-table :deep(table) { table-layout: fixed; min-width: 1100px; }
 .identity-table :deep(th),
 .identity-table :deep(td) { white-space: normal !important; overflow-wrap: anywhere; word-break: normal; vertical-align: top; }
 .identity-table :deep(td:last-child > *) { max-width: 100%; }

@@ -1,21 +1,19 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { api, action, state } from '../api';
 import FileDrop from '../components/FileDrop.vue';
+import { certificateMethods } from '../certificate-methods';
 
-const props = defineProps({ embedded: Boolean });
-
-const methods = [
-  { value: 'generate', title: 'Generate complete certificate' },
-  { value: 'sign', title: 'Sign an existing CSR' },
-  { value: 'external', title: 'Generate CSR for external signing' },
-  { value: 'import', title: 'Import a certificate' },
-];
+const props = defineProps({ embedded: Boolean, deviceId: { type: String, default: '' } });
+const router = useRouter();
 const method = ref('generate'), dialog = ref(false), certificates = ref([]), devices = ref([]), trustedCas = ref([]),
   search = ref(''), form = ref({ deviceId: '', name: '', algorithm: 'ecdsa-p256', days: 90, csr: '', certificate: '', chain: '', privateKey: '', pendingId: '', previousId: '' }),
   details = ref(null),
   preview = ref(null), generatedPending = ref(null), caPem = ref(''), caConfirmation = ref('');
-const pending = computed(() => certificates.value.filter((item) => item.status === 'pending_external_signature'));
+const pending = computed(() => certificates.value.filter((item) => item.status === 'pending_external_signature' && (!props.deviceId || item.deviceId === props.deviceId)));
+const displayedCertificates = computed(() => certificates.value.filter((item) => !props.deviceId || item.deviceId === props.deviceId));
+const currentDevice = computed(() => devices.value.find((item) => item.id === props.deviceId) || null);
 const headers = [
   { title: 'Device', key: 'deviceId' }, { title: 'Provisioning', key: 'provisioningMethod' },
   { title: 'Issuer', key: 'issuerName' }, { title: 'Algorithm', key: 'algorithm' },
@@ -29,7 +27,7 @@ async function load() {
 onMounted(() => action(load));
 function open(methodName) {
   method.value = methodName; preview.value = null; generatedPending.value = null;
-  form.value = { deviceId: '', name: '', algorithm: 'ecdsa-p256', days: 90, csr: '', certificate: '', chain: '', privateKey: '', pendingId: '', previousId: '' };
+  form.value = { deviceId: props.deviceId || '', name: currentDevice.value?.name || '', algorithm: 'ecdsa-p256', days: 90, csr: '', certificate: '', chain: '', privateKey: '', pendingId: '', previousId: '' };
   dialog.value = true;
 }
 async function fileText(event, field) {
@@ -108,29 +106,33 @@ function removeCa(item) {
   action(async () => { await api(`/trusted-cas/${item.id}`, 'DELETE', {}); await load(); }, 'CA trust removed.');
 }
 const statusColor = (status) => ({ active: 'success', expiring: 'warning', expired: 'error', revoked: 'error', untrusted: 'warning', pending_external_signature: 'info', blocked: 'error' })[status] || 'default';
+defineExpose({ open });
 </script>
 
 <template>
-  <div v-if="!props.embedded" class="d-flex flex-wrap align-center justify-space-between ga-4 mb-6">
+  <div v-if="props.deviceId" class="d-flex flex-wrap align-center justify-space-between ga-4 mb-6">
+    <div><v-btn variant="text" prepend-icon="mdi-arrow-left" class="mb-2" @click="router.push('/devices')">Devices &amp; certificates</v-btn><div class="text-overline text-primary">DEVICE CERTIFICATES</div><h1 class="text-h4 font-weight-bold">{{ currentDevice?.name || props.deviceId }}</h1><p class="text-medium-emphasis mt-2">ID: {{ props.deviceId }} · Manage this device’s certificates and provisioning history.</p></div>
+    <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" color="primary" prepend-icon="mdi-plus">Add certificate</v-btn></template><v-list><v-list-item v-for="method in certificateMethods" :key="method.value" :title="method.title" @click="open(method.value)" /></v-list></v-menu>
+  </div>
+  <div v-else-if="!props.embedded" class="d-flex flex-wrap align-center justify-space-between ga-4 mb-6">
     <div><div class="text-overline text-primary">IDENTITY & CRYPTOGRAPHIC CREDENTIALS</div><h1 class="text-h4 font-weight-bold">Certificates and identities</h1><p class="text-medium-emphasis mt-2">Four enrollment methods share one device registry. Private keys are never recoverable after delivery.</p></div>
-    <v-menu><template #activator="{ props }"><v-btn v-bind="props" color="primary" prepend-icon="mdi-plus">Add certificate</v-btn></template><v-list><v-list-item v-for="item in methods" :key="item.value" :title="item.title" @click="open(item.value)" /></v-list></v-menu>
+    <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" color="primary" prepend-icon="mdi-plus">Add certificate</v-btn></template><v-list><v-list-item v-for="method in certificateMethods" :key="method.value" :title="method.title" @click="open(method.value)" /></v-list></v-menu>
   </div>
   <v-alert v-if="!props.embedded" type="info" variant="tonal" class="mb-5">Importing a certificate does not automatically trust its issuer. External CAs must be added and explicitly approved below. MQTT revocation disables the full device identity and disconnects current broker sessions.</v-alert>
   <div v-if="props.embedded" class="d-flex flex-wrap align-center justify-space-between ga-3 mb-4">
-    <div><h2 class="text-h6">Certificate provisioning</h2><p class="text-body-2 text-medium-emphasis mb-0">Manage credentials from the same device registry.</p></div>
-    <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" color="primary" prepend-icon="mdi-plus">Add certificate</v-btn></template><v-list><v-list-item v-for="item in methods" :key="item.value" :title="item.title" @click="open(item.value)" /></v-list></v-menu>
+    <div><h2 class="text-h6">Certificate provisioning</h2><p class="text-body-2 text-medium-emphasis mb-0">Manage credentials from the same device registry. Use Add certificate above to choose a method.</p></div>
   </div>
-  <v-card v-if="!props.embedded" class="pa-4 mb-6"><v-text-field v-model="search" label="Search certificates" prepend-inner-icon="mdi-magnify" hide-details /><v-data-table :headers="headers" :items="certificates" :search="search" :loading="!!state.busy" class="mt-4">
+  <v-card v-if="!props.embedded" class="pa-4 mb-6"><v-text-field v-if="!props.deviceId" v-model="search" label="Search certificates" prepend-inner-icon="mdi-magnify" hide-details /><v-data-table :headers="headers" :items="displayedCertificates" :search="search" :loading="!!state.busy" class="mt-4">
     <template #item.algorithm="{ item }">{{ item.algorithm || '—' }}</template>
     <template #item.issuerName="{ item }">{{ item.issuerName || item.issuer || '—' }} <span v-if="item.brokerTrusted === false" class="text-warning">(not trusted)</span></template>
     <template #item.status="{ item }"><v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip></template>
     <template #item.actions="{ item }"><div class="d-flex flex-wrap ga-1"><v-btn size="small" variant="tonal" prepend-icon="mdi-information-outline" @click="details = item">Details</v-btn><v-btn v-if="item.canDownload" size="small" variant="tonal" prepend-icon="mdi-download" :href="`/api/certificates/${item.id}/download`">Certificate</v-btn><v-btn v-if="item.certificate" size="small" variant="tonal" prepend-icon="mdi-certificate-outline" :href="`/api/certificates/${item.id}/chain`">Issuer chain</v-btn><v-btn v-if="item.status === 'pending_external_signature'" size="small" variant="tonal" prepend-icon="mdi-file-sign" @click="importPending(item)">Import signed certificate</v-btn><v-btn v-if="item.status === 'active' || item.status === 'untrusted' || item.status === 'expiring'" size="small" variant="tonal" prepend-icon="mdi-autorenew" @click="renew(item)">Renew / replace</v-btn><v-btn size="small" variant="tonal" prepend-icon="mdi-export-variant" @click="exportInfo(item)">Export info</v-btn><v-btn v-if="item.status === 'active' || item.status === 'untrusted' || item.status === 'expiring'" size="small" color="error" variant="tonal" prepend-icon="mdi-cancel" @click="revoke(item)">Revoke</v-btn></div></template>
   </v-data-table></v-card>
-  <v-card class="pa-5"><h2 class="text-h6 mb-2">Trusted external CAs</h2><p class="text-body-2 text-medium-emphasis">Only approved CA certificates are added to the Mosquitto client trust bundle. Trust changes restart the broker.</p><v-list v-if="trustedCas.length"><v-list-item v-for="ca in trustedCas" :key="ca.id" :title="ca.subject" :subtitle="`SHA-256 ${ca.fingerprint} · expires ${ca.validTo}`"><template #append><v-btn color="error" variant="tonal" prepend-icon="mdi-shield-remove-outline" @click="removeCa(ca)">Remove trust</v-btn></template></v-list-item></v-list><v-alert v-else type="info" variant="tonal" class="my-3">No external CAs are trusted.</v-alert><v-textarea v-model="caPem" label="External CA certificate (PEM)" rows="5" /><v-text-field v-model="caConfirmation" label="Type TRUST THIS CA to approve" /><v-btn color="primary" variant="flat" prepend-icon="mdi-shield-check-outline" :disabled="caConfirmation !== 'TRUST THIS CA' || !caPem" :loading="!!state.busy" @click="trustCa">Approve CA trust</v-btn></v-card>
+  <v-card v-if="!props.deviceId" class="pa-5"><h2 class="text-h6 mb-2">Trusted external CAs</h2><p class="text-body-2 text-medium-emphasis">Only approved CA certificates are added to the Mosquitto client trust bundle. Trust changes restart the broker.</p><v-list v-if="trustedCas.length"><v-list-item v-for="ca in trustedCas" :key="ca.id" :title="ca.subject" :subtitle="`SHA-256 ${ca.fingerprint} · expires ${ca.validTo}`"><template #append><v-btn color="error" variant="tonal" prepend-icon="mdi-shield-remove-outline" @click="removeCa(ca)">Remove trust</v-btn></template></v-list-item></v-list><v-alert v-else type="info" variant="tonal" class="my-3">No external CAs are trusted.</v-alert><v-textarea v-model="caPem" label="External CA certificate (PEM)" rows="5" /><v-text-field v-model="caConfirmation" label="Type TRUST THIS CA to approve" /><v-btn color="primary" variant="flat" prepend-icon="mdi-shield-check-outline" :disabled="caConfirmation !== 'TRUST THIS CA' || !caPem" :loading="!!state.busy" @click="trustCa">Approve CA trust</v-btn></v-card>
 
-  <v-dialog v-model="dialog" max-width="820" scrollable><v-card class="pa-6"><h2 class="text-h5 mb-4">{{ methods.find((item) => item.value === method)?.title }}</h2>
+  <v-dialog v-model="dialog" max-width="820" scrollable><v-card class="pa-6"><h2 class="text-h5 mb-4">{{ certificateMethods.find((item) => item.value === method)?.title }}</h2>
     <template v-if="!generatedPending">
-      <v-text-field v-model="form.deviceId" label="MQTT device identity" hint="Letters, digits, dots, underscores, and hyphens; this must match the certificate CN." required />
+      <v-text-field v-model="form.deviceId" label="MQTT device identity" hint="Letters, digits, dots, underscores, and hyphens; this must match the certificate CN." :disabled="!!props.deviceId" required />
       <v-text-field v-if="method === 'external' || method === 'import'" v-model="form.name" label="Device name" />
       <v-select v-if="method === 'generate' || method === 'external'" v-model="form.algorithm" label="Key algorithm" :items="[{ title: 'ECDSA P-256 (recommended)', value: 'ecdsa-p256' }, { title: 'RSA-2048', value: 'rsa-2048' }]" />
       <v-text-field v-if="method === 'generate' || method === 'sign'" v-model.number="form.days" type="number" min="1" label="Certificate validity (days)" />
