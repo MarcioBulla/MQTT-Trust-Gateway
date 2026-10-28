@@ -10,7 +10,14 @@ import {
 } from '@simplewebauthn/server';
 import { env } from '../config.js';
 import { enrollTotp, verifyTotp } from '../totp.js';
-import { currentUser, createSession, logout, rateLimit, requireAuth } from '../auth.js';
+import {
+  currentUser,
+  createSession,
+  logout,
+  rateLimit,
+  requireAuth,
+  matchesBootstrapToken,
+} from '../auth.js';
 import { loadDb, saveDb, audit } from '../db.js';
 import {
   publicUser,
@@ -76,12 +83,13 @@ export function registerAuthRoutes(app) {
       if (db.users.length) return res.status(409).json({ error: 'Administrator already exists' });
       const tokenFile = path.join(env.dataDir, 'bootstrap-token');
       const expected = await fs.readFile(tokenFile, 'utf8');
-      const supplied = String(req.body.setupToken || '');
-      if (
-        supplied.length !== expected.length ||
-        !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))
-      )
-        return res.status(403).json({ error: 'Invalid bootstrap token' });
+      if (!matchesBootstrapToken(req.body.setupToken, expected))
+        return res
+          .status(403)
+          .json({
+            error:
+              'Invalid bootstrap token. Run the Podman command and paste its output without the shell prompt.',
+          });
       const username = String(req.body.username || '').trim();
       if (!/^[A-Za-z0-9._@-]{1,64}$/.test(username))
         return res.status(400).json({ error: 'Invalid username' });

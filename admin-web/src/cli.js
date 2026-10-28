@@ -9,7 +9,7 @@ await exclusive(prepareGateway);
 if (!loadDb().users.length) {
   const file = path.join(env.dataDir, 'bootstrap-token');
   try {
-    await fs.writeFile(file, crypto.randomBytes(32).toString('base64url'), {
+    await fs.writeFile(file, `${crypto.randomBytes(32).toString('base64url')}\n`, {
       flag: 'wx',
       mode: 0o600,
     });
