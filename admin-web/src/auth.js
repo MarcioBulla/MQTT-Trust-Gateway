@@ -2,6 +2,14 @@ import crypto from 'node:crypto';
 import { env } from './config.js';
 import { loadDb, saveDb } from './db.js';
 const attempts = new Map();
+export function matchesBootstrapToken(value, expected) {
+  if (typeof value !== 'string') return false;
+  const supplied = Buffer.from(value.trim());
+  const token = Buffer.from(expected.trim());
+  return (
+    token.length > 0 && supplied.length === token.length && crypto.timingSafeEqual(supplied, token)
+  );
+}
 export function rateLimit(req, res, next) {
   const now = Date.now();
   for (const [key, entry] of attempts) if (entry.until < now) attempts.delete(key);

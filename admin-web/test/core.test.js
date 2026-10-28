@@ -159,3 +159,14 @@ test('certificate expiry requests a broker restart even when a renewed certifica
   assert.notEqual(await fs.readFile(path.join(dir, 'broker/revision'), 'utf8'), revision);
   assert.match(await fs.readFile(path.join(dir, 'broker/acl'), 'utf8'), /user renewed-device/);
 });
+test('bootstrap tokens tolerate surrounding whitespace while rejecting incorrect and malformed input', async () => {
+  const { matchesBootstrapToken } = await import('../src/auth.js');
+  const token = 'correct-private-bootstrap-token';
+  assert.equal(matchesBootstrapToken(token, token), true);
+  assert.equal(matchesBootstrapToken(` \n${token}\r\n `, `${token}\n`), true);
+  assert.equal(matchesBootstrapToken('incorrect', token), false);
+  assert.equal(matchesBootstrapToken('é', 'a'), false);
+  assert.equal(matchesBootstrapToken('', ''), false);
+  assert.equal(matchesBootstrapToken(null, token), false);
+  assert.equal(matchesBootstrapToken({ token }, token), false);
+});

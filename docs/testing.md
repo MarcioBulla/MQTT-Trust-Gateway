@@ -8,10 +8,11 @@ Mosquitto is pinned to 2.1.2-alpine for native WebSocket TLS/CRL support.
 
 - `bun run build`: Vue/Vuetify production build passed. Vite reports a bundle
   size advisory (approximately 188 KiB compressed main JavaScript).
-- `bun run test`: five unit/integration tests passed: OpenSSL CA lifecycle and
+- `bun run test`: six unit/integration tests passed: OpenSSL CA lifecycle and
   CSR constraints, serialized SQLite writes, encrypted TOTP with replay
   rejection, legacy JSON credential/inventory import without old sessions, and expiry
-  enforcement when another certificate for the same device remains valid.
+  enforcement when another certificate for the same device remains valid, and
+  whitespace-tolerant bootstrap validation with malformed-input rejection.
 - `bun audit`: no known vulnerabilities in the installed dependency graph.
 - Rootless installation through `./gateway install --env /tmp/mqtt-gateway-test.env`
   and `systemctl --user start`: both units started successfully. The existing
