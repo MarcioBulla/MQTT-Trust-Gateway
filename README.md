@@ -245,6 +245,9 @@ step after migration; the new installer never manages those services.
 - Add device health checks with explicit heartbeat or status reporting, configurable
   stale thresholds, and clear online, offline, and unknown states. Do not infer
   device health from certificate validity alone.
+- Add configurable SMTP email notifications for devices that remain offline beyond
+  a configurable grace period, with alert deduplication and an optional recovery
+  notification when a device comes back online.
 
 ## Development and verification
 
