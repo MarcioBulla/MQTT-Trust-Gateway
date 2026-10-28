@@ -1,0 +1,3 @@
+FROM docker.io/eclipse-mosquitto:2.1.2-alpine
+COPY scripts/broker-entrypoint.sh /gateway-entrypoint.sh
+ENTRYPOINT ["/bin/sh", "/gateway-entrypoint.sh"]
