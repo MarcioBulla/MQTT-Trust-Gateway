@@ -1,6 +1,9 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { api, action, state } from '../api';
+import FileDrop from '../components/FileDrop.vue';
+
+const props = defineProps({ embedded: Boolean });
 
 const methods = [
   { value: 'generate', title: 'Generate complete certificate' },
@@ -108,12 +111,16 @@ const statusColor = (status) => ({ active: 'success', expiring: 'warning', expir
 </script>
 
 <template>
-  <div class="d-flex flex-wrap align-center justify-space-between ga-4 mb-6">
+  <div v-if="!props.embedded" class="d-flex flex-wrap align-center justify-space-between ga-4 mb-6">
     <div><div class="text-overline text-primary">IDENTITY & CRYPTOGRAPHIC CREDENTIALS</div><h1 class="text-h4 font-weight-bold">Certificates and identities</h1><p class="text-medium-emphasis mt-2">Four enrollment methods share one device registry. Private keys are never recoverable after delivery.</p></div>
     <v-menu><template #activator="{ props }"><v-btn v-bind="props" color="primary" prepend-icon="mdi-plus">Add certificate</v-btn></template><v-list><v-list-item v-for="item in methods" :key="item.value" :title="item.title" @click="open(item.value)" /></v-list></v-menu>
   </div>
-  <v-alert type="info" variant="tonal" class="mb-5">Importing a certificate does not automatically trust its issuer. External CAs must be added and explicitly approved below. MQTT revocation disables the full device identity and disconnects current broker sessions.</v-alert>
-  <v-card class="pa-4 mb-6"><v-text-field v-model="search" label="Search certificates" prepend-inner-icon="mdi-magnify" hide-details /><v-data-table :headers="headers" :items="certificates" :search="search" :loading="!!state.busy" class="mt-4">
+  <v-alert v-if="!props.embedded" type="info" variant="tonal" class="mb-5">Importing a certificate does not automatically trust its issuer. External CAs must be added and explicitly approved below. MQTT revocation disables the full device identity and disconnects current broker sessions.</v-alert>
+  <div v-if="props.embedded" class="d-flex flex-wrap align-center justify-space-between ga-3 mb-4">
+    <div><h2 class="text-h6">Certificate provisioning</h2><p class="text-body-2 text-medium-emphasis mb-0">Manage credentials from the same device registry.</p></div>
+    <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" color="primary" prepend-icon="mdi-plus">Add certificate</v-btn></template><v-list><v-list-item v-for="item in methods" :key="item.value" :title="item.title" @click="open(item.value)" /></v-list></v-menu>
+  </div>
+  <v-card v-if="!props.embedded" class="pa-4 mb-6"><v-text-field v-model="search" label="Search certificates" prepend-inner-icon="mdi-magnify" hide-details /><v-data-table :headers="headers" :items="certificates" :search="search" :loading="!!state.busy" class="mt-4">
     <template #item.algorithm="{ item }">{{ item.algorithm || '—' }}</template>
     <template #item.issuerName="{ item }">{{ item.issuerName || item.issuer || '—' }} <span v-if="item.brokerTrusted === false" class="text-warning">(not trusted)</span></template>
     <template #item.status="{ item }"><v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip></template>
@@ -127,8 +134,8 @@ const statusColor = (status) => ({ active: 'success', expiring: 'warning', expir
       <v-text-field v-if="method === 'external' || method === 'import'" v-model="form.name" label="Device name" />
       <v-select v-if="method === 'generate' || method === 'external'" v-model="form.algorithm" label="Key algorithm" :items="[{ title: 'ECDSA P-256 (recommended)', value: 'ecdsa-p256' }, { title: 'RSA-2048', value: 'rsa-2048' }]" />
       <v-text-field v-if="method === 'generate' || method === 'sign'" v-model.number="form.days" type="number" min="1" label="Certificate validity (days)" />
-      <template v-if="method === 'sign'"><p class="text-body-2">{{ form.previousId ? 'Reuse this certificate record’s CSR to replace it with a new serial. For a key rotation, upload a new CSR instead.' : 'Paste or upload a PEM CSR. The private key stays on the device; only the server-selected MQTT identity is signed.' }}</p><input type="file" accept=".csr,.pem" @change="fileText($event, 'csr')" /><v-textarea v-model="form.csr" label="Certificate signing request (PEM)" rows="8" /><v-btn variant="tonal" :disabled="!form.csr" @click="action(previewCsr)">Inspect and validate CSR</v-btn><v-card v-if="preview" class="pa-3 mt-3"><div>Subject: {{ preview.subject }}</div><div>Public key: {{ preview.algorithm }}</div><div>SHA-256: {{ preview.publicKeyFingerprint }}</div></v-card></template>
-      <template v-if="method === 'import'"><v-select v-if="pending.length" v-model="form.pendingId" label="Complete pending Gateway CSR (optional)" :items="pending.map((item) => ({ title: `${item.deviceId} · ${item.id}`, value: item.id }))" clearable /><input type="file" accept=".crt,.pem" @change="fileText($event, 'certificate')" /><v-textarea v-model="form.certificate" label="Client certificate (PEM)" rows="6" /><input type="file" accept=".crt,.pem" @change="fileText($event, 'chain')" /><v-textarea v-model="form.chain" label="Issuer chain (optional PEM)" rows="4" /><input type="file" accept=".key,.pem" @change="fileText($event, 'privateKey')" /><v-textarea v-model="form.privateKey" label="Matching private key (optional; validated then discarded)" rows="4" /></template>
+      <template v-if="method === 'sign'"><p class="text-body-2">{{ form.previousId ? 'Reuse this certificate record’s CSR to replace it with a new serial. For a key rotation, upload a new CSR instead.' : 'Paste or drop a PEM CSR. The private key stays on the device; only the server-selected MQTT identity is signed.' }}</p><FileDrop v-model="form.csr" accept=".csr,.pem" label="a CSR file" /><v-textarea v-model="form.csr" label="Certificate signing request (PEM)" rows="8" /><v-btn variant="tonal" :disabled="!form.csr" @click="action(previewCsr)">Inspect and validate CSR</v-btn><v-card v-if="preview" class="pa-3 mt-3"><div>Subject: {{ preview.subject }}</div><div>Public key: {{ preview.algorithm }}</div><div>SHA-256: {{ preview.publicKeyFingerprint }}</div></v-card></template>
+      <template v-if="method === 'import'"><v-select v-if="pending.length" v-model="form.pendingId" label="Complete pending Gateway CSR (optional)" :items="pending.map((item) => ({ title: `${item.deviceId} · ${item.id}`, value: item.id }))" clearable /><FileDrop v-model="form.certificate" accept=".crt,.pem" label="a client certificate" /><v-textarea v-model="form.certificate" label="Client certificate (PEM)" rows="6" /><FileDrop v-model="form.chain" accept=".crt,.pem" label="a CA chain" /><v-textarea v-model="form.chain" label="Issuer chain (optional PEM)" rows="4" /><FileDrop v-model="form.privateKey" accept=".key,.pem" label="a matching private key" /><v-textarea v-model="form.privateKey" label="Matching private key (optional; validated then discarded)" rows="4" /></template>
       <v-alert v-if="method === 'generate'" type="warning" variant="tonal" class="my-4">The ZIP contains the private key and is returned once. Save it in protected device storage; the Gateway never stores a copy.</v-alert>
       <v-alert v-if="method === 'external'" type="info" variant="tonal" class="my-4">The private key is held in memory for up to 15 minutes and delivered once. Restarting the Gateway clears it; regenerate the CSR if delivery expires.</v-alert>
       <div class="d-flex justify-end ga-2 mt-4"><v-btn @click="dialog = false">Cancel</v-btn><v-btn color="primary" :loading="!!state.busy" @click="submit">{{ method === 'sign' ? 'Inspect and sign' : method === 'import' ? 'Validate and import' : method === 'external' ? 'Generate CSR' : 'Generate and download ZIP' }}</v-btn></div>

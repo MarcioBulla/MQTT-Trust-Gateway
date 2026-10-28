@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted } from 'vue';
-import { api, action, state } from '../api';
+import { ref, computed, onMounted } from 'vue';
+import { api, action, state, copy } from '../api';
 const props = defineProps({ licenses: Boolean });
 const devices = ref([]),
   archived = ref([]),
@@ -18,10 +18,19 @@ const form = ref({ id: '', name: '', description: '' }),
 const headers = [
   { title: 'Device', key: 'id' },
   { title: 'Name', key: 'name' },
+  { title: 'Provisioning', key: 'latestCertificate.provisioningMethod' },
+  { title: 'Issuer', key: 'latestCertificate.issuerName' },
+  { title: 'Algorithm', key: 'latestCertificate.algorithm' },
+  { title: 'Expires', key: 'latestCertificate.validTo' },
+  { title: 'Certificate', key: 'latestCertificate.status' },
   { title: 'Authorization', key: 'enabled' },
   { title: 'Connection', key: 'connectionStatus' },
   { title: 'Actions', key: 'actions', sortable: false },
 ];
+const identityRows = computed(() => devices.value.map((device) => ({
+  ...device,
+  latestCertificate: [...(device.certificates || [])].sort((a, b) => Date.parse(b.issuedAt || 0) - Date.parse(a.issuedAt || 0))[0] || null,
+})));
 const certHeaders = [
   { title: 'Device', key: 'deviceId' },
   { title: 'Serial', key: 'serial' },
@@ -90,6 +99,14 @@ const confirmationPhrase = () =>
     : confirm.value?.action === 'delete'
       ? `DELETE ${confirm.value.device.id}`
       : '';
+const licenseDevice = (id) =>
+  devices.value.find((device) => device.id === id) ||
+  archived.value.find((device) => device.id === id) ||
+  { id, enabled: false, status: 'unknown' };
+const licenseCounts = (status) =>
+  certs.value.filter((certificate) => status === 'inactive'
+    ? ['expired', 'revoked', 'blocked'].includes(certificate.status)
+    : certificate.status === status).length;
 </script>
 <template>
   <div class="d-flex flex-wrap align-center justify-space-between ga-4 mb-6">
@@ -110,14 +127,20 @@ const confirmationPhrase = () =>
       >Register device</v-btn
     >
   </div>
+  <v-row v-if="props.licenses" class="mb-4" dense>
+    <v-col v-for="item in [{ key: 'active', label: 'Active licenses', icon: 'mdi-shield-check-outline', color: 'success' }, { key: 'expiring', label: 'Expiring soon', icon: 'mdi-clock-alert-outline', color: 'warning' }, { key: 'inactive', label: 'Expired or revoked', icon: 'mdi-shield-off-outline', color: 'error' }]" :key="item.key" cols="12" sm="4">
+      <v-card class="pa-4 h-100"><div class="d-flex align-center ga-3"><v-avatar :color="item.color" variant="tonal" rounded="lg"><v-icon :icon="item.icon" /></v-avatar><div><div class="text-caption text-medium-emphasis">{{ item.label }}</div><div class="text-h5 font-weight-bold">{{ licenseCounts(item.key) }}</div></div></div></v-card>
+    </v-col>
+  </v-row>
   <v-card class="pa-4"
     ><v-tabs v-if="!props.licenses" v-model="tab" class="mb-3" @update:model-value="load"><v-tab value="active">Active ({{ devices.length }})</v-tab><v-tab value="archived">Archived ({{ archived.length }})</v-tab></v-tabs>
-    <div class="d-flex ga-3 flex-wrap">
+    <div class="d-flex align-center ga-3 flex-wrap">
       <v-text-field
         v-model="search"
-        label="Search devices or certificates"
+        :label="props.licenses ? 'Search licenses' : 'Search devices or certificates'"
         prepend-inner-icon="mdi-magnify"
         hide-details
+        max-width="440"
       /><v-select
         v-if="props.licenses"
         v-model="filter"
@@ -130,7 +153,7 @@ const confirmationPhrase = () =>
     <v-data-table
       v-if="!props.licenses && tab === 'active'"
       :headers="headers"
-      :items="devices"
+      :items="identityRows"
       :search="search"
       :loading="!!state.busy"
       class="mt-4"
@@ -140,8 +163,35 @@ const confirmationPhrase = () =>
           item.enabled && item.trusted !== false ? 'Approved' : 'Approval required'
         }}</v-chip></template
       ><template #item.connectionStatus>Unavailable</template>
+      <template #item.latestCertificate.provisioningMethod="{ item }">{{ item.latestCertificate?.provisioningMethod || '—' }}</template>
+      <template #item.latestCertificate.issuerName="{ item }"><span>{{ item.latestCertificate?.issuerName || item.latestCertificate?.issuer || '—' }}</span><span v-if="item.latestCertificate?.brokerTrusted === false" class="text-warning"> (not trusted)</span></template>
+      <template #item.latestCertificate.algorithm="{ item }">{{ item.latestCertificate?.algorithm || '—' }}</template>
+      <template #item.latestCertificate.validTo="{ item }">{{ item.latestCertificate?.validTo || '—' }}</template>
+      <template #item.latestCertificate.status="{ item }"><v-chip v-if="item.latestCertificate" size="small" :color="color(item.latestCertificate.status)">{{ item.latestCertificate.status }}</v-chip><span v-else class="text-medium-emphasis">No certificate</span></template>
       <template #item.actions="{ item }"
         ><div class="d-flex flex-wrap ga-1"><v-btn size="small" variant="tonal" prepend-icon="mdi-information-outline" @click="details = item">Details</v-btn
+        ><v-btn
+          v-if="item.latestCertificate?.canDownload"
+          size="small"
+          variant="tonal"
+          prepend-icon="mdi-download"
+          :href="`/api/certificates/${item.latestCertificate.id}/download`"
+          >Certificate</v-btn
+        ><v-btn
+          v-if="item.latestCertificate && ['active', 'expiring', 'untrusted'].includes(item.latestCertificate.status)"
+          size="small"
+          variant="tonal"
+          prepend-icon="mdi-autorenew"
+          @click="openIssue(item.id, item.latestCertificate.id)"
+          >Renew</v-btn
+        ><v-btn
+          v-if="item.latestCertificate && ['active', 'expiring', 'untrusted'].includes(item.latestCertificate.status)"
+          size="small"
+          color="error"
+          variant="tonal"
+          prepend-icon="mdi-cancel"
+          @click="confirm = { cert: item.latestCertificate }"
+          >Revoke</v-btn
         ><v-btn
           size="small"
           variant="tonal"
@@ -179,28 +229,28 @@ const confirmationPhrase = () =>
         ><v-chip size="small" :color="color(item.status)">{{ item.status }}</v-chip></template
       >
       <template #item.actions="{ item }"
-        ><v-btn
+        ><div class="d-flex flex-wrap ga-1"><v-btn
           v-if="item.canDownload"
           size="small"
-          variant="text"
+          variant="tonal"
+          prepend-icon="mdi-download"
           :href="`/api/certificates/${item.id}/download`"
           >Download</v-btn
-        ><v-btn size="small" variant="text" @click="openIssue(item.deviceId, item.id)">Renew</v-btn
+        ><v-btn size="small" variant="tonal" prepend-icon="mdi-autorenew" @click="openIssue(item.deviceId, item.id)">Renew / replace</v-btn
         ><v-btn
           v-if="item.status !== 'revoked'"
           size="small"
           color="error"
-          variant="text"
+          variant="tonal"
+          prepend-icon="mdi-cancel"
           @click="confirm = { cert: item }"
           >Revoke</v-btn
-        ></template
+        ><v-btn v-if="licenseDevice(item.deviceId).status === 'active'" size="small" color="warning" variant="tonal" prepend-icon="mdi-archive-arrow-down-outline" @click="confirm = { device: licenseDevice(item.deviceId), action: 'archive' }">Archive device</v-btn><v-btn size="small" color="error" variant="tonal" prepend-icon="mdi-delete-forever-outline" @click="confirm = { device: licenseDevice(item.deviceId), action: 'delete' }">Delete device</v-btn></div></template
       >
     </v-data-table>
   </v-card>
   <v-alert type="info" variant="tonal" class="mt-5"
-    >Device status and last activity are unavailable without a verified broker connection feed.
-    Disabled devices have no topic authorization. Revocation also rejects the certificate at TLS
-    authentication.</v-alert
+    >{{ props.licenses ? 'A certificate’s validity period defines its license period. Renewing issues a new certificate and preserves the previous record. Revocation blocks the identity at the broker.' : 'Device status and last activity are unavailable without a verified broker connection feed. Disabled devices have no topic authorization. Revocation also rejects the certificate at TLS authentication.' }}</v-alert
   >
   <v-dialog v-model="dialog" max-width="550"
     ><v-card class="pa-6"
@@ -266,7 +316,7 @@ const confirmationPhrase = () =>
       <p v-else>Change access for {{ confirm?.device?.id }}?</p>
       <template v-if="confirm?.action === 'archive' || confirm?.action === 'delete'">
         <div class="d-flex align-center flex-wrap ga-2 mt-5 mb-2">
-          <span>Type</span><v-chip label size="small" prepend-icon="mdi-content-copy">{{ confirmationPhrase() }}</v-chip><span>to confirm.</span>
+          <span>Type</span><v-btn icon="mdi-content-copy" size="small" color="primary" variant="tonal" rounded="lg" :aria-label="`Copy ${confirmationPhrase()} to clipboard`" title="Copy confirmation text" @click="copy(confirmationPhrase())" /><v-chip label size="small" class="font-weight-medium">{{ confirmationPhrase() }}</v-chip><span>to confirm.</span>
         </div>
         <v-text-field v-model="confirmText" label="Enter confirmation" autocomplete="off" autocapitalize="off" spellcheck="false" />
       </template>
