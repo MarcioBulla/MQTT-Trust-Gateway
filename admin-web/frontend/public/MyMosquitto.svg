@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">My Mosquitto</title>
+  <desc id="description">Marcio's geometric M with radiating MQTT signal arcs, in Mosquitto navy and orange.</desc>
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="#344364"/>
+  <g fill="none" stroke="#f48f31" stroke-width="15" stroke-linecap="round">
+    <path d="M125 117 A184 184 0 0 0 125 377"/>
+    <path d="M149 153 A140 140 0 0 0 149 341"/>
+    <path d="M387 117 A184 184 0 0 1 387 377"/>
+    <path d="M363 153 A140 140 0 0 1 363 341"/>
+  </g>
+  <g transform="translate(53.6 69.2) scale(.88)">
+    <polygon points="109,114 172,207 172,306 109,356" fill="#f48f31"/>
+    <polygon points="351,114 351,356 288,306 288,207" fill="#f48f31"/>
+    <polygon points="109,114 173,114 230,207 198,250" fill="#f48f31"/>
+    <polygon points="287,114 351,114 230,299 198,250" fill="#f48f31"/>
+    <polygon points="109,114 172,207 172,306 109,356" fill="#344364" opacity=".24"/>
+    <polygon points="351,114 351,356 288,306 288,207" fill="#344364" opacity=".12"/>
+  </g>
+  <circle cx="256" cy="191" r="15" fill="#f48f31"/>
+  <path d="M248 198 L256 269 L264 198 Z" fill="#f48f31"/>
+</svg>
