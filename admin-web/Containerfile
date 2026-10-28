@@ -1,0 +1,23 @@
+FROM docker.io/oven/bun:1.4.4 AS build
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+COPY frontend ./frontend
+COPY vite.config.js ./
+RUN bun run build
+
+FROM docker.io/oven/bun:1.4.4 AS dependencies
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --production --frozen-lockfile
+
+FROM docker.io/node:24-alpine
+RUN apk add --no-cache openssl
+WORKDIR /app
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY package.json ./
+COPY src ./src
+COPY --from=build /app/dist ./dist
+ENV NODE_ENV=production ADMIN_APP_HOST=0.0.0.0 ADMIN_DATA_DIR=/data
+USER node
+CMD ["node", "src/server.js"]
