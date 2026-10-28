@@ -27,7 +27,11 @@ export function credentialIdCandidates(value) {
 
 export function userCredentials(user) {
   if (!Array.isArray(user.credentials)) user.credentials = [];
-  if (user.credentialID && user.credentialPublicKey && !user.credentials.some((credential) => credential.id === user.credentialID)) {
+  if (
+    user.credentialID &&
+    user.credentialPublicKey &&
+    !user.credentials.some((credential) => credential.id === user.credentialID)
+  ) {
     user.credentials.push({
       id: user.credentialID,
       publicKey: user.credentialPublicKey,
@@ -40,13 +44,16 @@ export function userCredentials(user) {
 }
 
 export function findUserCredential(user, credentialId) {
-  return userCredentials(user).find((credential) => credentialIdCandidates(credential.id).includes(credentialId));
+  return userCredentials(user).find((credential) =>
+    credentialIdCandidates(credential.id).includes(credentialId),
+  );
 }
 
 export function publicUser(user) {
   return {
     id: user.id,
     username: user.username,
+    totpEnabled: Boolean(user.totp),
     passkeys: userCredentials(user).map((credential) => ({
       id: credential.id,
       name: credential.name || 'Passkey',
@@ -56,5 +63,7 @@ export function publicUser(user) {
 }
 
 export function credentialIdFromClientOrInfo(clientCredential, registrationInfo) {
-  return clientCredential.rawId || clientCredential.id || bufferToB64url(registrationInfo.credentialID);
+  return (
+    clientCredential.rawId || clientCredential.id || bufferToB64url(registrationInfo.credentialID)
+  );
 }

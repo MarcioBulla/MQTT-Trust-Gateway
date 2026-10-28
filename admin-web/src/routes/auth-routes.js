@@ -1,4 +1,7 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import argon2 from 'argon2';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -6,279 +9,309 @@ import {
   verifyRegistrationResponse,
 } from '@simplewebauthn/server';
 import { env } from '../config.js';
-import { clearSessionCookie, currentUser, parseCookies, rateLimit, requireAuth, setSessionCookie } from '../auth.js';
-import { loadDb, saveDb } from '../db.js';
+import { enrollTotp, verifyTotp } from '../totp.js';
+import { currentUser, createSession, logout, rateLimit, requireAuth } from '../auth.js';
+import { loadDb, saveDb, audit } from '../db.js';
 import {
-  b64urlToBuffer,
-  bufferToB64url,
-  credentialIdCandidates,
-  credentialIdFromClientOrInfo,
-  findUserCredential,
   publicUser,
   userCredentials,
+  findUserCredential,
+  credentialIdCandidates,
 } from '../passkeys.js';
-
-function registrationOptions({ username, userId, excludeCredentials = [] }) {
-  return generateRegistrationOptions({
-    rpName: env.rpName,
-    rpID: env.rpID,
-    userID: userId,
-    userName: username,
-    attestationType: 'none',
-    authenticatorSelection: {
-      residentKey: 'preferred',
-      userVerification: 'preferred',
-    },
-    excludeCredentials,
-    supportedAlgorithmIDs: [-7, -257],
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
+function password(value) {
+  if (typeof value !== 'string' || value.length < 12 || value.length > 256)
+    throw Object.assign(new Error('Password must contain 12–256 characters'), { status: 400 });
+  return value;
+}
+const hash = (value) =>
+  argon2.hash(password(value), {
+    type: argon2.argon2id,
+    memoryCost: 65536,
+    timeCost: 3,
+    parallelism: 1,
   });
+function passkeyContext(req, res, next) {
+  if (!req.secure && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(env.origin).hostname))
+    return res.status(403).json({ error: 'Passkeys require HTTPS or localhost' });
+  next();
 }
-
-function storeCredential(user, clientCredential, registrationInfo, name = 'Passkey') {
-  const credentialID = credentialIdFromClientOrInfo(clientCredential, registrationInfo);
-  const credential = {
-    id: credentialID,
-    publicKey: bufferToB64url(registrationInfo.credentialPublicKey),
-    counter: registrationInfo.counter,
-    name,
-    createdAt: new Date().toISOString(),
-  };
-  const credentials = userCredentials(user);
-  const existing = credentials.findIndex((item) => item.id === credential.id);
-  if (existing >= 0) credentials[existing] = credential;
-  else credentials.push(credential);
-  user.credentialID = credential.id;
-  user.credentialPublicKey = credential.publicKey;
-  user.counter = credential.counter;
+function challenge(db, key) {
+  const c = db.challenges[key];
+  delete db.challenges[key];
+  saveDb(db); // Consume even when verification fails.
+  if (!c || c.expiresAt < Date.now())
+    throw Object.assign(new Error('Challenge expired'), { status: 400 });
+  return c;
 }
-
-function createSession(db, user, res) {
-  const sessionId = crypto.randomBytes(32).toString('base64url');
-  db.sessions[sessionId] = { userId: user.id, expiresAt: Date.now() + 43200000 };
-  setSessionCookie(res, sessionId);
+function storeChallenge(db, key, value) {
+  for (const [id, c] of Object.entries(db.challenges))
+    if (c.expiresAt < Date.now()) delete db.challenges[id];
+  db.challenges[key] = { challenge: value, expiresAt: Date.now() + 300000 };
+  saveDb(db);
 }
-
 export function registerAuthRoutes(app) {
-  app.get('/api/bootstrap', async (req, res) => {
-    const db = await loadDb();
-    const user = await currentUser(req);
-    res.json({ hasAdmin: db.users.length > 0, user: user ? publicUser(user) : null });
-  });
-
-  app.get('/api/me', requireAuth(async (req, res) => {
-    res.json({ user: publicUser(req.user) });
-  }));
-
-  app.patch('/api/me', requireAuth(async (req, res) => {
-    const username = String(req.body.username || '').trim();
-    if (!username) return res.status(400).json({ error: 'username is required' });
-    const db = await loadDb();
-    const user = db.users.find((item) => item.id === req.user.id);
-    if (!user) return res.status(404).json({ error: 'unknown user' });
-    if (db.users.some((item) => item.id !== user.id && item.username === username)) {
-      return res.status(409).json({ error: 'username already exists' });
-    }
-    user.username = username;
-    await saveDb(db);
-    res.json({ user: publicUser(user) });
-  }));
-
-  app.post('/api/register/options', rateLimit, async (req, res) => {
-    const db = await loadDb();
-    if (db.users.length > 0) return res.status(403).json({ error: 'admin already registered' });
-    if (!env.setupToken || req.body.setupToken !== env.setupToken) return res.status(403).json({ error: 'invalid setup token' });
-    const username = String(req.body.username || '').trim();
-    if (!username) return res.status(400).json({ error: 'username is required' });
-
-    const userId = crypto.randomBytes(16);
-    const options = await registrationOptions({ username, userId });
-    db.challenges[`register:${username}`] = {
-      challenge: options.challenge,
-      userId: bufferToB64url(userId),
-      expiresAt: Date.now() + 300000,
-    };
-    await saveDb(db);
-    res.json(options);
-  });
-
-  app.post('/api/register/verify', rateLimit, async (req, res) => {
-    const db = await loadDb();
-    const username = String(req.body.username || '').trim();
-    const challenge = db.challenges[`register:${username}`];
-    if (!challenge || challenge.expiresAt < Date.now()) return res.status(400).json({ error: 'registration challenge expired' });
-
-    const verification = await verifyRegistrationResponse({
-      response: req.body.credential,
-      expectedChallenge: challenge.challenge,
-      expectedOrigin: env.origin,
-      expectedRPID: env.rpID,
-    });
-    if (!verification.verified) return res.status(400).json({ error: 'passkey verification failed' });
-
-    const user = { id: challenge.userId, username, createdAt: new Date().toISOString(), credentials: [] };
-    storeCredential(user, req.body.credential, verification.registrationInfo, 'Primary passkey');
-    db.users.push(user);
-    delete db.challenges[`register:${username}`];
-    createSession(db, user, res);
-    await saveDb(db);
-    res.json({ user: publicUser(user) });
-  });
-
-  app.post('/api/passkeys/options', requireAuth(async (req, res) => {
-    const db = await loadDb();
-    const user = db.users.find((item) => item.id === req.user.id);
-    if (!user) return res.status(404).json({ error: 'unknown user' });
-    const userId = b64urlToBuffer(user.id);
-    const options = await registrationOptions({ username: user.username, userId });
-    db.challenges[`add-passkey:${user.id}`] = {
-      challenge: options.challenge,
-      expiresAt: Date.now() + 300000,
-    };
-    await saveDb(db);
-    res.json(options);
-  }));
-
-  app.post('/api/passkeys/verify', requireAuth(async (req, res) => {
-    const db = await loadDb();
-    const user = db.users.find((item) => item.id === req.user.id);
-    const challenge = db.challenges[`add-passkey:${req.user.id}`];
-    if (!user || !challenge || challenge.expiresAt < Date.now()) return res.status(400).json({ error: 'passkey challenge expired' });
-    const verification = await verifyRegistrationResponse({
-      response: req.body.credential,
-      expectedChallenge: challenge.challenge,
-      expectedOrigin: env.origin,
-      expectedRPID: env.rpID,
-    });
-    if (!verification.verified) return res.status(400).json({ error: 'passkey verification failed' });
-    storeCredential(user, req.body.credential, verification.registrationInfo, 'Passkey');
-    delete db.challenges[`add-passkey:${req.user.id}`];
-    await saveDb(db);
-    res.json({ user: publicUser(user) });
-  }));
-
-  app.delete('/api/passkeys/:id', requireAuth(async (req, res) => {
-    const db = await loadDb();
-    const user = db.users.find((item) => item.id === req.user.id);
-    if (!user) return res.status(404).json({ error: 'unknown user' });
-    const credentials = userCredentials(user);
-    if (credentials.length <= 1) return res.status(400).json({ error: 'cannot remove the last passkey' });
-    user.credentials = credentials.filter((credential) => credential.id !== req.params.id);
-    const primary = user.credentials[0];
-    user.credentialID = primary.id;
-    user.credentialPublicKey = primary.publicKey;
-    user.counter = primary.counter || 0;
-    await saveDb(db);
-    res.json({ user: publicUser(user) });
-  }));
-
-  app.post('/api/login/options', rateLimit, async (req, res) => {
-    try {
-      const db = await loadDb();
+  app.get(
+    '/api/bootstrap',
+    wrap(async (req, res) => {
+      const user = currentUser(req);
+      res.json({
+        hasAdmin: loadDb().users.length > 0,
+        user: user ? publicUser(user) : null,
+        origin: env.origin,
+      });
+    }),
+  );
+  app.post(
+    '/api/bootstrap',
+    rateLimit,
+    wrap(async (req, res) => {
+      const db = loadDb();
+      if (db.users.length) return res.status(409).json({ error: 'Administrator already exists' });
+      const tokenFile = path.join(env.dataDir, 'bootstrap-token');
+      const expected = await fs.readFile(tokenFile, 'utf8');
+      const supplied = String(req.body.setupToken || '');
+      if (
+        supplied.length !== expected.length ||
+        !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))
+      )
+        return res.status(403).json({ error: 'Invalid bootstrap token' });
       const username = String(req.body.username || '').trim();
-      const user = db.users.find((item) => item.username === username);
-      if (!user) return res.status(404).json({ error: 'unknown user' });
+      if (!/^[A-Za-z0-9._@-]{1,64}$/.test(username))
+        return res.status(400).json({ error: 'Invalid username' });
+      const user = {
+        id: crypto.randomBytes(16).toString('base64url'),
+        username,
+        passwordHash: await hash(req.body.password),
+        credentials: [],
+        createdAt: new Date().toISOString(),
+      };
+      db.users.push(user);
+      createSession(db, user, req, res);
+      saveDb(db);
+      await fs.unlink(tokenFile);
+      audit(username, 'admin.bootstrap');
+      res.json({ user: publicUser(user) });
+    }),
+  );
+  app.post(
+    '/api/login/password',
+    rateLimit,
+    wrap(async (req, res) => {
+      const db = loadDb(),
+        user = db.users.find((u) => u.username === req.body.username);
+      // A dummy Argon2 operation makes unknown usernames expensive as well.
+      const ok = user?.passwordHash
+        ? await argon2
+            .verify(user.passwordHash, String(req.body.password || '').slice(0, 256))
+            .catch(() => false)
+        : (await hash('dummy-password-for-timing'), false);
+      if (!ok) {
+        audit(String(req.body.username || '').slice(0, 64), 'login.failed', req.ip);
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+      if (user.totp && !verifyTotp(user.totp, req.body.totp)) {
+        audit(user.username, 'login.totp.failed', req.ip);
+        return res.status(401).json({ error: 'A valid unused authenticator code is required' });
+      }
+      createSession(db, user, req, res);
+      saveDb(db);
+      audit(user.username, 'login.password');
+      res.json({ user: publicUser(user) });
+    }),
+  );
+  app.get(
+    '/api/me',
+    requireAuth((req, res) => res.json({ user: publicUser(req.user) })),
+  );
+  app.post(
+    '/api/me/password',
+    requireAuth(async (req, res) => {
+      const db = loadDb(),
+        user = db.users.find((u) => u.id === req.user.id);
+      if (
+        user.passwordHash &&
+        !(await argon2
+          .verify(user.passwordHash, String(req.body.currentPassword || ''))
+          .catch(() => false))
+      )
+        return res.status(403).json({ error: 'Current password is incorrect' });
+      user.passwordHash = await hash(req.body.password);
+      db.sessions = Object.fromEntries(
+        Object.entries(db.sessions).filter(([, s]) => s.userId !== user.id),
+      );
+      createSession(db, user, req, res);
+      saveDb(db);
+      audit(user.username, 'password.changed');
+      res.json({ ok: true });
+    }),
+  );
+  app.post(
+    '/api/me/totp/options',
+    requireAuth(async (req, res) => {
+      const db = loadDb(),
+        user = db.users.find((u) => u.id === req.user.id);
+      if (user.totp)
+        return res
+          .status(409)
+          .json({ error: 'Disable the existing authenticator before replacing it' });
+      const setup = await enrollTotp(user.username);
+      user.pendingTotp = setup.pending;
+      saveDb(db);
+      res.json({ secret: setup.secret, qr: setup.qr, uri: setup.uri });
+    }),
+  );
+  app.post(
+    '/api/me/totp/verify',
+    rateLimit,
+    requireAuth((req, res) => {
+      const db = loadDb(),
+        user = db.users.find((u) => u.id === req.user.id);
+      if (
+        !user.pendingTotp ||
+        user.pendingTotp.expiresAt < Date.now() ||
+        !verifyTotp(user.pendingTotp, req.body.code)
+      )
+        return res.status(400).json({ error: 'Invalid or expired authenticator code' });
+      user.totp = { encrypted: user.pendingTotp.encrypted, lastStep: user.pendingTotp.lastStep };
+      delete user.pendingTotp;
+      saveDb(db);
+      audit(user.username, 'totp.enabled');
+      res.json({ ok: true });
+    }),
+  );
+  app.delete(
+    '/api/me/totp',
+    rateLimit,
+    requireAuth((req, res) => {
+      const db = loadDb(),
+        user = db.users.find((u) => u.id === req.user.id);
+      if (!verifyTotp(user.totp, req.body.code))
+        return res.status(400).json({ error: 'A valid unused authenticator code is required' });
+      delete user.totp;
+      delete user.pendingTotp;
+      saveDb(db);
+      audit(user.username, 'totp.disabled');
+      res.json({ ok: true });
+    }),
+  );
+  app.post('/api/logout', requireAuth(logout));
+  app.post(
+    '/api/passkeys/options',
+    passkeyContext,
+    requireAuth(async (req, res) => {
+      const db = loadDb(),
+        user = db.users.find((u) => u.id === req.user.id);
+      const options = await generateRegistrationOptions({
+        rpName: env.rpName,
+        rpID: env.rpID,
+        userID: new Uint8Array(Buffer.from(user.id, 'base64url')),
+        userName: user.username,
+        attestationType: 'none',
+        supportedAlgorithmIDs: [-7, -257],
+        authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+        excludeCredentials: userCredentials(user).map((c) => ({ id: c.id, type: 'public-key' })),
+      });
+      storeChallenge(db, `add:${user.id}`, options.challenge);
+      res.json(options);
+    }),
+  );
+  app.post(
+    '/api/passkeys/verify',
+    passkeyContext,
+    requireAuth(async (req, res) => {
+      const db = loadDb(),
+        user = db.users.find((u) => u.id === req.user.id),
+        c = challenge(db, `add:${user.id}`);
+      const result = await verifyRegistrationResponse({
+        response: req.body.credential,
+        expectedChallenge: c.challenge,
+        expectedOrigin: env.origin,
+        expectedRPID: env.rpID,
+        requireUserVerification: true,
+      });
+      if (!result.verified) return res.status(400).json({ error: 'Passkey verification failed' });
+      const info = result.registrationInfo,
+        id = req.body.credential.id;
+      if (db.users.some((u) => userCredentials(u).some((c) => c.id === id)))
+        return res.status(409).json({ error: 'Passkey is already registered' });
+      userCredentials(user).push({
+        id,
+        publicKey: Buffer.from(info.credential.publicKey).toString('base64url'),
+        counter: info.credential.counter,
+        name: String(req.body.name || 'Passkey').slice(0, 64),
+        createdAt: new Date().toISOString(),
+      });
+      saveDb(db);
+      audit(user.username, 'passkey.added', id);
+      res.json({ user: publicUser(user) });
+    }),
+  );
+  app.delete(
+    '/api/passkeys/:id',
+    requireAuth((req, res) => {
+      const db = loadDb(),
+        user = db.users.find((u) => u.id === req.user.id);
+      if (!user.passwordHash && userCredentials(user).length <= 1)
+        return res.status(409).json({ error: 'Set a password before removing the last passkey' });
+      user.credentials = userCredentials(user).filter((c) => c.id !== req.params.id);
+      delete user.credentialID;
+      delete user.credentialPublicKey;
+      delete user.counter;
+      saveDb(db);
+      audit(user.username, 'passkey.removed', req.params.id);
+      res.json({ user: publicUser(user) });
+    }),
+  );
+  app.post(
+    '/api/login/options',
+    rateLimit,
+    passkeyContext,
+    wrap(async (req, res) => {
+      const db = loadDb(),
+        user = db.users.find((u) => u.username === req.body.username);
+      if (!user || !userCredentials(user).length)
+        return res.status(401).json({ error: 'No matching passkey' });
       const options = await generateAuthenticationOptions({
         rpID: env.rpID,
-        userVerification: 'preferred',
-        allowCredentials: userCredentials(user).flatMap((credential) => (
-          credentialIdCandidates(credential.id).map((id) => ({ id, type: 'public-key' }))
-        )),
+        userVerification: 'required',
+        allowCredentials: userCredentials(user).flatMap((c) =>
+          credentialIdCandidates(c.id).map((id) => ({ id, type: 'public-key' })),
+        ),
       });
-      db.challenges[`login:${username}`] = { challenge: options.challenge, expiresAt: Date.now() + 300000 };
-      await saveDb(db);
+      storeChallenge(db, `login:${user.id}`, options.challenge);
       res.json(options);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'failed to generate login options' });
-    }
-  });
-
-app.post('/api/login/verify', rateLimit, async (req, res) => {
-  try {
-    const db = await loadDb();
-    const username = String(req.body.username || '').trim();
-    const user = db.users.find((item) => item.username === username);
-    const challenge = db.challenges[`login:${username}`];
-
-    if (!user || !challenge || challenge.expiresAt < Date.now()) {
-      return res.status(400).json({ error: 'login challenge expired' });
-    }
-
-    const credential = req.body.credential;
-
-    if (
-      !credential ||
-      !credential.response ||
-      typeof credential.response.clientDataJSON !== 'string' ||
-      typeof credential.response.authenticatorData !== 'string' ||
-      typeof credential.response.signature !== 'string'
-    ) {
-      console.error('Invalid WebAuthn login credential response:', {
-        hasCredential: Boolean(credential),
-        hasResponse: Boolean(credential?.response),
-        clientDataJSONType: typeof credential?.response?.clientDataJSON,
-        authenticatorDataType: typeof credential?.response?.authenticatorData,
-        signatureType: typeof credential?.response?.signature,
+    }),
+  );
+  app.post(
+    '/api/login/verify',
+    rateLimit,
+    passkeyContext,
+    wrap(async (req, res) => {
+      const db = loadDb(),
+        user = db.users.find((u) => u.username === req.body.username);
+      if (!user) return res.status(401).json({ error: 'Invalid login' });
+      const c = challenge(db, `login:${user.id}`),
+        credential = findUserCredential(user, req.body.credential?.id);
+      if (!credential) return res.status(401).json({ error: 'Invalid credential' });
+      const result = await verifyAuthenticationResponse({
+        response: req.body.credential,
+        expectedChallenge: c.challenge,
+        expectedOrigin: env.origin,
+        expectedRPID: env.rpID,
+        requireUserVerification: true,
+        credential: {
+          id: req.body.credential.id,
+          publicKey: new Uint8Array(Buffer.from(credential.publicKey, 'base64url')),
+          counter: credential.counter || 0,
+        },
       });
-
-      return res.status(400).json({
-        error: 'invalid webauthn credential response format',
-      });
-    }
-
-    const credentialID = credential.rawId || credential.id || '';
-    const storedCredential = findUserCredential(user, credentialID);
-
-    if (!storedCredential) {
-      return res.status(400).json({ error: 'credential id does not match this user' });
-    }
-
-    const verification = await verifyAuthenticationResponse({
-      response: credential,
-      expectedChallenge: challenge.challenge,
-      expectedOrigin: env.origin,
-      expectedRPID: env.rpID,
-      authenticator: {
-        credentialID: b64urlToBuffer(credentialID),
-        credentialPublicKey: b64urlToBuffer(storedCredential.publicKey),
-        counter: storedCredential.counter || 0,
-      },
-    });
-
-    if (!verification.verified) {
-      return res.status(400).json({ error: 'passkey verification failed' });
-    }
-
-    storedCredential.id = credentialID;
-    storedCredential.counter = verification.authenticationInfo.newCounter;
-    user.credentialID = storedCredential.id;
-    user.credentialPublicKey = storedCredential.publicKey;
-    user.counter = storedCredential.counter;
-
-    delete db.challenges[`login:${username}`];
-
-    createSession(db, user, res);
-    await saveDb(db);
-
-    return res.json({ ok: true });
-  } catch (error) {
-    console.error('WebAuthn login verification failed:', error);
-
-    return res.status(400).json({
-      error: 'webauthn login verification failed',
-    });
-  }
-});
-
-  app.post('/api/logout', async (req, res) => {
-    const cookies = parseCookies(req.headers.cookie);
-    const [sessionId] = (cookies.admin_session || '').split('.');
-    if (sessionId) {
-      const db = await loadDb();
-      delete db.sessions[sessionId];
-      await saveDb(db);
-    }
-    clearSessionCookie(res);
-    res.json({ ok: true });
-  });
+      if (!result.verified) return res.status(401).json({ error: 'Passkey verification failed' });
+      credential.counter = result.authenticationInfo.newCounter;
+      createSession(db, user, req, res);
+      saveDb(db);
+      audit(user.username, 'login.passkey');
+      res.json({ user: publicUser(user) });
+    }),
+  );
 }

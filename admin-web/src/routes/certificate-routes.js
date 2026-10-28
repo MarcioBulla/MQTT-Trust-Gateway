@@ -1,198 +1,161 @@
 import crypto from 'node:crypto';
-import { requireAuth } from '../auth.js';
-import { loadDb, saveDb } from '../db.js';
+import path from 'node:path';
 import { env } from '../config.js';
-import { certificateMetadata, revokeCertificate, signDeviceCsr, validateProvisionerPassword } from '../services/certificate-service.js';
-
-function publicCertificate(certificate) {
-  return {
-    id: certificate.id,
-    deviceId: certificate.deviceId,
-    serial: certificate.serial || '',
-    subject: certificate.subject || '',
-    issuedAt: certificate.issuedAt,
-    issuedBy: certificate.issuedBy,
-    validFrom: certificate.validFrom || '',
-    validTo: certificate.validTo || '',
-    status: certificate.status || 'active',
-    revokedAt: certificate.revokedAt || '',
-    revokedBy: certificate.revokedBy || '',
-    renewedFrom: certificate.renewedFrom || '',
-    canDownload: Boolean(certificate.certificate),
-    canRenew: Boolean(certificate.csr),
-    canRevoke: Boolean(certificate.serial) && (certificate.status || 'active') === 'active',
-  };
+import { requireAuth } from '../auth.js';
+import { loadDb, saveDb, audit } from '../db.js';
+import {
+  certificateMetadata,
+  signDeviceCsr,
+  revokeCertificate,
+  syncBroker,
+} from '../services/certificate-service.js';
+const find = (db, id) => {
+  const c = db.certificates.find((c) => c.id === id);
+  if (!c) throw Object.assign(new Error('Certificate not found'), { status: 404 });
+  return c;
+};
+const state = (c) =>
+  c.status === 'revoked'
+    ? 'revoked'
+    : Date.parse(c.validTo) <= Date.now()
+      ? 'expired'
+      : Date.parse(c.validTo) < Date.now() + 30 * 86400000
+        ? 'expiring'
+        : 'active';
+export function publicCertificate(c) {
+  const { csr, certificate, ...publicData } = c;
+  return { ...publicData, status: state(c), canDownload: Boolean(certificate) };
 }
-
-function findCertificate(db, id) {
-  return db.certificates.find((certificate) => certificate.id === id);
-}
-
-function ensureCertificateIds(db) {
-  let changed = false;
-  for (const certificate of db.certificates) {
-    if (!certificate.id) {
-      certificate.id = crypto.randomUUID();
-      changed = true;
-    }
-    certificate.status ||= 'active';
-  }
-  return changed;
-}
-
-function clearExpiredRevokedCertificates(db) {
-  const cutoff = Date.now() - 300000;
-  const before = db.certificates.length;
-  db.certificates = db.certificates.filter((certificate) => {
-    if ((certificate.status || 'active') !== 'revoked') return true;
-    if (!certificate.revokedAt) return true;
-    return new Date(certificate.revokedAt).getTime() > cutoff;
-  });
-  return db.certificates.length !== before;
-}
-
-function storeIssuedCertificate(db, { deviceId, csr, certificate, issuedBy, renewedFrom = '' }) {
-  const metadata = certificateMetadata(certificate);
+async function issue(req, res, previous) {
+  const db = loadDb(),
+    deviceId = previous?.deviceId || String(req.body.deviceId || '');
+  const device = db.devices.find((d) => d.id === deviceId);
+  if (!device?.enabled)
+    return res.status(409).json({ error: 'Register or enable the device first' });
+  const csr = req.body.csr || previous?.csr;
+  if (typeof csr !== 'string' || !csr.includes('BEGIN CERTIFICATE REQUEST'))
+    return res.status(400).json({ error: 'A PEM CSR is required' });
+  const certificate = await signDeviceCsr({ deviceId, csr, days: req.body.days });
   const record = {
     id: crypto.randomUUID(),
     deviceId,
-    csr,
     certificate,
-    issuedAt: new Date().toISOString(),
-    issuedBy,
+    csr,
     status: 'active',
-    renewedFrom,
-    ...metadata,
+    issuedAt: new Date().toISOString(),
+    issuedBy: req.user.username,
+    renewedFrom: previous?.id || '',
+    ...certificateMetadata(certificate),
   };
   db.certificates.unshift(record);
-  return record;
+  saveDb(db);
+  await syncBroker();
+  audit(
+    req.user.username,
+    previous ? 'certificate.renewed' : 'certificate.issued',
+    `${deviceId}:${record.serial}`,
+  );
+  res.json({ certificate, record: publicCertificate(record) });
 }
-
 export function registerCertificateRoutes(app) {
-  app.get('/api/certificates/ca', requireAuth((_req, res) => {
-    res.download(env.clientCaFile, 'mqtt-trust-gateway-ca.crt');
-  }));
-
-  app.get('/api/certificates', requireAuth(async (_req, res) => {
-    const db = await loadDb();
-    const idsChanged = ensureCertificateIds(db);
-    const revokedChanged = clearExpiredRevokedCertificates(db);
-    const changed = idsChanged || revokedChanged;
-    if (changed) await saveDb(db);
-    res.json({ certificates: db.certificates.map(publicCertificate) });
-  }));
-
-  app.post('/api/certificates/provisioner-password/verify', requireAuth(async (req, res) => {
-    const provisionerPassword = String(req.body.provisionerPassword || '');
-    if (!provisionerPassword) return res.status(400).json({ error: 'provisioner password is required' });
-    try {
-      await validateProvisionerPassword(provisionerPassword);
+  app.get(
+    '/api/certificates/ca',
+    requireAuth((_req, res) => res.download(path.join(env.caDir, 'ca.crt'), 'gateway-ca.crt')),
+  );
+  app.get(
+    '/api/certificates',
+    requireAuth((_req, res) =>
+      res.json({ certificates: loadDb().certificates.map(publicCertificate) }),
+    ),
+  );
+  app.get(
+    '/api/certificates/:id/download',
+    requireAuth((req, res) => {
+      const c = find(loadDb(), req.params.id);
+      if (!c.certificate)
+        return res
+          .status(404)
+          .json({ error: 'Public certificate is unavailable in imported record' });
+      res.attachment('device.crt').send(c.certificate);
+    }),
+  );
+  app.post(
+    '/api/certificates/sign',
+    requireAuth((req, res) => issue(req, res)),
+  );
+  app.post(
+    '/api/certificates/:id/renew',
+    requireAuth((req, res) => issue(req, res, find(loadDb(), req.params.id))),
+  );
+  app.post(
+    '/api/certificates/:id/revoke',
+    requireAuth(async (req, res) => {
+      const db = loadDb(),
+        c = find(db, req.params.id);
+      if (c.status === 'revoked')
+        return res.status(409).json({ error: 'Certificate already revoked' });
+      await revokeCertificate(c);
+      c.status = 'revoked';
+      c.revokedAt = new Date().toISOString();
+      c.revokedBy = req.user.username;
+      saveDb(db);
+      await syncBroker(true);
+      audit(req.user.username, 'certificate.revoked', `${c.deviceId}:${c.serial}`);
+      res.json({
+        certificate: publicCertificate(c),
+        enforcement: 'Broker restart requested; check dashboard applied revision',
+      });
+    }),
+  );
+  app.get(
+    '/api/devices',
+    requireAuth((_req, res) => {
+      const db = loadDb();
+      res.json({
+        devices: db.devices.map((d) => ({
+          ...d,
+          connectionStatus: 'unknown',
+          lastActivity: null,
+          certificates: db.certificates.filter((c) => c.deviceId === d.id).map(publicCertificate),
+        })),
+      });
+    }),
+  );
+  app.post(
+    '/api/devices',
+    requireAuth((req, res) => {
+      const db = loadDb(),
+        id = String(req.body.id || '');
+      if (!/^[A-Za-z0-9._-]{1,64}$/.test(id) || id === env.adminMqttClientId)
+        return res.status(400).json({ error: 'Invalid or reserved identifier' });
+      if (db.devices.some((d) => d.id === id))
+        return res.status(409).json({ error: 'Device already exists' });
+      db.devices.push({
+        id,
+        name: String(req.body.name || id).slice(0, 100),
+        description: String(req.body.description || '').slice(0, 1000),
+        enabled: true,
+        createdAt: new Date().toISOString(),
+      });
+      saveDb(db);
+      audit(req.user.username, 'device.created', id);
+      res.status(201).json({ ok: true });
+    }),
+  );
+  app.patch(
+    '/api/devices/:id',
+    requireAuth(async (req, res) => {
+      const db = loadDb(),
+        d = db.devices.find((d) => d.id === req.params.id);
+      if (!d) return res.status(404).json({ error: 'Device not found' });
+      if (typeof req.body.name === 'string') d.name = req.body.name.slice(0, 100);
+      if (typeof req.body.description === 'string')
+        d.description = req.body.description.slice(0, 1000);
+      if (typeof req.body.enabled === 'boolean') d.enabled = req.body.enabled;
+      saveDb(db);
+      await syncBroker(true);
+      audit(req.user.username, 'device.updated', d.id);
       res.json({ ok: true });
-    } catch (error) {
-      res.status(403).json({ error: error.stderr || error.message });
-    }
-  }));
-
-  app.get('/api/certificates/:id/download', requireAuth(async (req, res) => {
-    const provisionerPassword = String(req.query.provisionerPassword || '');
-    if (!provisionerPassword) return res.status(400).json({ error: 'provisioner password is required' });
-    try {
-      await validateProvisionerPassword(provisionerPassword);
-    } catch (error) {
-      return res.status(403).json({ error: error.stderr || error.message });
-    }
-    const db = await loadDb();
-    const certificate = findCertificate(db, req.params.id);
-    if (!certificate?.certificate) return res.status(404).json({ error: 'certificate not found' });
-    res.setHeader('content-type', 'application/x-pem-file');
-    res.setHeader('content-disposition', `attachment; filename="${certificate.deviceId || 'device'}.crt"`);
-    res.send(certificate.certificate);
-  }));
-
-  app.delete('/api/certificates/:id', requireAuth(async (req, res) => {
-    const db = await loadDb();
-    const certificate = findCertificate(db, req.params.id);
-    if (!certificate) return res.status(404).json({ error: 'certificate not found' });
-    if ((certificate.status || 'active') !== 'revoked') return res.status(409).json({ error: 'only revoked certificates can be cleared' });
-    db.certificates = db.certificates.filter((item) => item.id !== certificate.id);
-    await saveDb(db);
-    res.json({ ok: true });
-  }));
-
-  app.post('/api/certificates/sign', requireAuth(async (req, res) => {
-    const deviceId = String(req.body.deviceId || '').trim();
-    const csr = String(req.body.csr || '').trim();
-    const provisionerPassword = String(req.body.provisionerPassword || '');
-    if (!/^[A-Za-z0-9._-]{1,64}$/.test(deviceId)) return res.status(400).json({ error: 'invalid device id' });
-    if (!csr.includes('BEGIN CERTIFICATE REQUEST')) return res.status(400).json({ error: 'CSR PEM is required' });
-    if (!provisionerPassword) return res.status(400).json({ error: 'provisioner password is required' });
-
-    try {
-      const certificate = await signDeviceCsr({ deviceId, csr, provisionerPassword });
-      const db = await loadDb();
-      const record = storeIssuedCertificate(db, {
-        deviceId,
-        csr,
-        certificate,
-        issuedBy: req.user.username,
-      });
-      await saveDb(db);
-      res.json({ certificate, record: publicCertificate(record) });
-    } catch (error) {
-      res.status(500).json({ error: error.stderr || error.message });
-    }
-  }));
-
-  app.post('/api/certificates/:id/revoke', requireAuth(async (req, res) => {
-    const provisionerPassword = String(req.body.provisionerPassword || '');
-    const reason = String(req.body.reason || 'keyCompromise');
-    if (!provisionerPassword) return res.status(400).json({ error: 'provisioner password is required' });
-
-    const db = await loadDb();
-    const certificate = findCertificate(db, req.params.id);
-    if (!certificate) return res.status(404).json({ error: 'certificate not found' });
-    if (!certificate.serial) return res.status(400).json({ error: 'certificate serial is not available' });
-    if ((certificate.status || 'active') === 'revoked') return res.status(409).json({ error: 'certificate already revoked' });
-
-    try {
-      await revokeCertificate({ serial: certificate.serial, provisionerPassword, reason });
-      certificate.status = 'revoked';
-      certificate.revokedAt = new Date().toISOString();
-      certificate.revokedBy = req.user.username;
-      certificate.revocationReason = reason;
-      await saveDb(db);
-      res.json({ certificate: publicCertificate(certificate) });
-    } catch (error) {
-      res.status(500).json({ error: error.stderr || error.message });
-    }
-  }));
-
-  app.post('/api/certificates/:id/renew', requireAuth(async (req, res) => {
-    const provisionerPassword = String(req.body.provisionerPassword || '');
-    if (!provisionerPassword) return res.status(400).json({ error: 'provisioner password is required' });
-
-    const db = await loadDb();
-    const certificate = findCertificate(db, req.params.id);
-    if (!certificate) return res.status(404).json({ error: 'certificate not found' });
-    if (!certificate.csr) return res.status(400).json({ error: 'original CSR is not available for renewal' });
-
-    try {
-      const renewedCertificate = await signDeviceCsr({
-        deviceId: certificate.deviceId,
-        csr: certificate.csr,
-        provisionerPassword,
-      });
-      const record = storeIssuedCertificate(db, {
-        deviceId: certificate.deviceId,
-        csr: certificate.csr,
-        certificate: renewedCertificate,
-        issuedBy: req.user.username,
-        renewedFrom: certificate.id,
-      });
-      await saveDb(db);
-      res.json({ certificate: renewedCertificate, record: publicCertificate(record) });
-    } catch (error) {
-      res.status(500).json({ error: error.stderr || error.message });
-    }
-  }));
+    }),
+  );
 }

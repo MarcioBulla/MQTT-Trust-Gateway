@@ -14,3 +14,9 @@ node_modules/
 .venv/
 .pytest_cache/
 __pycache__/
+
+admin-web/dist/
+graphify-out/
+.serena/
+*.sqlite*
+*.restored.env
