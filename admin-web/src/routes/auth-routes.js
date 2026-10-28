@@ -55,10 +55,17 @@ export function registerAuthRoutes(app) {
     '/api/bootstrap',
     wrap(async (req, res) => {
       const user = currentUser(req);
+      const hasAdmin = loadDb().users.length > 0;
       res.json({
-        hasAdmin: loadDb().users.length > 0,
+        hasAdmin,
         user: user ? publicUser(user) : null,
         origin: env.origin,
+        bootstrapHelp: hasAdmin
+          ? null
+          : {
+              command: 'podman exec mqtt-admin cat /data/bootstrap-token',
+              hostFile: path.join(process.env.DATA_DIR || 'runtime', 'admin', 'bootstrap-token'),
+            },
       });
     }),
   );

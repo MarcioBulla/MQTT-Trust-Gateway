@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { useTheme } from 'vuetify';
 import { startAuthentication } from '@simplewebauthn/browser';
-import { api, state, action, refreshUser } from './api';
+import { api, state, action, refreshUser, copy } from './api';
 const theme = useTheme(),
   drawer = ref(null),
   username = ref(''),
@@ -108,9 +108,36 @@ onMounted(() => action(refreshUser));
             {{
               state.hasAdmin
                 ? 'Sign in to manage trusted devices and messages.'
-                : 'Use the one-time token from your private admin/bootstrap-token file.'
+                : 'Choose a username and a password with at least 12 characters. There are no default credentials.'
             }}
           </p>
+          <v-alert
+            v-if="!state.hasAdmin && state.bootstrapHelp"
+            type="info"
+            variant="tonal"
+            class="mb-6"
+          >
+            <h2 class="text-subtitle-1 font-weight-bold mb-2">Find your bootstrap token</h2>
+            <p class="text-body-2 mb-3">
+              On the computer running the gateway, open a terminal as the user who installed it and
+              run:
+            </p>
+            <pre class="mono">{{ state.bootstrapHelp.command }}</pre>
+            <v-btn
+              size="small"
+              variant="text"
+              prepend-icon="mdi-content-copy"
+              class="my-2"
+              @click="copy(state.bootstrapHelp.command)"
+              >Copy command</v-btn
+            >
+            <p class="text-body-2">File location on that computer:</p>
+            <p class="mono text-body-2 my-2">{{ state.bootstrapHelp.hostFile }}</p>
+            <p class="text-body-2">
+              Relative paths start in the gateway checkout. Paste the command's output into
+              Bootstrap token below. The file is deleted after your administrator is created.
+            </p>
+          </v-alert>
           <v-form @submit.prevent="login"
             ><v-text-field
               v-model="username"
