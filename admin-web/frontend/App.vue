@@ -12,7 +12,7 @@ const theme = useTheme(),
   passkeyPending = ref(false);
 const links = [
   ['/', 'Overview', 'mdi-view-dashboard-outline'],
-  ['/devices', 'Devices', 'mdi-chip'],
+  ['/devices', 'Devices & certificates', 'mdi-chip'],
   ['/licenses', 'Licenses', 'mdi-certificate-outline'],
   ['/mqtt', 'MQTT Manager', 'mdi-message-processing-outline'],
   ['/account', 'Account & audit', 'mdi-account-circle-outline'],
@@ -162,6 +162,7 @@ onMounted(() => action(refreshUser));
             @submit.prevent="login"
             ><v-text-field
               id="admin-username"
+              persistent-placeholder
               name="username"
               v-model="username"
               label="Username"
@@ -174,6 +175,7 @@ onMounted(() => action(refreshUser));
               maxlength="64"
             /><v-text-field
               id="admin-password"
+              persistent-placeholder
               name="password"
               v-model="password"
               label="Password"
@@ -186,6 +188,7 @@ onMounted(() => action(refreshUser));
             /><v-text-field
               v-if="state.hasAdmin"
               id="admin-totp"
+              persistent-placeholder
               name="totp"
               v-model="totp"
               label="Authenticator code (if enabled)"
@@ -198,6 +201,7 @@ onMounted(() => action(refreshUser));
             /><v-text-field
               v-if="!state.hasAdmin"
               id="admin-bootstrap-token"
+              persistent-placeholder
               name="setupToken"
               v-model="setupToken"
               label="Bootstrap token"

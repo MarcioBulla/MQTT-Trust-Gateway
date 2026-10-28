@@ -32,6 +32,7 @@ async function api(route, method = 'GET', body, expected = 200) {
       ...(cookie ? { Cookie: cookie } : {}),
       ...(method === 'GET' ? {} : { 'Content-Type': 'application/json' }),
     },
+    signal: AbortSignal.timeout(15000),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const c = res.headers.get('set-cookie');
@@ -54,14 +55,14 @@ async function applied() {
   }
   throw new Error('Broker did not apply revision');
 }
-async function connection(transport = 'tcp', cert = certificate) {
+async function connection(transport = 'tcp', cert = certificate, keyFile = path.join(root, device + '.key')) {
   const client = mqtt.connect(
     `${transport === 'tcp' ? 'mqtts' : 'wss'}://127.0.0.1:${transport === 'tcp' ? process.env.GATEWAY_TEST_MQTT_PORT || 8883 : process.env.GATEWAY_TEST_WS_PORT || 8443}${transport === 'tcp' ? '' : '/mqtt'}`,
     {
       servername: 'localhost',
       ca: await fs.readFile(path.join(root, 'broker/ca.crt')),
       cert,
-      key: await fs.readFile(path.join(root, device + '.key')),
+      key: await fs.readFile(keyFile),
       rejectUnauthorized: true,
       reconnectPeriod: 0,
       connectTimeout: 4000,
@@ -163,6 +164,55 @@ await test('installed rootless gateway lifecycle', { timeout: 120000 }, async (t
     const devices = (await api('/devices')).devices;
     assert.equal(devices.find((d) => d.id === device).connectionStatus, 'unknown');
     await applied();
+  });
+  await t.test('four certificate provisioning methods and explicit external CA trust', async () => {
+    const generatedId = 'generated-' + crypto.randomBytes(4).toString('hex');
+    const generated = await api('/certificates/generate', 'POST', { id: generatedId, algorithm: 'ecdsa-p256', days: 30 });
+    assert.match(generated.privateKey, /BEGIN PRIVATE KEY/);
+    assert.ok(new crypto.X509Certificate(generated.certificate).checkPrivateKey(crypto.createPrivateKey(generated.privateKey)));
+    assert.equal((await api('/certificates')).certificates.some((item) => item.deviceId === generatedId && 'privateKey' in item), false);
+    const generatedCertPath = path.join(root, generatedId + '.crt'), generatedKeyPath = path.join(root, generatedId + '.key');
+    await fs.writeFile(generatedCertPath, generated.certificate); await fs.writeFile(generatedKeyPath, generated.privateKey, { mode: 0o600 });
+    const generatedClient = await connection('tcp', generated.certificate, generatedKeyPath); await generatedClient.endAsync(true);
+
+    const externalCsrId = 'pending-' + crypto.randomBytes(4).toString('hex');
+    const pending = await api('/certificates/external-csr', 'POST', { id: externalCsrId, algorithm: 'ecdsa-p256' }, 201);
+    assert.equal(pending.record.status, 'pending_external_signature');
+    const keyResponse = await fetch(`${url}/api/certificates/${pending.record.id}/private-key-once`, { headers: { Cookie: cookie } });
+    assert.equal(keyResponse.status, 200);
+    const pendingKey = await keyResponse.text();
+    assert.match(pendingKey, /BEGIN PRIVATE KEY/);
+    const secondKeyResponse = await fetch(`${url}/api/certificates/${pending.record.id}/private-key-once`, { headers: { Cookie: cookie } });
+    assert.equal(secondKeyResponse.status, 410);
+    await api(`/certificates/${pending.record.id}/private-key-received`, 'POST', {});
+    const pendingCsrPath = path.join(root, externalCsrId + '.csr'), pendingCertPath = path.join(root, externalCsrId + '.crt'), pendingKeyPath = path.join(root, externalCsrId + '.key');
+    await fs.writeFile(pendingCsrPath, pending.csr); await fs.writeFile(pendingKeyPath, pendingKey, { mode: 0o600 });
+    await fs.writeFile(path.join(root, 'client-extensions.cnf'), `basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n`);
+    await run('openssl', ['x509', '-req', '-in', pendingCsrPath, '-CA', path.join(root, 'admin/ca/ca.crt'), '-CAkey', path.join(root, 'admin/ca/ca.key'), '-set_serial', `0x${crypto.randomBytes(8).toString('hex')}`, '-days', '30', '-sha256', '-extfile', path.join(root, 'client-extensions.cnf'), '-out', pendingCertPath]);
+    const signedPending = await fs.readFile(pendingCertPath, 'utf8');
+    const completed = await api('/certificates/import', 'POST', { pendingId: pending.record.id, certificate: signedPending, chain: await fs.readFile(path.join(root, 'admin/ca/ca.crt'), 'utf8') }, 201);
+    assert.equal(completed.brokerTrusted, true);
+    const pendingClient = await connection('tcp', signedPending, pendingKeyPath); await pendingClient.endAsync(true);
+
+    const caDir = path.join(root, 'external-ca-test'); await fs.mkdir(caDir, { recursive: true });
+    const caPath = path.join(caDir, 'ca.crt'), caKeyPath = path.join(caDir, 'ca.key'), clientCsrPath = path.join(caDir, 'device.csr'), clientCertPath = path.join(caDir, 'device.crt'), clientKeyPath = path.join(caDir, 'device.key');
+    const importedId = 'imported-' + crypto.randomBytes(4).toString('hex');
+    await run('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-keyout', caKeyPath, '-out', caPath, '-days', '365', '-subj', '/CN=Integration External CA', '-addext', 'basicConstraints=critical,CA:TRUE,pathlen:0', '-addext', 'keyUsage=critical,keyCertSign,cRLSign']);
+    await run('openssl', ['req', '-new', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-keyout', clientKeyPath, '-out', clientCsrPath, '-subj', `/CN=${importedId}`]);
+    await run('openssl', ['x509', '-req', '-in', clientCsrPath, '-CA', caPath, '-CAkey', caKeyPath, '-set_serial', `0x${crypto.randomBytes(8).toString('hex')}`, '-days', '30', '-sha256', '-extfile', path.join(root, 'client-extensions.cnf'), '-out', clientCertPath]);
+    const externalCert = await fs.readFile(clientCertPath, 'utf8'), externalCa = await fs.readFile(caPath, 'utf8');
+    const imported = await api('/certificates/import', 'POST', { deviceId: importedId, certificate: externalCert, chain: externalCa, privateKey: await fs.readFile(clientKeyPath, 'utf8') }, 201);
+    assert.equal(imported.brokerTrusted, false);
+    assert.match(imported.message, /not trusted/);
+    await assert.rejects(connection('tcp', externalCert, clientKeyPath));
+    await api('/trusted-cas', 'POST', { certificate: externalCa, confirm: 'TRUST THIS CA' }, 201);
+    await applied();
+    const trusted = (await api('/certificates')).certificates.find((item) => item.id === imported.record.id);
+    assert.equal(trusted.brokerTrusted, true);
+    const externalClient = await connection('tcp', externalCert, clientKeyPath); await externalClient.endAsync(true);
+    await api(`/trusted-cas/${(await api('/trusted-cas')).trustedCas.find((item) => item.fingerprint === trusted.issuerFingerprint)?.id}`, 'DELETE', {});
+    await applied();
+    await assert.rejects(connection('tcp', externalCert, clientKeyPath));
   });
   for (const transport of ['tcp', 'websocket'])
     await t.test(`mTLS ${transport}: publish/subscribe QoS 0, 1, 2 and ACL isolation`, async () => {
@@ -291,20 +341,42 @@ await test('installed rootless gateway lifecycle', { timeout: 120000 }, async (t
       await api('/login/password', 'POST', { ...identity, totp: otp.generate() });
       await api('/login/password', 'POST', { ...identity, totp: otp.generate() }, 401);
       // Disable with a next-window code to leave test identity reusable.
-      await api('/me/totp', 'DELETE', { code: otp.generate({ timestamp: Date.now() + 30000 }) });
+      await api('/me/totp', 'DELETE', { reauth: { method: 'password', password: identity.password, totp: otp.generate({ timestamp: Date.now() + 30000 }) } });
       await api(
         '/passkeys/' +
           encodeURIComponent(
             (await api('/me')).user.passkeys.find((p) => p.name === 'Virtual integration key').id,
           ),
         'DELETE',
-        {},
+        { reauth: { method: 'password', password: identity.password } },
       );
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();
     }
   });
+  await t.test(
+    'archive and restore blocks MQTT until explicit approval',
+    async () => {
+      const active = await connection(); let closed = false; active.on('close', () => { closed = true; });
+      await api(`/devices/${device}/archive`, 'POST', { confirm: device });
+      await applied(); assert.equal(closed, true); await active.endAsync(true);
+      assert.equal((await api('/devices')).devices.some((item) => item.id === device), false);
+      const archived = await api('/devices?status=archived');
+      assert.equal(archived.devices.some((item) => item.id === device && item.scheduledDeletionAt), true);
+      for (const transport of ['tcp', 'websocket']) await assert.rejects(connection(transport));
+      await api(`/devices/${device}/restore`, 'POST', {});
+      await applied();
+      for (const transport of ['tcp', 'websocket']) await assert.rejects(connection(transport));
+      await api(`/devices/${device}/approve`, 'POST', { confirm: device }); await applied();
+      for (const transport of ['tcp', 'websocket']) await assert.rejects(connection(transport));
+      const csr = await fs.readFile(path.join(root, device + '.csr'), 'utf8');
+      const replacement = await api('/certificates/sign', 'POST', { deviceId: device, csr, days: 2 });
+      certificate = replacement.certificate;
+      await applied();
+      const restored = await connection(); await restored.endAsync(true);
+    },
+  );
   await t.test(
     'revocation disconnects an existing session and rejects both transports',
     async () => {

@@ -6,10 +6,20 @@ import { isIP } from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { env } from '../config.js';
-import { loadDb } from '../db.js';
+import { loadDb, saveDb } from '../db.js';
 const run = promisify(execFile);
 const ca = (name) => path.join(env.caDir, name);
 const broker = (name) => path.join(env.brokerDir, name);
+const pendingPrivateKeys = new Map();
+const deliveredPrivateKeys = new Set();
+const pendingKeyCleanup = setInterval(() => {
+  for (const [id, pending] of pendingPrivateKeys) {
+    if (pending.expires <= Date.now()) pendingPrivateKeys.delete(id);
+  }
+}, 60_000);
+pendingKeyCleanup.unref();
+const pemCertificates = (value) =>
+  String(value || '').match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) || [];
 export const openssl = (args) => run('openssl', args, { timeout: 30000, maxBuffer: 1024 * 1024 });
 export async function atomic(file, data, mode = 0o600) {
   const tmp = `${file}.${crypto.randomUUID()}.tmp`;
@@ -23,9 +33,17 @@ const exists = (file) =>
   );
 export function certificateMetadata(pem) {
   const c = new crypto.X509Certificate(pem);
+  const pub = c.publicKey.asymmetricKeyDetails;
   return {
     serial: c.serialNumber,
     subject: c.subject,
+    issuerName: c.issuer,
+    fingerprint: crypto.createHash('sha256').update(c.raw).digest('hex'),
+    algorithm:
+      c.publicKey.asymmetricKeyType === 'ec'
+        ? `ECDSA-${pub.namedCurve}`
+        : `${c.publicKey.asymmetricKeyType.toUpperCase()}-${pub.modulusLength || ''}`,
+    san: c.subjectAltName || '',
     validFrom: new Date(c.validFrom).toISOString(),
     validTo: new Date(c.validTo).toISOString(),
   };
@@ -98,7 +116,12 @@ export async function initializeCa() {
   if (!(await exists(ca('crlnumber'))))
     await fs.writeFile(ca('crlnumber'), '1000\n', { mode: 0o600 });
   await config();
-  await atomic(broker('ca.crt'), await fs.readFile(ca('ca.crt')), 0o644);
+  const trusted = loadDb().trustedCas || [];
+  const trustBundle = [
+    await fs.readFile(ca('ca.crt'), 'utf8'),
+    ...trusted.filter((item) => item.enabled !== false).map((item) => item.certificate),
+  ].join('\n');
+  await atomic(broker('ca.crt'), trustBundle, 0o644);
   await generateCRL();
 }
 async function work(fn) {
@@ -153,6 +176,146 @@ export async function signDeviceCsr({ deviceId, csr, days = env.certDays }) {
     ]);
     return fs.readFile(output, 'utf8');
   });
+}
+
+function generateKeyPair(algorithm) {
+  if (algorithm === 'ecdsa-p256')
+    return crypto.generateKeyPairSync('ec', {
+      namedCurve: 'prime256v1',
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    });
+  if (algorithm === 'rsa-2048')
+    return crypto.generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicExponent: 0x10001,
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    });
+  throw new Error('Select ECDSA P-256 or RSA-2048');
+}
+
+async function createCsr(deviceId, privateKey) {
+  return work(async (dir) => {
+    const key = path.join(dir, 'ephemeral.key'), csr = path.join(dir, 'request.csr');
+    await fs.writeFile(key, privateKey, { mode: 0o600, flag: 'wx' });
+    await openssl(['req', '-new', '-sha256', '-key', key, '-subj', `/CN=${deviceId}`, '-out', csr]);
+    return fs.readFile(csr, 'utf8');
+  });
+}
+
+export async function inspectCsr(csr) {
+  return work(async (dir) => {
+    const file = path.join(dir, 'request.csr');
+    await fs.writeFile(file, csr, { mode: 0o600 });
+    await openssl(['req', '-in', file, '-verify', '-noout']);
+    const { stdout: keyPem } = await openssl(['req', '-in', file, '-pubkey', '-noout']);
+    const key = crypto.createPublicKey(keyPem);
+    const details = key.asymmetricKeyDetails;
+    if (!(key.asymmetricKeyType === 'rsa' && details.modulusLength >= 2048) && !(key.asymmetricKeyType === 'ec' && ['prime256v1', 'secp384r1', 'secp521r1'].includes(details.namedCurve)))
+      throw new Error('CSR requires RSA >=2048 or an approved EC curve');
+    return {
+      subject: (await openssl(['req', '-in', file, '-subject', '-nameopt', 'RFC2253', '-noout'])).stdout.trim(),
+      algorithm: key.asymmetricKeyType === 'ec'
+        ? `ECDSA-${key.asymmetricKeyDetails.namedCurve}`
+        : `${key.asymmetricKeyType.toUpperCase()}-${key.asymmetricKeyDetails.modulusLength || ''}`,
+      publicKeyFingerprint: crypto.createHash('sha256').update(key.export({ type: 'spki', format: 'der' })).digest('hex'),
+    };
+  });
+}
+
+export async function generateExternalCsr({ deviceId, algorithm, pendingId }) {
+  const pair = generateKeyPair(algorithm), csr = await createCsr(deviceId, pair.privateKey);
+  const preview = await inspectCsr(csr);
+  pendingPrivateKeys.set(pendingId, { deviceId, privateKey: pair.privateKey, expires: Date.now() + 15 * 60_000 });
+  return { csr, publicKey: pair.publicKey, algorithm, preview };
+}
+
+export async function takePendingPrivateKey(pendingId, deviceId) {
+  const pending = pendingPrivateKeys.get(pendingId);
+  if (!pending || pending.deviceId !== deviceId) return null;
+  if (pending.expires < Date.now()) { pendingPrivateKeys.delete(pendingId); return null; }
+  pendingPrivateKeys.delete(pendingId);
+  deliveredPrivateKeys.add(pendingId);
+  return pending.privateKey;
+}
+
+export function confirmPendingPrivateKey(pendingId) {
+  if (!deliveredPrivateKeys.delete(pendingId)) return false;
+  return true;
+}
+
+export async function issueGeneratedCertificate({ deviceId, algorithm, days }) {
+  const pair = generateKeyPair(algorithm);
+  const csr = await createCsr(deviceId, pair.privateKey);
+  const certificate = await signDeviceCsr({ deviceId, csr, days });
+  return { certificate, privateKey: pair.privateKey };
+}
+
+export async function importClientCertificate({ certificate: value, chain = '', privateKey = '', expectedPublicKey = '' }) {
+  const certPem = pemCertificates(value)[0];
+  if (!certPem) throw new Error('A PEM X.509 client certificate is required');
+  const cert = new crypto.X509Certificate(certPem);
+  if (Date.parse(cert.validFrom) > Date.now() || Date.parse(cert.validTo) <= Date.now()) throw new Error('Certificate is not currently valid');
+  const suppliedChain = pemCertificates(chain);
+  const publicDetails = cert.publicKey.asymmetricKeyDetails;
+  if (!(cert.publicKey.asymmetricKeyType === 'rsa' && publicDetails.modulusLength >= 2048) && !(cert.publicKey.asymmetricKeyType === 'ec' && ['prime256v1', 'secp384r1', 'secp521r1'].includes(publicDetails.namedCurve)))
+    throw new Error('Certificate requires RSA >=2048 or an approved EC curve');
+  const match = cert.publicKey.export({ type: 'spki', format: 'der' });
+  if (expectedPublicKey && !match.equals(crypto.createPublicKey(expectedPublicKey).export({ type: 'spki', format: 'der' })))
+    throw new Error('Certificate public key does not match the pending CSR');
+  if (privateKey) {
+    const key = crypto.createPrivateKey(privateKey);
+    if (!cert.checkPrivateKey(key)) throw new Error('Certificate and private key do not match');
+  }
+  return work(async (dir) => {
+    const file = path.join(dir, 'client.crt');
+    await fs.writeFile(file, certPem, { mode: 0o600 });
+    const purpose = await openssl(['x509', '-in', file, '-purpose', '-noout']);
+    if (!/SSL client\s*:\s*Yes/i.test(purpose.stdout)) throw new Error('Certificate is not valid for TLS client authentication');
+    let trusted = false, issuerFingerprint = '';
+    const db = loadDb();
+    const anchors = [
+      { certificate: await fs.readFile(ca('ca.crt'), 'utf8'), fingerprint: certificateMetadata(await fs.readFile(ca('ca.crt'))).fingerprint, internal: true },
+      ...(db.trustedCas || []).filter((item) => item.enabled !== false).map((item) => ({ ...item, internal: false })),
+    ];
+    const roots = suppliedChain.map((certificate) => new crypto.X509Certificate(certificate)).filter((item) => item.ca && item.verify(item.publicKey));
+    const candidates = [...anchors, ...roots.map((root) => ({ certificate: root.toString(), fingerprint: certificateMetadata(root.toString()).fingerprint, internal: false }))];
+    const untrusted = path.join(dir, 'untrusted.pem');
+    const intermediateCertificates = suppliedChain.filter((pem) => !roots.some((root) => root.fingerprint256 === new crypto.X509Certificate(pem).fingerprint256));
+    if (intermediateCertificates.length) await fs.writeFile(untrusted, intermediateCertificates.join('\n'), { mode: 0o600 });
+    const seen = new Set();
+    for (const anchor of candidates) {
+      if (seen.has(anchor.fingerprint)) continue; seen.add(anchor.fingerprint);
+      const anchorFile = path.join(dir, `anchor-${seen.size}.pem`);
+      await fs.writeFile(anchorFile, anchor.certificate, { mode: 0o600 });
+      try {
+        const args = ['verify', '-purpose', 'sslclient', '-CAfile', anchorFile];
+        if (intermediateCertificates.length) args.push('-untrusted', untrusted);
+        args.push(file); await openssl(args);
+        if (anchors.some((item) => item.fingerprint === anchor.fingerprint)) trusted = true;
+        if (!issuerFingerprint || anchors.some((item) => item.fingerprint === anchor.fingerprint)) issuerFingerprint = anchor.fingerprint;
+      } catch {}
+    }
+    if (!issuerFingerprint) throw new Error('A complete, cryptographically valid issuer chain is required');
+    const internalCa = anchors.find((item) => item.internal && item.fingerprint === issuerFingerprint);
+    return { certificate: certPem, chain: suppliedChain.join('\n'), metadata: certificateMetadata(certPem), commonName: cert.subject.match(/(?:^|\n)CN=([^\n]+)/)?.[1] || '', trusted, issuerFingerprint, internal: Boolean(internalCa) };
+  });
+}
+
+export async function addTrustedCa(certificate) {
+  const pem = pemCertificates(certificate)[0];
+  if (!pem) throw new Error('A PEM CA certificate is required');
+  const caCert = new crypto.X509Certificate(pem);
+  if (!caCert.ca || Date.parse(caCert.validFrom) > Date.now() || Date.parse(caCert.validTo) <= Date.now())
+    throw new Error('The certificate must be a currently valid CA certificate');
+  const metadata = certificateMetadata(pem);
+  const db = loadDb();
+  if (db.trustedCas.some((item) => item.fingerprint === metadata.fingerprint)) throw new Error('CA is already trusted');
+  db.trustedCas.push({ id: crypto.randomUUID(), certificate: pem, enabled: true, addedAt: new Date().toISOString(), ...metadata });
+  saveDb(db);
+  await initializeCa();
+  return { id: db.trustedCas.at(-1).id, ...metadata };
 }
 export async function revokeCertificate({ certificate }) {
   return work(async (dir) => {
@@ -247,13 +410,16 @@ export async function syncBroker(force = false) {
   for (const device of db.devices) {
     if (
       !device.enabled ||
+      device.status === 'archived' ||
+      device.status === 'deleted' ||
+      device.trusted === false ||
       !/^[A-Za-z0-9._-]{1,64}$/.test(device.id) ||
       device.id === env.adminMqttClientId
     )
       continue;
     if (
       !db.certificates.some(
-        (c) => c.deviceId === device.id && c.status !== 'revoked' && Date.parse(c.validTo) > now,
+        (c) => c.deviceId === device.id && c.status === 'active' && c.brokerTrusted !== false && Date.parse(c.validTo) > now,
       )
     )
       continue;
@@ -261,7 +427,7 @@ export async function syncBroker(force = false) {
   }
   const policy = JSON.stringify(
     db.certificates
-      .filter((c) => c.status !== 'revoked' && Date.parse(c.validTo) > now)
+      .filter((c) => c.status === 'active' && c.brokerTrusted !== false && Date.parse(c.validTo) > now)
       .map((c) => c.serial)
       .sort(),
   );

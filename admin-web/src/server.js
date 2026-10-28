@@ -9,6 +9,7 @@ import { exclusive, audit } from './db.js';
 import { registerAdminRoutes } from './routes/admin-routes.js';
 import { startMqtt, stopMqtt } from './services/mqtt-service.js';
 import { refreshPki, syncBroker } from './services/certificate-service.js';
+import { purgeExpiredArchives } from './services/identity-service.js';
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', env.trustedProxies.length ? env.trustedProxies : false);
@@ -77,6 +78,10 @@ app.use((error, req, res, _next) => {
       status === 500 ? 'Operation failed. Check the administrative service log.' : error.message,
   });
 });
+await exclusive(async () => {
+  const purged = await purgeExpiredArchives();
+  if (purged.length) await syncBroker(true);
+});
 startMqtt();
 const aclTimer = setInterval(
   () => exclusive(() => syncBroker()).catch((e) => console.error(e.message)),
@@ -90,6 +95,10 @@ const pkiTimer = setInterval(
       startMqtt();
     }).catch((e) => console.error(e.message)),
   86400000,
+);
+const archiveTimer = setInterval(
+  () => exclusive(purgeExpiredArchives).catch((e) => console.error(e.message)),
+  60000,
 );
 const server =
   env.tlsCert && env.tlsKey
@@ -112,6 +121,7 @@ for (const signal of ['SIGTERM', 'SIGINT'])
     shuttingDown = true;
     clearInterval(aclTimer);
     clearInterval(pkiTimer);
+    clearInterval(archiveTimer);
     listener.close();
     await exclusive(stopMqtt);
     process.exit(0);

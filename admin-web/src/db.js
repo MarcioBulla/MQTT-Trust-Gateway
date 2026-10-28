@@ -16,6 +16,8 @@ const empty = () => ({
   challenges: {},
   certificates: [],
   devices: [],
+  trustedCas: [],
+  deletedIdentities: [],
   settings: {},
 });
 if (!sqlite.prepare('SELECT id FROM state WHERE id=1').get()) {
@@ -25,8 +27,20 @@ if (!sqlite.prepare('SELECT id FROM state WHERE id=1').get()) {
     : empty();
   db.sessions = {};
   db.challenges = {};
+  db.trustedCas ||= [];
+  db.deletedIdentities ||= [];
+  for (const device of db.devices) {
+    device.status ||= 'active';
+    device.trusted ??= device.enabled !== false;
+  }
   for (const cert of db.certificates) {
     cert.id ||= crypto.randomUUID();
+    cert.provisioningMethod ||= 'csr';
+    cert.brokerTrusted ??= true;
+    cert.algorithm ||= 'unknown';
+    cert.fingerprint ||= '';
+    cert.issuer ||= 'legacy';
+    cert.status ||= 'active';
     if (!db.devices.some((d) => d.id === cert.deviceId))
       db.devices.push({
         id: cert.deviceId,
@@ -39,7 +53,28 @@ if (!sqlite.prepare('SELECT id FROM state WHERE id=1').get()) {
   sqlite.prepare('INSERT INTO state VALUES(1,?)').run(JSON.stringify(db));
 }
 export function loadDb() {
-  return JSON.parse(sqlite.prepare('SELECT value FROM state WHERE id=1').get().value);
+  const db = JSON.parse(sqlite.prepare('SELECT value FROM state WHERE id=1').get().value);
+  db.trustedCas ||= [];
+  db.deletedIdentities ||= [];
+  for (const device of db.devices) {
+    device.status ||= 'active';
+    device.trusted ??= device.enabled !== false;
+  }
+  for (const cert of db.certificates) {
+    cert.status ||= 'active';
+    cert.provisioningMethod ||= 'csr';
+    cert.issuer ||= 'legacy';
+    cert.brokerTrusted ??= true;
+    cert.algorithm ||= 'unknown';
+    if (cert.certificate && !cert.fingerprint) {
+      try {
+        const x509 = new crypto.X509Certificate(cert.certificate);
+        cert.fingerprint = crypto.createHash('sha256').update(x509.raw).digest('hex');
+        cert.issuerName ||= x509.issuer;
+      } catch {}
+    }
+  }
+  return db;
 }
 export function saveDb(db) {
   sqlite.prepare('UPDATE state SET value=? WHERE id=1').run(JSON.stringify(db));

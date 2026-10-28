@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted } from 'vue';
-import { startRegistration } from '@simplewebauthn/browser';
+import { ref, onMounted, computed } from 'vue';
+import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import { api, action, state, refreshUser } from '../api';
 const currentPassword = ref(''),
   password = ref(''),
@@ -9,8 +9,63 @@ const currentPassword = ref(''),
   removing = ref(null),
   setup = ref(null),
   code = ref(''),
-  registeringPasskey = ref(false);
-const localHttp = window.location.protocol === 'http:' && window.location.hostname === 'localhost';
+  registeringPasskey = ref(false),
+  removalMethod = ref('password'),
+  removalPassword = ref(''),
+  removalTotp = ref(''),
+  verifyingRemoval = ref(false);
+const removalMethods = computed(() => [
+  ...(state.user?.hasPassword
+    ? [
+        {
+          title: state.user.totpEnabled ? 'Password + authenticator code' : 'Password',
+          value: 'password',
+        },
+      ]
+    : []),
+  ...(state.user?.passkeys?.length ? [{ title: 'Passkey', value: 'passkey' }] : []),
+]);
+function openRemoval(target) {
+  state.error = '';
+  removalPassword.value = '';
+  removalTotp.value = '';
+  removalMethod.value = state.user?.hasPassword ? 'password' : 'passkey';
+  removing.value = target;
+}
+function closeRemoval() {
+  if (verifyingRemoval.value) return;
+  removing.value = null;
+  removalPassword.value = '';
+  removalTotp.value = '';
+}
+async function confirmRemoval() {
+  if (verifyingRemoval.value || !removing.value) return;
+  verifyingRemoval.value = true;
+  await action(async () => {
+    const target = removing.value;
+    let reauth;
+    if (removalMethod.value === 'passkey') {
+      const options = await api('/reauth/options', 'POST', {
+        action: target.action,
+        target: target.id || '',
+      });
+      const credential = await startAuthentication({ optionsJSON: options });
+      reauth = { method: 'passkey', credential };
+    } else {
+      reauth = { method: 'password', password: removalPassword.value, totp: removalTotp.value };
+    }
+    await api(
+      target.action === 'disable-totp' ? '/me/totp' : '/passkeys/' + encodeURIComponent(target.id),
+      'DELETE',
+      { reauth },
+    );
+    removing.value = null;
+    await refreshUser();
+  }, 'Authentication method removed; other sessions signed out');
+  removalPassword.value = '';
+  removalTotp.value = '';
+  verifyingRemoval.value = false;
+}
 const headers = [
   { title: 'Time', key: 'at' },
   { title: 'Actor', key: 'actor' },
@@ -55,11 +110,15 @@ onMounted(() =>
         <v-form @submit.prevent="changePassword"
           ><v-text-field
             v-model="currentPassword"
+            persistent-placeholder
+            name="currentPassword"
             label="Current password"
             type="password"
             autocomplete="current-password"
           /><v-text-field
             v-model="password"
+            persistent-placeholder
+            name="newPassword"
             label="New password (12–256 characters)"
             type="password"
             autocomplete="new-password"
@@ -78,12 +137,6 @@ onMounted(() =>
           Use HTTPS or localhost. Passkeys belong to this administrator and are verified against the
           configured public origin.
         </p>
-        <v-alert v-if="localHttp" type="info" variant="tonal" class="mb-4">
-          KeePassXC has a separate setting for HTTP localhost passkeys. For local testing, open
-          KeePassXC → Settings → Browser Integration → Advanced and select “Allow using localhost
-          with passkeys”, or use HTTPS with a trusted certificate. Keep Passkeys enabled in the
-          browser extension.
-        </v-alert>
         <v-text-field v-model="name" label="Passkey name" maxlength="64" /><v-btn
           prepend-icon="mdi-fingerprint"
           color="primary"
@@ -98,7 +151,11 @@ onMounted(() =>
             :title="p.name"
             :subtitle="p.createdAt"
             ><template #append
-              ><v-btn size="small" color="error" variant="text" @click="removing = p"
+              ><v-btn
+                size="small"
+                color="error"
+                variant="text"
+                @click="openRemoval({ ...p, action: 'remove-passkey' })"
                 >Remove</v-btn
               ></template
             ></v-list-item
@@ -140,6 +197,7 @@ onMounted(() =>
           "
           ><v-text-field
             v-model="code"
+            persistent-placeholder
             label="Verification code"
             autocomplete="one-time-code"
             inputmode="numeric"
@@ -151,48 +209,90 @@ onMounted(() =>
       </div></template
     >
     <template v-else
-      ><v-chip color="success" class="mb-3">Authenticator enabled</v-chip
-      ><v-form
-        @submit.prevent="
-          action(async () => {
-            await api('/me/totp', 'DELETE', { code });
-            code = '';
-            await refreshUser();
-          }, 'Authenticator disabled')
-        "
-        ><v-text-field
-          v-model="code"
-          label="Current unused authenticator code"
-          autocomplete="one-time-code"
-          inputmode="numeric"
-          pattern="[0-9]{6}"
-          required
-          maxlength="6"
-        /><v-btn type="submit" color="error" variant="tonal">Disable authenticator</v-btn></v-form
-      ></template
-    >
+      ><v-chip color="success" class="mb-3">Authenticator enabled</v-chip>
+      <div>
+        <v-btn
+          color="error"
+          variant="tonal"
+          @click="openRemoval({ action: 'disable-totp', name: 'authenticator' })"
+          >Disable authenticator</v-btn
+        >
+      </div>
+    </template>
   </v-card>
   <v-card class="pa-5 mt-5"
     ><h2 class="text-h6 mb-3">Recent audit events</h2>
     <v-data-table :headers="headers" :items="entries" :items-per-page="15"
   /></v-card>
-  <v-dialog :model-value="!!removing" max-width="450" @update:model-value="removing = null"
+  <v-dialog
+    :model-value="!!removing"
+    :persistent="verifyingRemoval"
+    max-width="500"
+    @update:model-value="closeRemoval"
     ><v-card class="pa-6"
       ><h2 class="text-h5 mb-4">Remove {{ removing?.name }}?</h2>
-      <div class="d-flex justify-end ga-2">
-        <v-btn @click="removing = null">Cancel</v-btn
-        ><v-btn
-          color="error"
-          @click="
-            action(async () => {
-              await api('/passkeys/' + encodeURIComponent(removing.id), 'DELETE', {});
-              removing = null;
-              await refreshUser();
-            }, 'Passkey removed')
-          "
-          >Remove</v-btn
-        >
-      </div></v-card
+      <p class="mb-4">
+        Verify your identity again to remove this authentication method. Other sessions will be
+        signed out.
+      </p>
+      <v-alert v-if="state.error" type="error" variant="tonal" class="mb-4">{{
+        state.error
+      }}</v-alert>
+      <v-form id="reauth-form" autocomplete="on" @submit.prevent="confirmRemoval">
+        <v-select
+          v-model="removalMethod"
+          :items="removalMethods"
+          label="Verify using"
+          :disabled="verifyingRemoval"
+        />
+        <template v-if="removalMethod === 'password'">
+          <v-text-field
+            :model-value="state.user?.username"
+            persistent-placeholder
+            name="username"
+            label="Username"
+            autocomplete="username"
+            readonly
+          />
+          <v-text-field
+            id="reauth-password"
+            v-model="removalPassword"
+            persistent-placeholder
+            name="password"
+            label="Current password"
+            type="password"
+            autocomplete="current-password"
+            required
+            :disabled="verifyingRemoval"
+          />
+          <v-text-field
+            v-if="state.user?.totpEnabled"
+            id="reauth-totp"
+            v-model="removalTotp"
+            persistent-placeholder
+            name="totp"
+            label="Fresh authenticator code"
+            autocomplete="one-time-code"
+            inputmode="numeric"
+            pattern="[0-9]{6}"
+            maxlength="6"
+            required
+            :disabled="verifyingRemoval"
+            hint="A code already used to sign in cannot be reused."
+          />
+        </template>
+        <p v-else class="text-body-2 mb-4">Confirm with a registered passkey when prompted.</p>
+        <div class="d-flex justify-end ga-2">
+          <v-btn :disabled="verifyingRemoval" @click="closeRemoval">Cancel</v-btn
+          ><v-btn
+            color="error"
+            type="submit"
+            :loading="verifyingRemoval"
+            :disabled="!removalMethods.length"
+            >Verify and remove</v-btn
+          >
+        </div>
+      </v-form></v-card
     ></v-dialog
   >
 </template>

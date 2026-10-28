@@ -8,11 +8,13 @@ import '@mdi/font/css/materialdesignicons.css';
 import App from './App.vue';
 import Dashboard from './pages/Dashboard.vue';
 import Devices from './pages/Devices.vue';
+import Identities from './pages/Identities.vue';
 import Mqtt from './pages/Mqtt.vue';
 import Account from './pages/Account.vue';
 const routes = [
   { path: '/', component: Dashboard },
-  { path: '/devices', component: Devices },
+  { path: '/devices', component: Identities },
+  { path: '/certificates', redirect: { path: '/devices', query: { view: 'certificates' } } },
   { path: '/licenses', component: Devices, props: { licenses: true } },
   { path: '/mqtt', component: Mqtt },
   { path: '/account', component: Account },

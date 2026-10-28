@@ -84,9 +84,13 @@ Persistent data:
 - `mosquitto/`: broker persistence, including retained messages and sessions.
 
 Directories are private to the user. The broker cannot mount the CA key or admin
-state. Device private keys remain on devices. The running CA key is unencrypted
-for unattended issuance, protected by filesystem permissions and container
-isolation; protect the host and encrypt backups. No web endpoint exports keys.
+state. The running CA key is unencrypted for unattended issuance, protected by
+filesystem permissions and container isolation; protect the host and encrypt
+backups. Device-generated CSR keys remain on their devices. When the administrator
+chooses Gateway-generated credentials, the device key is returned once in a
+no-store authenticated response and is not written to SQLite or persistent files.
+For external-CA CSR enrollment, the key is held in process memory temporarily and
+delivered once; a service restart clears any undelivered key.
 
 ## Administration
 
@@ -112,6 +116,20 @@ verified connection feed. They are never inferred from certificate validity.
 
 ## Devices, certificates and licenses
 
+The **Certificates and identities** page offers four enrollment methods:
+
+- Sign a device-generated CSR (the preferred method when firmware can create keys).
+- Generate a CSR and key in the Gateway for signing by an external CA.
+- Generate and sign a complete device certificate in one operation, with an
+  optional Zephyr-ready ZIP bundle.
+- Import an existing client certificate and chain. External issuers remain
+  unauthorized until explicitly added to Trusted external CAs.
+
+The four methods use the same identity and certificate history. See the
+[provisioning guide](docs/identity-provisioning.md) for validations, one-time key
+delivery, broker trust and limitations. Zephyr firmware guidance and a C example
+are in [Zephyr compatibility](docs/zephyr-compatibility.md).
+
 1. Register `sensor-01` in Devices.
 2. Generate a private key and CSR on that device:
 
@@ -121,8 +139,9 @@ openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
 chmod 600 sensor-01.key
 ```
 
-3. Choose Issue, paste the CSR and select validity (default 90, maximum 365 days).
-4. Download the public device certificate from Licenses and download the CA.
+3. Choose **Sign an existing CSR**, paste or upload the CSR, inspect the public
+   key and select validity (default 90, maximum 365 days).
+4. Download the public device certificate and client CA from Certificates.
 5. Connect using the configured hostname (it must match the broker certificate):
 
 ```sh
@@ -142,8 +161,17 @@ Certificate validity is the **license**, enforced during TLS authentication;
 there is no duplicate licensing token. Renewing issues a new serial and preserves
 history. Supply a new CSR for key rotation, or reuse the original CSR. Renewal
 does not revoke the old serial: revoke it explicitly when the rollout is complete.
-Revoke individual serials permanently, or disable a device to remove all topic
-authorization. Re-enabling a device does not undo certificate revocation.
+Revoking a certificate disables the whole device identity, removes topic
+authorization and requests a broker restart. Local certificates are also added
+to the internal CA CRL. External issuers cannot be revoked by this Gateway; their
+certificates are blocked locally. Re-enabling a device does not undo certificate
+revocation.
+
+Trusted Devices supports **Archive**, **Restore**, and **Delete now**. Archiving
+immediately removes authorization and schedules permanent removal after 30 days.
+Restore cancels that deadline but leaves the identity disabled and untrusted until
+an administrator explicitly approves it. Permanent deletion stores a minimal
+fingerprint/serial tombstone so old certificates cannot be reimported as trusted.
 
 Revocations update the CRL and request a broker restart. The broker supervisor
 checks the revision every second and restarts Mosquitto, disconnecting existing

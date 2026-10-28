@@ -11,6 +11,12 @@ import {
 import { env } from '../config.js';
 import { enrollTotp, verifyTotp } from '../totp.js';
 import {
+  removalOperation,
+  reauthenticationOptions,
+  verifyReauthentication,
+  rotateAfterAuthenticationChange,
+} from '../reauth.js';
+import {
   currentUser,
   createSession,
   logout,
@@ -84,12 +90,10 @@ export function registerAuthRoutes(app) {
       const tokenFile = path.join(env.dataDir, 'bootstrap-token');
       const expected = await fs.readFile(tokenFile, 'utf8');
       if (!matchesBootstrapToken(req.body.setupToken, expected))
-        return res
-          .status(403)
-          .json({
-            error:
-              'Invalid bootstrap token. Run the Podman command and paste its output without the shell prompt.',
-          });
+        return res.status(403).json({
+          error:
+            'Invalid bootstrap token. Run the Podman command and paste its output without the shell prompt.',
+        });
       const username = String(req.body.username || '').trim();
       if (!/^[A-Za-z0-9._@-]{1,64}$/.test(username))
         return res.status(400).json({ error: 'Invalid username' });
@@ -197,19 +201,35 @@ export function registerAuthRoutes(app) {
   app.delete(
     '/api/me/totp',
     rateLimit,
-    requireAuth((req, res) => {
+    requireAuth(async (req, res) => {
       const db = loadDb(),
         user = db.users.find((u) => u.id === req.user.id);
-      if (!verifyTotp(user.totp, req.body.code))
-        return res.status(400).json({ error: 'A valid unused authenticator code is required' });
+      if (!user.totp) return res.status(409).json({ error: 'Authenticator is not enabled' });
+      await verifyReauthentication(req, db, user, removalOperation('disable-totp'));
       delete user.totp;
       delete user.pendingTotp;
-      saveDb(db);
+      rotateAfterAuthenticationChange(req, res, db, user);
       audit(user.username, 'totp.disabled');
       res.json({ ok: true });
     }),
   );
   app.post('/api/logout', requireAuth(logout));
+  app.post(
+    '/api/reauth/options',
+    rateLimit,
+    passkeyContext,
+    requireAuth(async (req, res) => {
+      const db = loadDb(),
+        user = db.users.find((u) => u.id === req.user.id);
+      const { action, target = '' } = req.body;
+      const operation = removalOperation(action, target);
+      if (action === 'remove-passkey' && !userCredentials(user).some((c) => c.id === target))
+        return res.status(404).json({ error: 'Passkey not found' });
+      if (action === 'disable-totp' && !user.totp)
+        return res.status(409).json({ error: 'Authenticator is not enabled' });
+      res.json(await reauthenticationOptions(req, db, user, operation));
+    }),
+  );
   app.post(
     '/api/passkeys/options',
     passkeyContext,
@@ -263,16 +283,25 @@ export function registerAuthRoutes(app) {
   );
   app.delete(
     '/api/passkeys/:id',
-    requireAuth((req, res) => {
+    rateLimit,
+    requireAuth(async (req, res) => {
       const db = loadDb(),
         user = db.users.find((u) => u.id === req.user.id);
+      if (!userCredentials(user).some((c) => c.id === req.params.id))
+        return res.status(404).json({ error: 'Passkey not found' });
       if (!user.passwordHash && userCredentials(user).length <= 1)
         return res.status(409).json({ error: 'Set a password before removing the last passkey' });
+      await verifyReauthentication(
+        req,
+        db,
+        user,
+        removalOperation('remove-passkey', req.params.id),
+      );
       user.credentials = userCredentials(user).filter((c) => c.id !== req.params.id);
       delete user.credentialID;
       delete user.credentialPublicKey;
       delete user.counter;
-      saveDb(db);
+      rotateAfterAuthenticationChange(req, res, db, user);
       audit(user.username, 'passkey.removed', req.params.id);
       res.json({ user: publicUser(user) });
     }),
