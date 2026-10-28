@@ -1,5 +1,12 @@
 import { reactive } from 'vue';
-export const state = reactive({ user: null, hasAdmin: true, busy: 0, notice: '', error: '' });
+export const state = reactive({
+  user: null,
+  hasAdmin: true,
+  bootstrapHelp: null,
+  busy: 0,
+  notice: '',
+  error: '',
+});
 export async function api(url, method = 'GET', body) {
   state.busy++;
   try {
@@ -33,6 +40,7 @@ export async function refreshUser() {
   const data = await api('/bootstrap');
   state.user = data.user;
   state.hasAdmin = data.hasAdmin;
+  state.bootstrapHelp = data.bootstrapHelp;
 }
 export async function copy(value) {
   return action(async () => {
