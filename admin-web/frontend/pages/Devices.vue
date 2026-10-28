@@ -84,6 +84,12 @@ function executeConfirm() {
 }
 const color = (s) =>
   ({ active: 'success', expiring: 'warning', revoked: 'error', expired: 'error', untrusted: 'warning', pending_external_signature: 'info' })[s] || 'default';
+const confirmationPhrase = () =>
+  confirm.value?.action === 'archive'
+    ? confirm.value.device.id
+    : confirm.value?.action === 'delete'
+      ? `DELETE ${confirm.value.device.id}`
+      : '';
 </script>
 <template>
   <div class="d-flex flex-wrap align-center justify-space-between ga-4 mb-6">
@@ -258,15 +264,20 @@ const color = (s) =>
       <p v-else-if="confirm?.action === 'restore'">Restore {{ confirm?.device?.id }}? It remains disabled until explicitly approved.</p>
       <p v-else-if="confirm?.action === 'delete'">Permanently delete {{ confirm?.device?.id }} now? Audit evidence remains and the identifier can never be reused.</p>
       <p v-else>Change access for {{ confirm?.device?.id }}?</p>
-      <v-text-field v-if="confirm?.action === 'archive'" v-model="confirmText" :label="`Type ${confirm.device.id} to confirm`" />
-      <v-text-field v-if="confirm?.action === 'delete'" v-model="confirmText" :label="`Type DELETE ${confirm.device.id} to confirm`" />
+      <template v-if="confirm?.action === 'archive' || confirm?.action === 'delete'">
+        <div class="d-flex align-center flex-wrap ga-2 mt-5 mb-2">
+          <span>Type</span><v-chip label size="small" prepend-icon="mdi-content-copy">{{ confirmationPhrase() }}</v-chip><span>to confirm.</span>
+        </div>
+        <v-text-field v-model="confirmText" label="Enter confirmation" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      </template>
+      <v-alert v-if="confirm?.action === 'delete'" type="error" variant="tonal" class="mb-4">This action cannot be undone.</v-alert>
       <v-alert type="warning" variant="tonal" class="my-4"
         >The broker will restart to apply access changes. All current MQTT sessions will disconnect
         and eligible clients can reconnect.</v-alert
       >
       <div class="d-flex justify-end ga-2">
         <v-btn @click="confirm = null">Cancel</v-btn
-        ><v-btn color="error" :disabled="confirm?.action === 'archive' && confirmText !== confirm.device.id || confirm?.action === 'delete' && confirmText !== `DELETE ${confirm.device.id}`" :loading="!!state.busy" @click="executeConfirm">Confirm</v-btn>
+        ><v-btn color="error" :disabled="['archive', 'delete'].includes(confirm?.action) && confirmText !== confirmationPhrase()" :loading="!!state.busy" @click="executeConfirm">{{ confirm?.action === 'archive' ? 'Archive device' : confirm?.action === 'delete' ? 'Confirm delete' : 'Confirm' }}</v-btn>
       </div></v-card
     ></v-dialog
   >
