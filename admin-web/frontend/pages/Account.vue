@@ -8,7 +8,9 @@ const currentPassword = ref(''),
   entries = ref([]),
   removing = ref(null),
   setup = ref(null),
-  code = ref('');
+  code = ref(''),
+  registeringPasskey = ref(false);
+const localHttp = window.location.protocol === 'http:' && window.location.hostname === 'localhost';
 const headers = [
   { title: 'Time', key: 'at' },
   { title: 'Actor', key: 'actor' },
@@ -16,12 +18,16 @@ const headers = [
   { title: 'Detail', key: 'detail' },
 ];
 function addPasskey() {
+  if (registeringPasskey.value) return;
+  registeringPasskey.value = true;
   action(async () => {
     const options = await api('/passkeys/options', 'POST', {});
     const credential = await startRegistration({ optionsJSON: options });
     await api('/passkeys/verify', 'POST', { credential, name: name.value });
     await refreshUser();
-  }, 'Passkey registered');
+  }, 'Passkey registered').finally(() => {
+    registeringPasskey.value = false;
+  });
 }
 function changePassword() {
   action(async () => {
@@ -72,9 +78,17 @@ onMounted(() =>
           Use HTTPS or localhost. Passkeys belong to this administrator and are verified against the
           configured public origin.
         </p>
+        <v-alert v-if="localHttp" type="info" variant="tonal" class="mb-4">
+          KeePassXC has a separate setting for HTTP localhost passkeys. For local testing, open
+          KeePassXC → Settings → Browser Integration → Advanced and select “Allow using localhost
+          with passkeys”, or use HTTPS with a trusted certificate. Keep Passkeys enabled in the
+          browser extension.
+        </v-alert>
         <v-text-field v-model="name" label="Passkey name" maxlength="64" /><v-btn
           prepend-icon="mdi-fingerprint"
           color="primary"
+          :loading="registeringPasskey"
+          :disabled="registeringPasskey"
           @click="addPasskey"
           >Register passkey</v-btn
         ><v-list
