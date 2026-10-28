@@ -11,21 +11,23 @@ const devices = ref([]),
   issueDialog = ref(false),
   confirm = ref(null),
   details = ref(null),
+  labelsDialog = ref(false),
   tab = ref('active'),
-  confirmText = ref('');
-const form = ref({ id: '', name: '', description: '' }),
+  confirmText = ref(''),
+  labelsDevice = ref(null),
+  labelsDraft = ref('');
+const form = ref({ id: '', name: '', description: '', labels: '' }),
   issue = ref({ deviceId: '', csr: '', days: 90, previous: null });
 const headers = [
-  { title: 'Device', key: 'id', width: '130px', maxWidth: '150px' },
-  { title: 'Name', key: 'name', width: '130px', maxWidth: '150px' },
-  { title: 'Provisioning', key: 'latestCertificate.provisioningMethod', width: '135px', maxWidth: '150px' },
-  { title: 'Issuer', key: 'latestCertificate.issuerName', width: '150px', maxWidth: '170px' },
-  { title: 'Algorithm', key: 'latestCertificate.algorithm', width: '130px', maxWidth: '145px' },
-  { title: 'Expires', key: 'latestCertificate.validTo', width: '145px', maxWidth: '160px' },
-  { title: 'Certificate', key: 'latestCertificate.status', width: '120px', maxWidth: '130px' },
-  { title: 'Authorization', key: 'enabled', width: '135px', maxWidth: '150px' },
-  { title: 'Connection', key: 'connectionStatus', width: '110px', maxWidth: '120px' },
-  { title: 'Actions', key: 'actions', width: '300px', maxWidth: '320px', sortable: false },
+  { title: 'Device', key: 'id', width: '145px', maxWidth: '160px' },
+  { title: 'Name', key: 'name', width: '145px', maxWidth: '160px' },
+  { title: 'Labels', key: 'labels', width: '170px', maxWidth: '190px' },
+  { title: 'Provisioning', key: 'latestCertificate.provisioningMethod', width: '145px', maxWidth: '160px' },
+  { title: 'Issuer', key: 'latestCertificate.issuerName', width: '170px', maxWidth: '190px' },
+  { title: 'Algorithm', key: 'latestCertificate.algorithm', width: '145px', maxWidth: '160px' },
+  { title: 'Credential', key: 'latestCertificate.status', width: '150px', maxWidth: '170px' },
+  { title: 'Authorization', key: 'enabled', width: '130px', maxWidth: '145px' },
+  { title: '', key: 'actions', width: '64px', maxWidth: '64px', sortable: false },
 ];
 const identityRows = computed(() => devices.value.map((device) => ({
   ...device,
@@ -55,12 +57,36 @@ const load = () =>
 onMounted(load);
 function create() {
   action(async () => {
-    await api('/devices', 'POST', form.value);
+    await api('/devices', 'POST', { ...form.value, labels: form.value.labels.split(',').map((label) => label.trim()).filter(Boolean) });
     dialog.value = false;
-    form.value = { id: '', name: '', description: '' };
+    form.value = { id: '', name: '', description: '', labels: '' };
     await load();
   }, 'Device registered');
 }
+function updateAuthorization(device, enabled) {
+  if (enabled) {
+    confirm.value = { device, action: 'approve' };
+    return;
+  }
+  action(async () => {
+    await api(`/devices/${device.id}`, 'PATCH', { enabled: false });
+    await load();
+  }, 'Device authorization disabled. Broker sessions are being disconnected.');
+}
+function editLabels(device) {
+  labelsDevice.value = device;
+  labelsDraft.value = (device.labels || []).join(', ');
+  labelsDialog.value = true;
+}
+function saveLabels() {
+  action(async () => {
+    await api(`/devices/${labelsDevice.value.id}`, 'PATCH', { labels: labelsDraft.value.split(',').map((label) => label.trim()).filter(Boolean) });
+    labelsDialog.value = false;
+    await load();
+    return 'Device labels updated.';
+  }).then((message) => { if (message) state.notice = message; });
+}
+const connectionColor = (status) => ({ connected: 'success', online: 'success', offline: 'error', disconnected: 'error' })[String(status || '').toLowerCase()] || 'medium-emphasis';
 function openIssue(id, previous = null) {
   issue.value = { deviceId: id, previous, csr: '', days: issue.value.days };
   issueDialog.value = true;
@@ -158,56 +184,26 @@ const licenseCounts = (status) =>
       :loading="!!state.busy"
       class="mt-4 identity-table"
     >
-      <template #item.enabled="{ item }"
-        ><v-chip size="small" :color="item.enabled && item.trusted !== false ? 'success' : 'warning'">{{
-          item.enabled && item.trusted !== false ? 'Approved' : 'Approval required'
-        }}</v-chip></template
-      ><template #item.connectionStatus>Unavailable</template>
+      <template #item.id="{ item }"><v-tooltip :text="`Connection: ${item.connectionStatus === 'unknown' ? 'status unavailable' : item.connectionStatus}`"><template #activator="{ props: tooltipProps }"><span v-bind="tooltipProps" class="device-id" :class="`text-${connectionColor(item.connectionStatus)}`">{{ item.id }}</span></template></v-tooltip></template>
+      <template #item.name="{ item }"><v-tooltip :text="`Device ID: ${item.id} · Click to copy device name`"><template #activator="{ props: tooltipProps }"><v-btn v-bind="tooltipProps" variant="text" density="compact" class="name-copy text-none px-0" :aria-label="`Copy device name ${item.name || item.id}`" @click="copy(item.name || item.id)">{{ item.name || item.id }}</v-btn></template></v-tooltip></template>
+      <template #item.labels="{ item }"><div class="d-flex flex-wrap ga-1"> <v-chip v-for="label in item.labels || []" :key="label" size="x-small" variant="tonal">{{ label }}</v-chip><span v-if="!item.labels?.length" class="text-medium-emphasis">—</span></div></template>
       <template #item.latestCertificate.provisioningMethod="{ item }">{{ item.latestCertificate?.provisioningMethod || '—' }}</template>
       <template #item.latestCertificate.issuerName="{ item }"><span>{{ item.latestCertificate?.issuerName || item.latestCertificate?.issuer || '—' }}</span><span v-if="item.latestCertificate?.brokerTrusted === false" class="text-warning"> (not trusted)</span></template>
       <template #item.latestCertificate.algorithm="{ item }">{{ item.latestCertificate?.algorithm || '—' }}</template>
-      <template #item.latestCertificate.validTo="{ item }">{{ item.latestCertificate?.validTo || '—' }}</template>
-      <template #item.latestCertificate.status="{ item }"><v-chip v-if="item.latestCertificate" size="small" :color="color(item.latestCertificate.status)">{{ item.latestCertificate.status }}</v-chip><span v-else class="text-medium-emphasis">No certificate</span></template>
+      <template #item.latestCertificate.status="{ item }"><div v-if="item.latestCertificate" class="d-flex flex-column align-start ga-1"><v-chip size="small" :color="color(item.latestCertificate.status)">{{ item.latestCertificate.status }}</v-chip><span class="text-caption text-medium-emphasis">Expires {{ item.latestCertificate.validTo || '—' }}</span></div><span v-else class="text-medium-emphasis">No certificate</span></template>
+      <template #item.enabled="{ item }"><div class="d-flex align-center ga-2"><v-switch :model-value="item.enabled && item.trusted !== false" color="success" density="compact" hide-details :aria-label="`Authorize ${item.id} for MQTT`" @update:model-value="updateAuthorization(item, $event)" /><span class="text-caption">{{ item.enabled && item.trusted !== false ? 'Authorized' : 'Disabled' }}</span></div></template>
       <template #item.actions="{ item }"
-        ><div class="d-flex flex-wrap ga-1"><v-btn size="small" variant="tonal" prepend-icon="mdi-information-outline" @click="details = item">Details</v-btn
-        ><v-btn
-          v-if="item.latestCertificate?.canDownload"
-          size="small"
-          variant="tonal"
-          prepend-icon="mdi-download"
-          :href="`/api/certificates/${item.latestCertificate.id}/download`"
-          >Certificate</v-btn
-        ><v-btn
-          v-if="item.latestCertificate && ['active', 'expiring', 'untrusted'].includes(item.latestCertificate.status)"
-          size="small"
-          variant="tonal"
-          prepend-icon="mdi-autorenew"
-          @click="openIssue(item.id, item.latestCertificate.id)"
-          >Renew</v-btn
-        ><v-btn
-          v-if="item.latestCertificate && ['active', 'expiring', 'untrusted'].includes(item.latestCertificate.status)"
-          size="small"
-          color="error"
-          variant="tonal"
-          prepend-icon="mdi-cancel"
-          @click="confirm = { cert: item.latestCertificate }"
-          >Revoke</v-btn
-        ><v-btn
-          size="small"
-          variant="tonal"
-          prepend-icon="mdi-certificate-plus"
-          :disabled="!item.enabled"
-          @click="openIssue(item.id)"
-          >Issue</v-btn
-        ><v-btn
-          size="small"
-          variant="tonal"
-          prepend-icon="mdi-shield-check-outline"
-          :color="item.enabled ? 'warning' : 'success'"
-          @click="confirm = { device: item, action: item.enabled ? 'disable' : 'approve' }"
-          >{{ item.enabled ? 'Disable' : 'Approve & enable' }}</v-btn
-        ><v-btn size="small" color="warning" variant="tonal" prepend-icon="mdi-archive-arrow-down-outline" @click="confirm = { device: item, action: 'archive' }">Archive</v-btn
-        ><v-btn size="small" color="error" variant="tonal" prepend-icon="mdi-delete-forever-outline" @click="confirm = { device: item, action: 'delete' }">Delete</v-btn></div
+        ><v-menu location="bottom end"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-vertical" variant="text" size="small" aria-label="Device actions" /></template><v-list density="compact">
+        <v-list-item prepend-icon="mdi-information-outline" title="Details" @click="details = item" />
+        <v-list-item v-if="item.latestCertificate?.canDownload" prepend-icon="mdi-download" title="Download certificate" :href="`/api/certificates/${item.latestCertificate.id}/download`" />
+        <v-list-item v-if="item.latestCertificate && ['active', 'expiring', 'untrusted'].includes(item.latestCertificate.status)" prepend-icon="mdi-autorenew" title="Renew / replace certificate" @click="openIssue(item.id, item.latestCertificate.id)" />
+        <v-list-item v-if="item.latestCertificate && ['active', 'expiring', 'untrusted'].includes(item.latestCertificate.status)" prepend-icon="mdi-cancel" title="Revoke certificate" @click="confirm = { cert: item.latestCertificate }" />
+        <v-list-item prepend-icon="mdi-tag-edit-outline" title="Edit labels" @click="editLabels(item)" />
+        <v-list-item prepend-icon="mdi-certificate-plus" title="Issue certificate" :disabled="!item.enabled" @click="openIssue(item.id)" />
+        <v-list-item prepend-icon="mdi-shield-check-outline" :title="item.enabled ? 'Disable authorization' : 'Approve & authorize'" @click="item.enabled ? updateAuthorization(item, false) : updateAuthorization(item, true)" />
+        <v-list-item prepend-icon="mdi-archive-arrow-down-outline" title="Archive device" @click="confirm = { device: item, action: 'archive' }" />
+        <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete device" class="text-error" @click="confirm = { device: item, action: 'delete' }" />
+        </v-list></v-menu
         ></template
       >
     </v-data-table>
@@ -263,7 +259,7 @@ const licenseCounts = (status) =>
           pattern="[A-Za-z0-9._-]{1,64}"
           required
           maxlength="64"
-        /><v-text-field v-model="form.name" label="Name" maxlength="100" /><v-textarea
+        /><v-text-field v-model="form.name" label="Name" maxlength="100" /><v-text-field v-model="form.labels" label="Labels" hint="Optional; separate labels with commas" persistent-hint /><v-textarea
           v-model="form.description"
           label="Description"
           maxlength="1000"
@@ -275,6 +271,7 @@ const licenseCounts = (status) =>
       ></v-card
     ></v-dialog
   >
+  <v-dialog v-model="labelsDialog" max-width="500"><v-card class="pa-6"><h2 class="text-h5 mb-2">Edit labels</h2><p class="text-body-2 text-medium-emphasis">Labels for {{ labelsDevice?.id }}. Separate multiple labels with commas.</p><v-text-field v-model="labelsDraft" label="Labels" autofocus @keyup.enter="saveLabels" /><div class="d-flex justify-end ga-2"><v-btn @click="labelsDialog = false">Cancel</v-btn><v-btn color="primary" :loading="!!state.busy" @click="saveLabels">Save labels</v-btn></div></v-card></v-dialog>
   <v-dialog v-model="issueDialog" max-width="720"
     ><v-card class="pa-6"
       ><h2 class="text-h5 mb-3">
@@ -313,6 +310,7 @@ const licenseCounts = (status) =>
       <p v-else-if="confirm?.action === 'archive'">Archive {{ confirm?.device?.id }}? MQTT access stops immediately. The device will be deleted in 30 days unless restored.</p>
       <p v-else-if="confirm?.action === 'restore'">Restore {{ confirm?.device?.id }}? It remains disabled until explicitly approved.</p>
       <p v-else-if="confirm?.action === 'delete'">Permanently delete {{ confirm?.device?.id }} now? Audit evidence remains and the identifier can never be reused.</p>
+      <p v-else-if="confirm?.action === 'approve'">Approve {{ confirm?.device?.id }} and allow it to connect to MQTT? Explicit approval is required to enable this device.</p>
       <p v-else>Change access for {{ confirm?.device?.id }}?</p>
       <template v-if="confirm?.action === 'archive' || confirm?.action === 'delete'">
         <div class="d-flex align-center flex-wrap ga-2 mt-5 mb-2">
@@ -351,10 +349,12 @@ const licenseCounts = (status) =>
 </template>
 
 <style scoped>
-.identity-table :deep(table) { table-layout: fixed; min-width: 1450px; }
+.identity-table :deep(table) { table-layout: fixed; min-width: 1280px; }
 .identity-table :deep(th),
 .identity-table :deep(td) { white-space: normal !important; overflow-wrap: anywhere; word-break: normal; vertical-align: top; }
 .identity-table :deep(td:last-child > *) { max-width: 100%; }
+.device-id { display: inline-block; font-family: var(--font-monospace, monospace); font-weight: 600; overflow-wrap: anywhere; }
+.name-copy { max-width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .confirmation-copy-button { max-width: 100%; height: auto !important; min-height: 32px; padding-block: 6px; white-space: normal; }
 .confirmation-copy-button :deep(.v-btn__content) { white-space: normal; overflow-wrap: anywhere; text-align: left; }
 </style>

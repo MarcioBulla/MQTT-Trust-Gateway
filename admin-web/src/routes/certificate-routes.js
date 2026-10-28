@@ -40,6 +40,9 @@ export function publicCertificate(c) {
   return { ...publicData, status: c.status === 'active' && c.brokerTrusted === false ? 'untrusted' : state(c), canDownload: Boolean(certificate) };
 }
 const deviceRecord = (db, id) => db.devices.find((device) => device.id === id);
+const normalizeLabels = (value) => [...new Set((Array.isArray(value) ? value : String(value || '').split(','))
+  .map((label) => String(label).trim().slice(0, 40))
+  .filter(Boolean))].slice(0, 20);
 const ensureIdentity = (db, { id, name = id, description = '' }) => {
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(id) || id === env.adminMqttClientId)
     throw Object.assign(new Error('Invalid or reserved device identifier'), { status: 400 });
@@ -257,6 +260,7 @@ export function registerCertificateRoutes(app) {
         id,
         name: String(req.body.name || id).slice(0, 100),
         description: String(req.body.description || '').slice(0, 1000),
+        labels: normalizeLabels(req.body.labels),
         enabled: true,
         trusted: true,
         status: 'active',
@@ -277,6 +281,8 @@ export function registerCertificateRoutes(app) {
       if (typeof req.body.name === 'string') d.name = req.body.name.slice(0, 100);
       if (typeof req.body.description === 'string')
         d.description = req.body.description.slice(0, 1000);
+      if (Array.isArray(req.body.labels) || typeof req.body.labels === 'string')
+        d.labels = normalizeLabels(req.body.labels);
       if (typeof req.body.enabled === 'boolean') { d.enabled = req.body.enabled; d.trusted = req.body.enabled; }
       saveDb(db);
       await syncBroker(true);
