@@ -77,3 +77,20 @@ official documentation for your installed version: https://docs.external proxy.n
 | 8443 | MQTT over secure WebSocket, mandatory client certificates | TCP passthrough to preserve mTLS |
 
 For TLS/CRL and listener options see the [Mosquitto reference](https://mosquitto.org/man/mosquitto-conf-5.html).
+
+## KeePassXC on localhost
+
+KeePassXC has an additional desktop setting for passkeys on HTTP localhost,
+separate from enabling passkeys in KeePassXC-Browser. Its default is disabled.
+The same provider may therefore work on HTTPS sites while rejecting a local
+HTTP origin. For local testing, review **Settings → Browser Integration →
+Advanced → Allow using localhost with passkeys** in KeePassXC. Alternatively use
+native HTTPS with a certificate trusted by your browser. The gateway does not
+change this setting or relax RP/origin/user-verification checks. See
+[KeePassXC's origin validation](https://github.com/keepassxreboot/keepassxc/blob/develop/src/browser/PasskeyUtils.cpp)
+and [settings UI](https://github.com/keepassxreboot/keepassxc/blob/develop/src/browser/BrowserSettingsWidget.ui).
+
+The login form exposes stable username, password and TOTP input names and
+standard autocomplete values (`username`, `current-password`, `one-time-code`).
+Store the actual gateway URL in the password-manager entry. If using its TOTP
+autofill, configure the gateway's TOTP seed in that same entry.

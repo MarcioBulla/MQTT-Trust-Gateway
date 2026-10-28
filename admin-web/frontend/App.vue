@@ -8,7 +8,8 @@ const theme = useTheme(),
   username = ref(''),
   password = ref(''),
   setupToken = ref(''),
-  totp = ref('');
+  totp = ref(''),
+  passkeyPending = ref(false);
 const links = [
   ['/', 'Overview', 'mdi-view-dashboard-outline'],
   ['/devices', 'Devices', 'mdi-chip'],
@@ -37,11 +38,15 @@ function login() {
   });
 }
 function passkey() {
+  if (passkeyPending.value) return;
+  passkeyPending.value = true;
   action(async () => {
     const options = await api('/login/options', 'POST', { username: username.value });
     const credential = await startAuthentication({ optionsJSON: options });
     await api('/login/verify', 'POST', { username: username.value, credential });
     await refreshUser();
+  }).finally(() => {
+    passkeyPending.value = false;
   });
 }
 onMounted(() => action(refreshUser));
@@ -147,15 +152,29 @@ onMounted(() => action(refreshUser));
             >
             <p class="text-body-2">Paste the command's output into Bootstrap token below.</p>
           </v-alert>
-          <v-form @submit.prevent="login"
+          <v-form
+            id="admin-auth-form"
+            :key="state.hasAdmin ? 'login' : 'bootstrap'"
+            :name="state.hasAdmin ? 'login' : 'registration'"
+            autocomplete="on"
+            method="post"
+            :action="state.hasAdmin ? '/api/login/password' : '/api/bootstrap'"
+            @submit.prevent="login"
             ><v-text-field
+              id="admin-username"
+              name="username"
               v-model="username"
               label="Username"
+              type="text"
               autocomplete="username"
+              autocapitalize="none"
+              :spellcheck="false"
               :rules="[required]"
               required
               maxlength="64"
             /><v-text-field
+              id="admin-password"
+              name="password"
               v-model="password"
               label="Password"
               type="password"
@@ -166,16 +185,24 @@ onMounted(() => action(refreshUser));
               maxlength="256"
             /><v-text-field
               v-if="state.hasAdmin"
+              id="admin-totp"
+              name="totp"
               v-model="totp"
               label="Authenticator code (if enabled)"
+              type="text"
               autocomplete="one-time-code"
               inputmode="numeric"
+              pattern="[0-9]{6}"
+              :spellcheck="false"
               maxlength="6"
             /><v-text-field
               v-if="!state.hasAdmin"
+              id="admin-bootstrap-token"
+              name="setupToken"
               v-model="setupToken"
               label="Bootstrap token"
               type="password"
+              autocomplete="off"
               required
             /><v-btn type="submit" color="primary" block size="large" :loading="!!state.busy">{{
               state.hasAdmin ? 'Sign in' : 'Create administrator'
@@ -186,7 +213,8 @@ onMounted(() => action(refreshUser));
               block
               variant="tonal"
               prepend-icon="mdi-fingerprint"
-              :disabled="!username || !!state.busy"
+              :disabled="!username || !!state.busy || passkeyPending"
+              :loading="passkeyPending"
               @click="passkey"
               >Sign in with a passkey</v-btn
             ></v-form

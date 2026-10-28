@@ -52,3 +52,19 @@ No real host reboot was performed and linger was not changed. No external
 Nginx or external proxy deployment was installed/tested. A real legacy step-ca signing
 hierarchy was not available; only JSON migration and backup restoration were
 executed. See migration.md before moving a real fleet.
+
+## Password-manager compatibility follow-up
+
+The login form now exposes stable field IDs/names, an explicit login form,
+`username` / `current-password` / `one-time-code` autocomplete metadata, and a
+separate bootstrap form identity. Tested in isolated Chromium using the field
+recognition functions from the installed KeePassXC-Browser 1.10.4.1 extension:
+the detector identifies the username/password pair and TOTP input. Simulated
+input/change events submit all three dummy values correctly. Test responses were
+intercepted; no real credentials or KeePass database entries were accessed.
+
+Passkey requests also prevent duplicate concurrent clicks. KeePassXC's separate
+HTTP-localhost passkey policy is documented in the account UI and proxy guide;
+the application does not change that desktop setting or relax backend WebAuthn
+verification. A real KeePassXC passkey ceremony still requires user verification
+in the unlocked desktop database and was not completed by the agent.
