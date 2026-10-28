@@ -302,9 +302,10 @@ export function registerCertificateRoutes(app) {
         d.labels = normalizeLabels(req.body.labels);
       if (req.body.enabled === true && !hasUsableCredential(db, d.id))
         return res.status(409).json({ error: 'Cannot authorize this identity without a valid, trusted, unrevoked certificate' });
+      const accessChanged = typeof req.body.enabled === 'boolean' && (d.enabled !== req.body.enabled || d.trusted !== req.body.enabled);
       if (typeof req.body.enabled === 'boolean') { d.enabled = req.body.enabled; d.trusted = req.body.enabled; }
       saveDb(db);
-      await syncBroker(true);
+      if (accessChanged) await syncBroker(true);
       audit(req.user.username, 'device.updated', d.id);
       res.json({ ok: true });
     }),

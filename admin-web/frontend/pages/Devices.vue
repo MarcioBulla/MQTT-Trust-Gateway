@@ -40,6 +40,7 @@ const labelColors = [
 ];
 const certHeaders = [
   { title: 'Device', key: 'deviceId' },
+  { title: 'Labels', key: 'labels' },
   { title: 'Serial', key: 'serial' },
   { title: 'Issued', key: 'issuedAt' },
   { title: 'Expires', key: 'validTo' },
@@ -261,6 +262,7 @@ const licenseCounts = (status) =>
       :loading="!!state.busy"
       class="mt-4"
     >
+      <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="rawLabel in licenseDevice(item.deviceId).labels || []" :key="labelValue(rawLabel).name" size="small" :closable="licenseDevice(item.deviceId).status === 'active'" :color="labelValue(rawLabel).color" variant="tonal" @click:close="removeLabel(licenseDevice(item.deviceId), labelValue(rawLabel).name)">{{ labelValue(rawLabel).name }}</v-chip><v-menu v-if="licenseDevice(item.deviceId).status === 'active'" location="bottom start" :close-on-content-click="false" @update:model-value="openLabelMenu(licenseDevice(item.deviceId), $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to ${licenseDevice(item.deviceId).name || item.deviceId}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLabels(licenseDevice(item.deviceId)).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLabels(licenseDevice(item.deviceId))" :key="label.name" :title="label.name" @click="attachLabel(licenseDevice(item.deviceId), label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLabel(licenseDevice(item.deviceId))">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
       <template #item.serial="{ item }"
         ><span class="mono text-caption">{{ item.serial }}</span></template
       ><template #item.status="{ item }"

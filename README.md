@@ -240,6 +240,12 @@ Installer updates never delete identities or certificates. Take a backup before
 upgrades. Removing old CA/proxy/Compose services is a deliberate legacy operator
 step after migration; the new installer never manages those services.
 
+## Roadmap
+
+- Add device health checks with explicit heartbeat or status reporting, configurable
+  stale thresholds, and clear online, offline, and unknown states. Do not infer
+  device health from certificate validity alone.
+
 ## Development and verification
 
 ```sh
