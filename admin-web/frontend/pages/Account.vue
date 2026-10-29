@@ -1,13 +1,36 @@
 <script setup>
+import { themePresets, effectiveThemeColors } from '../../shared/theme-presets.js';
+import { useTheme } from 'vuetify';
+import { defaultPresentation } from '../../shared/presentation-preferences.js';
+import { hideSensitive, revealScopes, isRevealed, sensitiveFetch } from '../sensitive';
 import DateTime from '../components/DateTime.vue';
 import { browserTimeZone, formatDateTime } from '../date-time';
 import { normalizeTimeZone } from '../../shared/time-zone.js';
 import DataList from '../components/DataList.vue';
-import { ref, onMounted, computed } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import { api, action, state, refreshUser } from '../api';
 import RuntimeLogs from '../components/RuntimeLogs.vue';
 const accountTab = ref('general'), auditSearch = ref('');
+const presentation = ref(JSON.parse(JSON.stringify(state.user?.presentation || defaultPresentation())));
+const colorFields = [{ key: 'primary', title: 'Accent' }, { key: 'background', title: 'Background' }, { key: 'surface', title: 'Cards' }, { key: 'received', title: 'Received chart' }, { key: 'sent', title: 'Sent chart' }];
+const theme = useTheme();
+const presetOptions = [{ title: 'Custom', value: 'custom' }, { title: 'Gateway default', value: 'default' }, ...themePresets.map(item => ({ title: `${item.title} — ${item.lightVariant} / ${item.darkVariant}`, value: item.id }))].sort((a, b) => a.title.localeCompare(b.title, 'en', { sensitivity: 'base' }));
+function selectPreset(id) {
+  if (id === 'custom') return;
+  const themes = id === 'default' ? defaultPresentation().themes : themePresets.find(item => item.id === id)?.themes;
+  if (themes) presentation.value.themes = JSON.parse(JSON.stringify(themes));
+}
+function previewColors(value) {
+  for (const mode of ['light', 'dark']) Object.assign(theme.themes.value[mode].colors, effectiveThemeColors(value, mode));
+}
+watch(presentation, value => {
+  const expected = value.preset === 'default' ? defaultPresentation().themes : themePresets.find(item => item.id === value.preset)?.themes;
+  if (expected && JSON.stringify(expected) !== JSON.stringify(value.themes)) value.preset = 'custom';
+  previewColors(value);
+}, { deep: true, immediate: true });
+onUnmounted(() => previewColors(state.user?.presentation || defaultPresentation()));
+function resetColors() { presentation.value.preset = 'default'; presentation.value.themes = defaultPresentation().themes; }
 const timeZone = ref(state.user?.timeZone || 'auto');
 const availableZones = [...new Set(['UTC', browserTimeZone, state.user?.timeZone, ...(Intl.supportedValuesOf?.('timeZone') || [])].filter((zone) => zone && zone !== 'auto'))];
 const timeZoneOptions = [{ title: `Automatic (${browserTimeZone})`, value: 'auto' }, ...availableZones.map((zone) => ({ title: zone.replaceAll('_', ' '), value: zone }))];
@@ -18,13 +41,51 @@ const timePreview = computed(() => {
 });
 function savePreferences() {
   return action(async () => {
-    const result = await api('/me/preferences', 'PATCH', { timeZone: timeZone.value });
+    const result = await api('/me/preferences', 'PATCH', { timeZone: timeZone.value, presentation: presentation.value });
     state.user = result.user;
     timeZone.value = result.user.timeZone;
   }, 'Display preferences saved');
 }
 
-const passwordMethod = ref(state.user?.hasPassword ? 'password' : 'passkey'),
+const visibilitySeconds = ref(state.user?.sensitivePreferences?.timeoutSeconds || 60);
+const visibilityRequireAuth = ref(state.user?.sensitivePreferences?.requireAuthentication !== false);
+const visibilityMethod = ref(state.user?.passkeys?.length ? 'passkey' : 'password');
+const visibilityPassword = ref(''), visibilityTotp = ref('');
+async function saveVisibilityPreferences() {
+  await action(async () => {
+    let reauth;
+    if (visibilityMethod.value === 'passkey') {
+      const options = await api('/reauth/options', 'POST', { action: 'sensitive-settings' });
+      reauth = { method: 'passkey', credential: await startAuthentication({ optionsJSON: options }) };
+    } else reauth = { method: 'password', password: visibilityPassword.value, totp: visibilityTotp.value };
+    try {
+      const result = await api('/me/sensitive-preferences', 'PATCH', { timeoutSeconds: Number(visibilitySeconds.value), requireAuthentication: visibilityRequireAuth.value, reauth });
+      await hideSensitive();
+      state.user = result.user;
+    } finally { visibilityPassword.value = ''; visibilityTotp.value = ''; }
+  }, 'Sensitive information preferences saved');
+}
+const totpSetupPassword = ref('');
+async function beginTotpSetup() {
+  await action(async () => {
+    let reauth;
+    if (state.user?.passkeys?.length) {
+      const options = await api('/reauth/options', 'POST', { action: 'enable-totp' });
+      reauth = { method: 'passkey', credential: await startAuthentication({ optionsJSON: options }) };
+    } else {
+      reauth = { method: 'password', password: totpSetupPassword.value };
+    }
+    try { setup.value = await api('/me/totp/options', 'POST', { reauth }); }
+    finally { totpSetupPassword.value = ''; }
+  });
+}
+const registrationMethod = ref('passkey'), registrationPassword = ref(''), registrationTotp = ref('');
+const registrationMethods = computed(() => [
+  ...(state.user?.passkeys?.length ? [{ title: 'Existing passkey', value: 'passkey' }] : []),
+  ...(state.user?.hasPassword && (state.user?.totpEnabled || !state.user?.passkeys?.length) ? [{ title: state.user?.totpEnabled ? 'Password + authenticator code' : 'Password', value: 'password' }] : []),
+]);
+watch(registrationMethods, (methods) => { if (!methods.some(m => m.value === registrationMethod.value)) registrationMethod.value = methods[0]?.value || ''; }, { immediate: true });
+const passwordMethod = ref(state.user?.passkeys?.length && !state.user?.totpEnabled ? 'passkey' : 'password'),
   passwordTotp = ref(''),
   changingPassword = ref(false);
 const currentPassword = ref(''),
@@ -40,7 +101,7 @@ const currentPassword = ref(''),
   removalTotp = ref(''),
   verifyingRemoval = ref(false);
 const removalMethods = computed(() => [
-  ...(state.user?.hasPassword
+  ...(state.user?.hasPassword && (state.user?.totpEnabled || !state.user?.passkeys?.length)
     ? [
         {
           title: state.user.totpEnabled ? 'Password + authenticator code' : 'Password',
@@ -54,7 +115,7 @@ function openRemoval(target) {
   state.error = '';
   removalPassword.value = '';
   removalTotp.value = '';
-  removalMethod.value = state.user?.hasPassword ? 'password' : 'passkey';
+  removalMethod.value = state.user?.passkeys?.length && !state.user?.totpEnabled ? 'passkey' : 'password';
   removing.value = target;
 }
 function closeRemoval() {
@@ -85,6 +146,7 @@ async function confirmRemoval() {
       { reauth },
     );
     removing.value = null;
+    hideSensitive();
     await refreshUser();
   }, 'Authentication method removed; other sessions signed out');
   removalPassword.value = '';
@@ -101,12 +163,25 @@ function addPasskey() {
   if (registeringPasskey.value) return;
   registeringPasskey.value = true;
   action(async () => {
-    const options = await api('/passkeys/options', 'POST', {});
+    let reauth;
+    if (registrationMethod.value === 'passkey') {
+      const options = await api('/reauth/options', 'POST', { action: 'add-passkey' });
+      const credential = await startAuthentication({ optionsJSON: options });
+      reauth = { method: 'passkey', credential };
+    } else {
+      reauth = { method: 'password', password: registrationPassword.value, totp: registrationTotp.value };
+    }
+    const options = await api('/passkeys/options', 'POST', { reauth });
+    registrationPassword.value = '';
+    registrationTotp.value = '';
     const credential = await startRegistration({ optionsJSON: options });
     await api('/passkeys/verify', 'POST', { credential, name: name.value });
+    hideSensitive();
     await refreshUser();
   }, 'Passkey registered').finally(() => {
     registeringPasskey.value = false;
+    registrationPassword.value = '';
+    registrationTotp.value = '';
   });
 }
 async function changePassword() {
@@ -128,6 +203,7 @@ async function changePassword() {
     currentPassword.value = '';
     password.value = '';
     passwordTotp.value = '';
+    hideSensitive();
     await refreshUser();
   }, 'Password updated; other sessions signed out');
   currentPassword.value = '';
@@ -136,10 +212,18 @@ async function changePassword() {
 }
 function loadAudit() {
   return action(async () => {
-    entries.value = (await api('/audit')).entries;
+    const response = await sensitiveFetch('audit', '/audit');
+    entries.value = response?.entries || [];
   });
 }
-onMounted(loadAudit);
+watch([() => revealScopes.audit, accountTab], () => {
+  entries.value = [];
+  if (!['audit', 'logs'].includes(accountTab.value)) {
+    if (isRevealed('audit')) hideSensitive('audit');
+    return;
+  }
+  if (accountTab.value === 'audit' && isRevealed('audit')) loadAudit();
+}, { flush: 'sync' });
 </script>
 <template>
   <div class="text-overline text-primary">ADMINISTRATION</div>
@@ -150,10 +234,36 @@ onMounted(loadAudit);
     <p class="text-body-2 text-medium-emphasis mb-5">Choose the time zone used for messages, certificates and audit events. Your preference is saved to your account; stored timestamps and certificate validity remain in UTC.</p>
     <v-form @submit.prevent="savePreferences"><v-autocomplete v-model="timeZone" :items="timeZoneOptions" label="Display time zone" auto-select-first :rules="[() => zoneIsValid || 'Select a valid time zone']" />
     <p class="text-body-2 mb-5">Preview: {{ timePreview }}</p>
+    <v-divider class="my-5" /><h2 class="text-h6 mb-4">Overview charts</h2>
+    <v-select v-model="presentation.charts.days" label="Visible history" :items="[{ title: 'Last 24 hours', value: 1 }, { title: 'Last 3 days', value: 3 }, { title: 'Last 7 days', value: 7 }]" />
+    <v-select v-model="presentation.charts.unit" label="Y-axis unit" :items="[{ title: 'Messages per minute (msg/min)', value: 'minute' }, { title: 'Messages per hour (msg/hour)', value: 'hour' }]" />
+    <v-select v-model="presentation.charts.refreshSeconds" label="Refresh interval" :items="[5, 15, 30, 60].map(value => ({ title: `${value} seconds`, value }))" />
+    <v-switch v-model="presentation.charts.showFailures" color="primary" label="Show failure markers" />
+    <p class="text-caption text-medium-emphasis mb-4">Seven days of aggregate history are retained. Missing observations appear as gaps.</p>
+    <v-divider class="my-5" /><div class="d-flex align-center justify-space-between mb-4"><h2 class="text-h6">Theme colors</h2><v-btn size="small" variant="text" @click="resetColors">Restore default colors</v-btn></div>
+    <v-select v-model="presentation.preset" :items="presetOptions" label="Color preset" @update:model-value="selectPreset" />
+    <v-switch v-model="presentation.oled" color="primary" label="OLED / True Black" hint="Dark mode only. Uses a pure black background and dark surfaces while preserving accent colors." persistent-hint class="mb-4" />
+    <p class="text-caption text-medium-emphasis mb-4">Changes preview immediately. Save preferences to keep them. All preset colors remain editable.</p>
+    <v-expansion-panels class="mb-5"><v-expansion-panel v-for="mode in ['light', 'dark']" :key="mode" :title="mode === 'light' ? 'Light mode' : 'Dark mode'"><v-expansion-panel-text><v-row dense><v-col v-for="field in colorFields" :key="field.key" cols="12" sm="6"><v-text-field v-model="presentation.themes[mode][field.key]" :label="`${mode === 'light' ? 'Light' : 'Dark'} ${field.title}`" type="color" /></v-col></v-row></v-expansion-panel-text></v-expansion-panel></v-expansion-panels>
     <v-btn type="submit" color="primary" :disabled="!zoneIsValid" :loading="!!state.busy">Save preferences</v-btn></v-form>
   </v-card>
   <v-card v-if="accountTab === 'general'" class="pa-6 mt-4" max-width="720"><v-chip color="warning" size="small" class="mb-3">WIP</v-chip><h2 class="text-h6">SMTP email settings</h2><p class="text-medium-emphasis mt-2">SMTP configuration and device offline email alerts are planned. Email delivery is not available yet.</p></v-card>
   <div v-show="accountTab === 'security'">
+    <v-card class="pa-6 mb-5">
+      <h2 class="text-h6 mb-3">Sensitive information visibility</h2>
+      <p class="text-body-2 mb-4">Information starts hidden. After verification, you can reveal other sections without another prompt until the verification timeout ends. Each revealed section is hidden automatically after the selected timeout.</p>
+      <v-form @submit.prevent="saveVisibilityPreferences">
+        <v-text-field v-model.number="visibilitySeconds" label="Visibility and verification timeout (seconds)" type="number" min="1" max="300" required />
+        <v-switch v-model="visibilityRequireAuth" color="error" label="Require additional authentication to reveal sensitive information" />
+        <v-alert v-if="!visibilityRequireAuth" type="error" variant="tonal" class="mb-4">Additional verification is disabled. Anyone using your signed-in session can reveal operational information. Automatic hiding remains enabled.</v-alert>
+        <v-select v-model="visibilityMethod" :items="removalMethods" label="Authorize this policy change with" />
+        <template v-if="visibilityMethod === 'password'">
+          <v-text-field v-model="visibilityPassword" label="Current password" type="password" autocomplete="current-password" required />
+          <v-text-field v-if="state.user?.totpEnabled" v-model="visibilityTotp" label="Authenticator code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" required />
+        </template>
+        <v-btn type="submit" color="primary" :loading="!!state.busy">Save visibility settings</v-btn>
+      </v-form>
+    </v-card>
   <v-row
     ><v-col cols="12" md="6"
       ><v-card class="pa-6 h-100"
@@ -193,11 +303,17 @@ onMounted(loadAudit);
           Use HTTPS or localhost. Passkeys belong to this administrator and are verified against the
           configured public origin.
         </p>
+        <v-alert v-if="!registrationMethods.length" type="info" variant="tonal" class="mb-4">Use an existing passkey or enable your authenticator to authorize registration.</v-alert>
+        <v-select v-if="registrationMethods.length" v-model="registrationMethod" :items="registrationMethods" label="Authorize registration with" />
+        <template v-if="registrationMethod === 'password'">
+          <v-text-field v-model="registrationPassword" type="password" label="Current password" autocomplete="current-password" />
+          <v-text-field v-if="state.user?.totpEnabled" v-model="registrationTotp" label="Authenticator code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" />
+        </template>
         <v-text-field v-model="name" label="Passkey name" maxlength="64" /><v-btn
           prepend-icon="mdi-fingerprint"
           color="primary"
           :loading="registeringPasskey"
-          :disabled="registeringPasskey"
+          :disabled="registeringPasskey || !registrationMethods.length"
           @click="addPasskey"
           >Register passkey</v-btn
         ><v-list
@@ -227,14 +343,10 @@ onMounted(loadAudit);
       app. Passkeys remain an independent sign-in method. Keep a passkey as a fallback.
     </p>
     <template v-if="!state.user?.totpEnabled"
-      ><v-btn
+      ><v-text-field v-if="!setup && !state.user?.passkeys?.length" v-model="totpSetupPassword" type="password" autocomplete="current-password" label="Current password to authorize authenticator setup" /><v-btn
         v-if="!setup"
         color="primary"
-        @click="
-          action(async () => {
-            setup = await api('/me/totp/options', 'POST', {});
-          })
-        "
+        @click="beginTotpSetup"
         >Set up authenticator</v-btn
       >
       <div v-if="setup">
@@ -248,7 +360,8 @@ onMounted(loadAudit);
               await api('/me/totp/verify', 'POST', { code });
               setup = null;
               code = '';
-              await refreshUser();
+              hideSensitive();
+    await refreshUser();
             }, 'Authenticator enabled')
           "
           ><v-text-field

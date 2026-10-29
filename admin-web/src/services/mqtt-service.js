@@ -1,10 +1,12 @@
+import { trafficMetrics } from './traffic-metrics.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import mqtt from 'mqtt';
 import { EventEmitter } from 'node:events';
 import { env } from '../config.js';
-import { loadDb } from '../db.js';
+import { createTrafficStore } from './traffic-store.js';
+import { loadDb, sqlite } from '../db.js';
 export const events = new EventEmitter();
 events.setMaxListeners(50);
 let client,
@@ -17,6 +19,7 @@ const settings = () => ({
   retainEnabled: env.retainedEnabled,
 });
 export function startMqtt() {
+  trafficMetrics.attachStore(createTrafficStore(sqlite));
   client = mqtt.connect(`mqtts://${env.mqttHost}:8883`, {
     clientId: `${env.adminMqttClientId}-${crypto.randomBytes(4).toString('hex')}`,
     cert: fs.readFileSync(path.join(env.dataDir, 'mqtt-client.crt')),
@@ -34,9 +37,14 @@ export function startMqtt() {
   client.on('connect', () => {
     lastError = '';
     retained.clear();
+    client.subscribe('$SYS/broker/publish/messages/+', { qos: 0 });
     for (const filter of subscriptions) client.subscribe(filter, { qos: 2, rap: true });
   });
   client.on('message', (topic, payload, packet) => {
+    if (topic.startsWith('$SYS/broker/publish/messages/')) {
+      trafficMetrics.update(topic.split('/').at(-1), payload.toString());
+      return;
+    }
     const message = {
       id: crypto.randomUUID(),
       topic,
@@ -124,17 +132,17 @@ export async function publishMessage({
   const body = Buffer.from(payload, encoding === 'base64' ? 'base64' : 'utf8');
   if (body.length > 16384)
     throw Object.assign(new Error('Payload limit is 16 KiB'), { status: 400 });
-  if (!client?.connected) throw Object.assign(new Error('Broker is unavailable'), { status: 503 });
-  await new Promise((resolve, reject) => {
+  if (!client?.connected) { trafficMetrics.publicationFailed(); throw Object.assign(new Error('Broker is unavailable'), { status: 503 }); }
+  try { await new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(Object.assign(new Error('Publication timed out'), { status: 504 })),
       10000,
     );
-    client.publish(topic, body, { qos, retain }, (e) => {
+    client.publish(topic, body, { qos, retain }, (e, packet) => {
       clearTimeout(timer);
-      e ? reject(e) : resolve();
+      e || packet?.reasonCode >= 128 ? reject(e || Object.assign(new Error('Publication rejected by broker'), { status: 502 })) : resolve();
     });
-  });
+  }); } catch (error) { trafficMetrics.publicationFailed(); throw error; }
   if (retain) {
     if (!body.length) retained.delete(topic);
     else

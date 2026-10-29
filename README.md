@@ -114,6 +114,8 @@ passkey fallback; there is no insecure web bypass if all factors are lost.
 Overview shows real backend/broker connection state, certificate counts, CA and
 server expiry, configured endpoints and a copyable quick-start guide. Public IP
 is displayed only if explicitly configured; no discovery service is contacted.
+Overview also shows received/sent PUBLISH line charts from Mosquitto’s `$SYS` counters, with markers for broker queue drops and failed console publications. Seven days of hourly aggregate history persist in SQLite. Settings → General controls chart period, refresh interval, failure markers and separate light/dark theme colors, [14 editable palette presets and an independent OLED switch](docs/theme-presets.md). Aggregate counters cannot prove delivery to each subscriber, including QoS 1/2. See [traffic chart details](docs/overview-traffic.md).
+
 Individual device online status and last activity are **unavailable** without a
 verified connection feed. They are never inferred from certificate validity.
 
@@ -282,9 +284,7 @@ certificate and key. Browser JavaScript cannot select TLS client certificates;
 browser/OS certificate provisioning is required if supported. The console avoids
 this limitation by using its protected backend MQTT bridge.
 
-The eye button in Overview's Connection details masks hostnames, domains, IPs,
-URLs and ports and disables their copy buttons. This display preference is saved
-in the browser; it does not change API access permissions.
+The header eye button controls sensitive information. Protected values are omitted from ordinary API responses and revealed through short-lived, session-bound authorization. Settings → Account security controls the timeout and the explicit opt-out from additional verification. Ordinary device names, labels, status, algorithms and validity dates remain visible. See [sensitive visibility](docs/sensitive-visibility.md). Protected certificate actions open the existing verification dialog and resume only after successful authorization.
 
 ## Display time zone
 
@@ -372,6 +372,8 @@ cd admin-web
 bun install --frozen-lockfile
 bun run build
 bun run test
+# Isolated browser fixture (requires Chromium; override with CHROMIUM_PATH):
+node test/ui/overview-traffic.mjs
 bun audit
 # After installing an isolated test gateway:
 GATEWAY_TEST_URL=http://localhost:8080 \

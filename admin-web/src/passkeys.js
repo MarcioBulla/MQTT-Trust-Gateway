@@ -1,3 +1,4 @@
+import { normalizePresentation } from '../shared/presentation-preferences.js';
 export function b64urlToBuffer(value) {
   return Buffer.from(value, 'base64url');
 }
@@ -53,9 +54,11 @@ export function publicUser(user) {
   return {
     id: user.id,
     username: user.username,
+    presentation: normalizePresentation(user.presentation),
     timeZone: user.timeZone || 'auto',
     hasPassword: Boolean(user.passwordHash),
     totpEnabled: Boolean(user.totp),
+    sensitivePreferences: { timeoutSeconds: user.sensitivePreferences?.timeoutSeconds || 60, requireAuthentication: user.sensitivePreferences?.requireAuthentication !== false },
     passkeys: userCredentials(user).map((credential) => ({
       id: credential.id,
       name: credential.name || 'Passkey',

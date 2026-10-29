@@ -1,5 +1,7 @@
 <script setup>
+import SensitiveValue from './SensitiveValue.vue';
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
+import { revealScopes, isRevealed } from '../sensitive';
 import { copy } from '../api';
 
 const source = ref('admin'), connected = ref(false), logView = ref(null), error = ref('');
@@ -13,12 +15,13 @@ let stream;
 function close() { stream?.close(); stream = null; connected.value = false; }
 function connect() {
   close(); error.value = '';
-  if (!follow.value) return;
+  if (!follow.value || !isRevealed('audit')) { logs.admin = ''; logs.broker = ''; return; }
   const current = source.value;
   stream = new EventSource(`/api/logs/events?source=${current}`);
   stream.onopen = () => { connected.value = true; error.value = ''; };
   stream.onerror = () => { connected.value = false; error.value = 'Connection interrupted. Reconnecting…'; };
   stream.addEventListener('logs', (event) => {
+    if (!isRevealed('audit')) return;
     const snapshot = JSON.parse(event.data);
     logs[current] = snapshot.text; available[current] = snapshot.available;
   });
@@ -31,7 +34,7 @@ async function scrollToEnd() {
   await nextTick();
   if (autoScroll.value && logView.value) logView.value.scrollTop = logView.value.scrollHeight;
 }
-watch([source, follow], connect, { immediate: true });
+watch([source, follow, () => revealScopes.audit], connect, { immediate: true });
 watch([text, autoScroll], scrollToEnd);
 onUnmounted(close);
 </script>
@@ -44,7 +47,7 @@ onUnmounted(close);
       <div class="d-flex flex-wrap align-center ga-2"><v-switch v-model="autoScroll" label="Auto-scroll" density="compact" hide-details color="primary" /><v-btn size="small" variant="tonal" :prepend-icon="follow ? 'mdi-pause' : 'mdi-play'" @click="follow = !follow">{{ follow ? 'Pause' : 'Follow' }}</v-btn><v-btn icon="mdi-content-copy" size="small" variant="text" :disabled="!text" aria-label="Copy visible logs" @click="copy(text)" /></div>
     </div>
     <v-alert v-if="error" type="warning" variant="tonal" density="compact" class="mb-3">{{ error }}</v-alert>
-    <pre ref="logView" class="runtime-log" tabindex="0" :aria-label="`${source === 'admin' ? 'Admin' : 'MQTT broker'} live logs`">{{ text || (available[source] ? 'No log entries yet.' : 'Waiting for service logs…') }}</pre>
+    <pre ref="logView" class="runtime-log" tabindex="0" :aria-label="`${source === 'admin' ? 'Admin' : 'MQTT broker'} live logs`"><SensitiveValue scope="audit"><span>{{ text || (available[source] ? 'No log entries yet.' : 'Waiting for service logs…') }}</span></SensitiveValue></pre>
   </v-card>
 </template>
 

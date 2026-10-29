@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { sensitiveGrants } from './sensitive-grants.js';
 import { env } from './config.js';
 import { loadDb, saveDb } from './db.js';
 const attempts = new Map();
@@ -77,6 +78,7 @@ export function requireAuth(handler) {
   };
 }
 export function logout(req, res) {
+  sensitiveGrants.revokeSession(sessionKey(req));
   const db = loadDb();
   delete db.sessions[sessionKey(req)];
   saveDb(db);

@@ -1,3 +1,4 @@
+import { normalizePresentation } from '../../shared/presentation-preferences.js';
 import crypto from 'node:crypto';
 import { normalizeTimeZone } from '../../shared/time-zone.js';
 import fs from 'node:fs/promises';
@@ -18,6 +19,7 @@ import {
   rotateAfterAuthenticationChange,
 } from '../reauth.js';
 import {
+  sessionKey,
   currentUser,
   createSession,
   logout,
@@ -149,6 +151,10 @@ export function registerAuthRoutes(app) {
     catch (error) { return res.status(400).json({ error: error.message }); }
     const db = loadDb();
     const user = db.users.find((entry) => entry.id === req.user.id);
+    if (req.body.presentation !== undefined) {
+      try { user.presentation = normalizePresentation(req.body.presentation); }
+      catch (error) { return res.status(400).json({ error: error.message }); }
+    }
     user.timeZone = timeZone;
     saveDb(db);
     audit(user.username, 'preferences.updated', `timeZone=${timeZone}`);
@@ -173,6 +179,7 @@ export function registerAuthRoutes(app) {
   );
   app.post(
     '/api/me/totp/options',
+    rateLimit,
     requireAuth(async (req, res) => {
       const db = loadDb(),
         user = db.users.find((u) => u.id === req.user.id);
@@ -180,7 +187,9 @@ export function registerAuthRoutes(app) {
         return res
           .status(409)
           .json({ error: 'Disable the existing authenticator before replacing it' });
+      await verifyReauthentication(req, db, user, 'enable-totp');
       const setup = await enrollTotp(user.username);
+      setup.pending.sessionId = sessionKey(req);
       user.pendingTotp = setup.pending;
       saveDb(db);
       res.json({ secret: setup.secret, qr: setup.qr, uri: setup.uri });
@@ -194,6 +203,7 @@ export function registerAuthRoutes(app) {
         user = db.users.find((u) => u.id === req.user.id);
       if (
         !user.pendingTotp ||
+        user.pendingTotp.sessionId !== sessionKey(req) ||
         user.pendingTotp.expiresAt < Date.now() ||
         !verifyTotp(user.pendingTotp, req.body.code)
       )
@@ -239,10 +249,12 @@ export function registerAuthRoutes(app) {
   );
   app.post(
     '/api/passkeys/options',
+    rateLimit,
     passkeyContext,
     requireAuth(async (req, res) => {
       const db = loadDb(),
         user = db.users.find((u) => u.id === req.user.id);
+      await verifyReauthentication(req, db, user, 'add-passkey', { requireTotp: Boolean(user.totp || userCredentials(user).length) });
       const options = await generateRegistrationOptions({
         rpName: env.rpName,
         rpID: env.rpID,
@@ -253,7 +265,7 @@ export function registerAuthRoutes(app) {
         authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
         excludeCredentials: userCredentials(user).map((c) => ({ id: c.id, type: 'public-key' })),
       });
-      storeChallenge(db, `add:${user.id}`, options.challenge);
+      storeChallenge(db, `add:${user.id}:${sessionKey(req)}`, options.challenge);
       res.json(options);
     }),
   );
@@ -263,7 +275,7 @@ export function registerAuthRoutes(app) {
     requireAuth(async (req, res) => {
       const db = loadDb(),
         user = db.users.find((u) => u.id === req.user.id),
-        c = challenge(db, `add:${user.id}`);
+        c = challenge(db, `add:${user.id}:${sessionKey(req)}`);
       const result = await verifyRegistrationResponse({
         response: req.body.credential,
         expectedChallenge: c.challenge,

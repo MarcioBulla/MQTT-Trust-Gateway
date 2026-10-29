@@ -1,13 +1,28 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import TrafficChart from '../components/TrafficChart.vue';
+import SensitiveValue from '../components/SensitiveValue.vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { formatDateTime } from '../date-time';
-import { api, action, copy } from '../api';
+import { isRevealed, revealScopes, hideSensitive, requestReveal, sensitiveFetch } from '../sensitive';
+import { api, action, copy, state } from '../api';
 const status = ref(null);
-const connectionDetailsHidden = ref(localStorage.getItem('gateway.hideConnectionDetails') === 'true');
+const details = ref(null);
+const connectionDetailsHidden = computed(() => !isRevealed('infrastructure'));
 function toggleConnectionDetails() {
-  connectionDetailsHidden.value = !connectionDetailsHidden.value;
-  localStorage.setItem('gateway.hideConnectionDetails', String(connectionDetailsHidden.value));
+  if (isRevealed('infrastructure')) hideSensitive('infrastructure');
+  else requestReveal('infrastructure');
 }
+watch(() => revealScopes.infrastructure, async () => {
+  details.value = null;
+  if (isRevealed('infrastructure')) details.value = await sensitiveFetch('infrastructure', '/sensitive/infrastructure');
+}, { flush: 'sync' });
+onUnmounted(() => { details.value = null; });
+const chartPreferences = computed(() => state.user?.presentation?.charts || { days: 7, refreshSeconds: 15, showFailures: true });
+const chartTraffic = computed(() => {
+  if (!status.value?.traffic) return undefined;
+  const traffic = status.value.traffic, end = traffic.windowEnd || Date.now(), start = end - chartPreferences.value.days * 86400000;
+  return { ...traffic, displayUnit: chartPreferences.value.unit || 'minute', windowStart: start, windowEnd: end, retentionDays: chartPreferences.value.days, series: traffic.series.filter(sample => sample.timestamp >= start) };
+});
 let timer;
 const load = () =>
   action(async () => {
@@ -15,10 +30,10 @@ const load = () =>
   });
 onMounted(() => {
   load();
-  timer = setInterval(load, 15000);
+  timer = setInterval(load, chartPreferences.value.refreshSeconds * 1000);
 });
+watch(() => chartPreferences.value.refreshSeconds, seconds => { clearInterval(timer); timer = setInterval(load, seconds * 1000); });
 onUnmounted(() => clearInterval(timer));
-const host = computed(() => status.value?.domain || status.value?.localAddress || 'localhost');
 const steps = computed(() => [
   [
     '1. Register a device',
@@ -38,7 +53,7 @@ const steps = computed(() => [
   ],
   [
     '5. Connect using mTLS',
-    `mosquitto_pub -h ${host.value} -p ${status.value?.mqttTlsPort || 8883} --cafile gateway-ca.crt --cert sensor-01.crt --key sensor-01.key -t devices/sensor-01/hello -m hello -q 1`,
+    `mosquitto_pub -h HOST -p PORT --cafile gateway-ca.crt --cert sensor-01.crt --key sensor-01.key -t devices/sensor-01/hello -m hello -q 1`,
   ],
   [
     '6. Renew',
@@ -50,7 +65,7 @@ const steps = computed(() => [
   ],
   [
     '8. Connect using WebSocket',
-    `Use wss://${host.value}:${status.value?.mqttWsPort || 8443}/mqtt with a native MQTT client that supplies the device certificate and key. Browser JavaScript cannot select TLS client certificates; install a certificate in the browser/OS if supported. The console uses the authenticated backend bridge.`,
+    `Use wss://HOST:PORT/mqtt with a native MQTT client that supplies the device certificate and key. Browser JavaScript cannot select TLS client certificates; install a certificate in the browser/OS if supported. The console uses the authenticated backend bridge.`,
   ],
   [
     '9. Add an external proxy',
@@ -72,22 +87,22 @@ const steps = computed(() => [
   <template v-if="status">
     <v-row
       ><v-col
-        v-for="[label, value] in [
-          ['Registered devices', status.registeredDevices],
-          ['Valid certificates', status.validCertificates],
-          ['Expiring within 30 days', status.expiringCertificates],
-          ['Expired certificates', status.expiredCertificates],
+        v-for="[label, value, icon, color] in [
+          ['Registered devices', status.registeredDevices, 'mdi-chip', 'primary'],
+          ['Valid certificates', status.validCertificates, 'mdi-shield-check-outline', 'success'],
+          ['Expiring within 30 days', status.expiringCertificates, 'mdi-clock-alert-outline', 'warning'],
+          ['Expired certificates', status.expiredCertificates, 'mdi-shield-off-outline', 'error'],
         ]"
         :key="label"
         cols="12"
         sm="6"
         lg="3"
         ><v-card class="pa-5"
-          ><div class="text-medium-emphasis">{{ label }}</div>
-          <div class="metric mt-2">{{ value }}</div></v-card
+          ><div class="d-flex align-center ga-3"><v-avatar :color="color" variant="tonal" rounded="lg"><v-icon :icon="icon" /></v-avatar><div><div class="text-caption text-medium-emphasis">{{ label }}</div><div class="text-h5 font-weight-bold">{{ value }}</div></div></div></v-card
         ></v-col
       ></v-row
     >
+    <v-row class="mt-2"><v-col cols="12" md="6"><TrafficChart title="Messages received" icon="mdi-arrow-down-bold-outline" color="chart-received" metric="received" :traffic="chartTraffic" /></v-col><v-col cols="12" md="6"><TrafficChart title="Messages sent" icon="mdi-arrow-up-bold-outline" color="chart-sent" metric="sent" :traffic="chartTraffic" :failures="chartPreferences.showFailures" /></v-col></v-row>
     <v-row class="mt-2"
       ><v-col cols="12" md="6"
         ><v-card class="pa-6 h-100"
@@ -118,24 +133,24 @@ const steps = computed(() => [
       >
       <v-col cols="12" md="6"
         ><v-card class="pa-6 h-100"
-          ><div class="d-flex align-center justify-space-between ga-3 mb-4"><h2 class="text-h6">Connection details</h2><v-tooltip :text="connectionDetailsHidden ? 'Show connection details' : 'Hide connection details'" location="top"><template #activator="{ props }"><v-btn v-bind="props" :icon="connectionDetailsHidden ? 'mdi-eye-outline' : 'mdi-eye-off-outline'" variant="text" size="small" :aria-label="connectionDetailsHidden ? 'Show connection details' : 'Hide connection details'" :aria-pressed="connectionDetailsHidden" aria-controls="connection-details-values" @click="toggleConnectionDetails" /></template></v-tooltip></div>
+          ><div class="d-flex align-center justify-space-between ga-3 mb-4"><h2 class="text-h6">Connection details</h2><v-tooltip :text="connectionDetailsHidden ? 'Show connection details' : 'Hide connection details'" location="top"><template #activator="{ props }"><v-btn v-bind="props" :icon="connectionDetailsHidden ? 'mdi-eye-off-outline' : 'mdi-eye-outline'" variant="text" size="small" :aria-label="connectionDetailsHidden ? 'Show connection details' : 'Hide connection details'" :aria-pressed="connectionDetailsHidden" aria-controls="connection-details-values" @click="toggleConnectionDetails" /></template></v-tooltip></div>
           <v-table id="connection-details-values" class="connection-table"
             ><tbody>
               <tr
                 v-for="[label, value] in [
-                  ['Hostname', status.hostname],
-                  ['Domain', status.domain || 'Not configured'],
-                  ['Public IP', status.publicIP || 'Not configured'],
-                  ['Local address', status.localAddress],
-                  ['Admin URL', status.publicUrl],
-                  ['Admin port', status.adminPort],
-                  ['MQTT TLS', status.mqttTlsPort],
-                  ['MQTT WebSocket TLS', status.mqttWsPort],
+                  ['Hostname', details?.hostname],
+                  ['Domain', details?.domain || 'Not configured'],
+                  ['Public IP', details?.publicIP || 'Not configured'],
+                  ['Local address', details?.localAddress],
+                  ['Admin URL', details?.publicUrl],
+                  ['Admin port', details?.adminPort],
+                  ['MQTT TLS', details?.mqttTlsPort],
+                  ['MQTT WebSocket TLS', details?.mqttWsPort],
                 ]"
                 :key="label"
               >
                 <td>{{ label }}</td>
-                <td class="mono"><span v-if="connectionDetailsHidden" aria-label="Hidden">••••••</span><span v-else>{{ value }}</span></td>
+                <td class="mono"><SensitiveValue scope="infrastructure" :value="value" :label="label" /></td>
                 <td>
                   <v-btn
                     size="small"

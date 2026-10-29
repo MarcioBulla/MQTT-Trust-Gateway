@@ -81,7 +81,14 @@ test('time zone preferences require authentication, affect only the current user
     for (const timeZone of ['bad/zone', '+03:00', null])
       assert.equal((await preferences({ timeZone })).status, 400);
     assert.equal(loadDb().users[0].timeZone, undefined);
+    const { defaultPresentation } = await import('../shared/presentation-preferences.js');
+    const presentation = defaultPresentation();
+    presentation.preset = 'catppuccin'; presentation.oled = true; presentation.charts.unit = 'hour'; presentation.charts.days = 3; presentation.charts.refreshSeconds = 30;
+    presentation.themes.dark.primary = '#AB12CD';
+    const invalid = JSON.parse(JSON.stringify(presentation)); invalid.themes.dark.primary = 'url(javascript:test)';
+    assert.equal((await preferences({ timeZone: 'UTC', presentation: invalid })).status, 400);
     const response = await preferences({
+      presentation,
       timeZone: 'America/Argentina/Buenos_Aires',
       userId: 'second',
     });
@@ -89,6 +96,8 @@ test('time zone preferences require authentication, affect only the current user
     const selected = normalizeTimeZone('America/Argentina/Buenos_Aires');
     assert.equal((await response.json()).user.timeZone, selected);
     assert.equal(loadDb().users[1].timeZone, undefined);
+    assert.deepEqual(loadDb().users[0].presentation, presentation);
+    assert.equal(loadDb().users[1].presentation, undefined);
     const reopened = execFileSync(
       process.execPath,
       [
@@ -100,7 +109,8 @@ test('time zone preferences require authentication, affect only the current user
     ).trim();
     assert.equal(reopened, selected);
     const me = await fetch(url + '/api/me', { headers: { Cookie: `admin_session=${token}` } });
-    assert.equal((await me.json()).user.timeZone, selected);
+    const current = (await me.json()).user;
+    assert.equal(current.timeZone, selected); assert.deepEqual(current.presentation, presentation);
     assert.equal((await preferences({ timeZone: 'auto' })).status, 200);
     assert.equal(loadDb().users[0].timeZone, 'auto');
   } finally {

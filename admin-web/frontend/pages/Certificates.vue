@@ -1,9 +1,11 @@
 <script setup>
+import { revealScopes, ensureSensitive } from '../sensitive';
+import SensitiveValue from '../components/SensitiveValue.vue';
 import DateTime from '../components/DateTime.vue';
 import { formatDateTime } from '../date-time';
 import RowActions from '../components/RowActions.vue';
 import DataList from '../components/DataList.vue';
-import { computed, onMounted, ref } from 'vue';
+import { computed, watch, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, action, state, markBrokerMutation } from '../api';
 import FileDrop from '../components/FileDrop.vue';
@@ -30,12 +32,13 @@ const headers = [
   { title: '', key: 'actions', width: '64px', sortable: false },
 ];
 async function reloadDeviceOptions() {
-  const request = ++deviceRequest;
+  const request = ++deviceRequest, grant = revealScopes.devices;
   devicesLoading.value = true;
   deviceOptionsError.value = '';
   try {
     const response = await api('/devices');
-    if (request === deviceRequest) devices.value = response.devices;
+    if (!response) return;
+    if (request === deviceRequest && revealScopes.devices === grant) devices.value = response.devices;
   } catch (error) {
     if (request === deviceRequest) deviceOptionsError.value = `Could not refresh devices: ${error.message}`;
     throw error;
@@ -48,11 +51,16 @@ function refreshDeviceOptions() {
   return reloadDeviceOptions().catch(() => {});
 }
 async function load() {
+  const grant = revealScopes.devices;
   const [c, , ca] = await Promise.all([api('/certificates'), reloadDeviceOptions(), api('/trusted-cas')]);
+  if (!c || !ca || revealScopes.devices !== grant) return;
   certificates.value = c.certificates; trustedCas.value = ca.trustedCas;
   emit('updated');
 }
-onMounted(() => action(load));
+watch(() => revealScopes.devices, () => {
+  deviceRequest++; certificates.value = []; devices.value = []; trustedCas.value = []; details.value = null; preview.value = null; generatedPending.value = null;
+  action(load);
+}, { immediate: true, flush: 'sync' });
 function open(methodName) {
   method.value = methodName; preview.value = null; generatedPending.value = null;
   form.value = { deviceId: props.deviceId || '', name: currentDevice.value?.name || '', algorithm: 'ecdsa-p256', days: 90, csr: '', certificate: '', chain: '', privateKey: '', pendingId: '', previousId: '' };
@@ -69,6 +77,7 @@ function download(name, body) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 async function postBlob(endpoint, body, filename) {
+  await ensureSensitive('devices');
   const response = await fetch(`/api${endpoint}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!response.ok) { const result = await response.json(); throw new Error(result.error || 'Request failed'); }
   markBrokerMutation();
@@ -106,6 +115,7 @@ function submit() {
 }
 async function deliverPendingKey() {
   action(async () => {
+    await ensureSensitive('devices');
     const response = await fetch(`/api/certificates/${generatedPending.value.id}/private-key-once`, { credentials: 'same-origin' });
     if (!response.ok) throw new Error((await response.json()).error || 'Private-key download failed');
     download(`${generatedPending.value.deviceId}.key`, await response.blob());
@@ -171,7 +181,7 @@ defineExpose({ open });
       <v-list-item v-if="['active', 'untrusted', 'expiring'].includes(item.status)" title="Revoke certificate" prepend-icon="mdi-cancel" class="text-error" @click="revoke(item)" />
     </RowActions></template>
   </DataList></v-card>
-  <v-card v-if="!props.deviceId" class="pa-5"><h2 class="text-h6 mb-2">Trusted external CAs</h2><p class="text-body-2 text-medium-emphasis">Only approved CA certificates are added to the Mosquitto client trust bundle. Trust changes take effect after applying pending broker changes.</p><v-list v-if="trustedCas.length"><v-list-item v-for="ca in trustedCas" :key="ca.id" :title="ca.subject" :subtitle="`SHA-256 ${ca.fingerprint} · expires ${formatDateTime(ca.validTo)}`"><template #append><v-btn color="error" variant="tonal" prepend-icon="mdi-shield-remove-outline" @click="removeCa(ca)">Remove trust</v-btn></template></v-list-item></v-list><v-alert v-else type="info" variant="tonal" class="my-3">No external CAs are trusted.</v-alert><v-textarea v-model="caPem" label="External CA certificate (PEM)" rows="5" /><v-text-field v-model="caConfirmation" label="Type TRUST THIS CA to approve" /><v-btn color="primary" variant="flat" prepend-icon="mdi-shield-check-outline" :disabled="caConfirmation !== 'TRUST THIS CA' || !caPem" :loading="!!state.busy" @click="trustCa">Approve CA trust</v-btn></v-card>
+  <v-card v-if="!props.deviceId" class="pa-5"><h2 class="text-h6 mb-2">Trusted external CAs</h2><p class="text-body-2 text-medium-emphasis">Only approved CA certificates are added to the Mosquitto client trust bundle. Trust changes take effect after applying pending broker changes.</p><v-list v-if="trustedCas.length"><v-list-item v-for="ca in trustedCas" :key="ca.id" :title="ca.subject" ><template #subtitle><SensitiveValue scope="devices" :value="ca.fingerprint" label="CA fingerprint" /> · expires {{ formatDateTime(ca.validTo) }}</template><template #append><v-btn color="error" variant="tonal" prepend-icon="mdi-shield-remove-outline" @click="removeCa(ca)">Remove trust</v-btn></template></v-list-item></v-list><v-alert v-else type="info" variant="tonal" class="my-3">No external CAs are trusted.</v-alert><v-textarea v-model="caPem" label="External CA certificate (PEM)" rows="5" /><v-text-field v-model="caConfirmation" label="Type TRUST THIS CA to approve" /><v-btn color="primary" variant="flat" prepend-icon="mdi-shield-check-outline" :disabled="caConfirmation !== 'TRUST THIS CA' || !caPem" :loading="!!state.busy" @click="trustCa">Approve CA trust</v-btn></v-card>
 
   <v-dialog v-model="dialog" max-width="820" scrollable><v-card class="pa-6"><h2 class="text-h5 mb-4">{{ certificateMethods.find((item) => item.value === method)?.title }}</h2>
     <template v-if="!generatedPending">
@@ -190,5 +200,5 @@ defineExpose({ open });
     </template>
     <template v-else><v-alert type="warning" variant="tonal">Download this private key now. The Gateway keeps no disk copy and cannot recover it. After saving it securely, confirm receipt.</v-alert><div class="d-flex ga-2 mt-4"><v-btn :disabled="generatedPending.keyDownloaded" @click="deliverPendingKey">Download private key once</v-btn><v-btn color="primary" :disabled="!generatedPending.keyDownloaded" @click="confirmKeyReceived">I stored this key securely</v-btn></div></template>
   </v-card></v-dialog>
-  <v-dialog v-model="details" max-width="720"><v-card v-if="details" class="pa-6"><h2 class="text-h5 mb-4">{{ details.deviceId }} certificate</h2><v-table density="compact"><tbody><tr><th>Provisioning</th><td>{{ details.provisioningMethod }}</td></tr><tr><th>Subject</th><td>{{ details.subject || 'Pending external signature' }}</td></tr><tr><th>SAN</th><td>{{ details.san || 'None' }}</td></tr><tr><th>Serial</th><td>{{ details.serial || 'Pending' }}</td></tr><tr><th>SHA-256 fingerprint</th><td class="text-break">{{ details.fingerprint || 'Pending' }}</td></tr><tr><th>Issuer</th><td>{{ details.issuerName || details.issuer || 'Pending' }}</td></tr><tr><th>Algorithm</th><td>{{ details.algorithm }}</td></tr><tr><th>Validity</th><td>{{ formatDateTime(details.validFrom) }} → {{ formatDateTime(details.validTo) }}</td></tr><tr><th>Certificate state</th><td>{{ details.status }}</td></tr><tr><th>Broker trust</th><td>{{ details.brokerTrusted === false ? 'Not trusted; cannot connect' : 'Trusted' }}</td></tr><tr><th>Renewed from</th><td>{{ details.renewedFrom || '—' }}</td></tr></tbody></v-table><div class="d-flex justify-end mt-5"><v-btn @click="details = null">Close</v-btn></div></v-card></v-dialog>
+  <v-dialog v-model="details" max-width="720"><v-card v-if="details" class="pa-6"><h2 class="text-h5 mb-4">{{ details.deviceId }} certificate</h2><v-table density="compact"><tbody><tr><th>Provisioning</th><td>{{ details.provisioningMethod }}</td></tr><tr><th>Subject</th><td>{{ details.subject || 'Pending external signature' }}</td></tr><tr><th>SAN</th><td><SensitiveValue scope="devices" :value="details.san" label="Certificate san" /></td></tr><tr><th>Serial</th><td><SensitiveValue scope="devices" :value="details.serial" label="Certificate serial" /></td></tr><tr><th>SHA-256 fingerprint</th><td class="text-break"><SensitiveValue scope="devices" :value="details.fingerprint" label="Certificate fingerprint" /></td></tr><tr><th>Issuer</th><td>{{ details.issuerName || details.issuer || 'Pending' }}</td></tr><tr><th>Algorithm</th><td>{{ details.algorithm }}</td></tr><tr><th>Validity</th><td>{{ formatDateTime(details.validFrom) }} → {{ formatDateTime(details.validTo) }}</td></tr><tr><th>Certificate state</th><td>{{ details.status }}</td></tr><tr><th>Broker trust</th><td>{{ details.brokerTrusted === false ? 'Not trusted; cannot connect' : 'Trusted' }}</td></tr><tr><th>Renewed from</th><td>{{ details.renewedFrom || '—' }}</td></tr></tbody></v-table><div class="d-flex justify-end mt-5"><v-btn @click="details = null">Close</v-btn></div></v-card></v-dialog>
 </template>

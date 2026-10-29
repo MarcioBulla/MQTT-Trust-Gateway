@@ -1,9 +1,11 @@
 <script setup>
+import SensitiveValue from '../components/SensitiveValue.vue';
+import { revealScopes, isRevealed, sensitiveFetch } from '../sensitive';
 import DateTime from '../components/DateTime.vue';
 import { formatDateTime } from '../date-time';
 import RowActions from '../components/RowActions.vue';
 import DataList from '../components/DataList.vue';
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { api, action, state, copy } from '../api';
 const messages = ref([]),
   retained = ref([]),
@@ -20,7 +22,7 @@ let stream;
 const pub = ref({ topic: '', payload: '', qos: 1, retain: false, encoding: 'text' });
 const filtered = computed(() =>
   messages.value
-    .filter((m) => m.topic.includes(filter.value))
+    .filter((m) => (m.topic || '').includes(filter.value))
     .slice()
     .reverse(),
 );
@@ -55,21 +57,25 @@ function format(m) {
   return m.text;
 }
 async function load() {
+  const grant = revealScopes.mqtt;
   const d = await api('/mqtt/history');
+  if (revealScopes.mqtt !== grant) return;
   messages.value = d.messages;
   retained.value = d.retained;
   limit.value = d.historyLimit;
 }
-onMounted(() =>
+watch(() => revealScopes.mqtt, () => {
+  stream?.close(); messages.value = []; retained.value = []; retainedDetails.value = null; clearTopic.value = null;
   action(async () => {
     await load();
-    stream = new EventSource('/api/mqtt/events');
+      stream = new EventSource('/api/mqtt/events');
     stream.onmessage = (e) => {
       if (paused.value) return;
-      const m = JSON.parse(e.data);
+      const incoming = JSON.parse(e.data);
+      const m = isRevealed('mqtt') ? incoming : { id: incoming.id, timestamp: incoming.timestamp, qos: incoming.qos, retain: incoming.retain, bytes: incoming.bytes };
       messages.value.push(m);
       messages.value = messages.value.slice(-limit.value);
-      if (m.retain) {
+      if (m.retain && isRevealed('mqtt')) {
         retained.value = retained.value.filter((r) => r.topic !== m.topic);
         if (m.bytes) retained.value.push(m);
       }
@@ -77,8 +83,8 @@ onMounted(() =>
     stream.onerror = () => {
       state.error = 'Live stream interrupted; reconnecting. Sign in again if your session expired.';
     };
-  }),
-);
+  });
+}, { immediate: true, flush: 'sync' });
 onUnmounted(() => stream?.close());
 function publish() {
   action(async () => {
@@ -136,9 +142,9 @@ function removeRetained() {
           class="mt-3"
           :loading="!!state.busy"
           min-width="850px"
-          ><template #item.payload="{ item }">
+          ><template #item.topic="{ item }"><SensitiveValue scope="mqtt" :value="item.topic" label="Message topic" /></template><template #item.payload="{ item }"><SensitiveValue scope="mqtt" label="Message payload">
             <pre class="py-2"
-              >{{ format(item) }}{{ item.truncated ? ' [truncated]' : '' }}</pre></template
+              >{{ format(item) }}{{ item.truncated ? ' [truncated]' : '' }}</pre></SensitiveValue></template
           ><template #item.timestamp="{ item }"
             ><DateTime :value="item.timestamp" /></template
           ><template #item.retain="{ item }">{{ item.retain ? 'Yes' : 'No' }}</template></DataList

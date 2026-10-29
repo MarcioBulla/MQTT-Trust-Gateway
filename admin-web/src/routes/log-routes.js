@@ -1,3 +1,4 @@
+import { hasSensitiveGrant } from '../sensitive-access.js';
 import { requireAuth, currentUser } from '../auth.js';
 import { logSnapshot } from '../services/runtime-logs.js';
 
@@ -25,9 +26,9 @@ export function registerLogRoutes(app) {
       if (closed || busy) return;
       busy = true;
       try {
-        if (!currentUser(req) || res.writableLength > 128 * 1024) return res.end();
+        if (!currentUser(req) || !hasSensitiveGrant(req, 'audit') || res.writableLength > 128 * 1024) return res.end();
         const snapshot = await logSnapshot(source);
-        if (closed) return;
+        if (closed || !hasSensitiveGrant(req, 'audit')) return res.end();
         if (snapshot.version !== previous) {
           res.write(`event: logs\ndata: ${JSON.stringify(snapshot)}\n\n`);
           previous = snapshot.version;
