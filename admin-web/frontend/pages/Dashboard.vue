@@ -40,7 +40,7 @@ const steps = computed(() => [
   ],
   [
     '7. Revoke',
-    'Revoke a certificate in Licenses or disable the device in Devices. Use Apply changes in the banner and check broker acknowledgement. Shift-click a final action to apply immediately.',
+    'Revoke a certificate in Licenses or disable the device in Devices. Use Restart Broker in the top bar and check broker acknowledgement. Shift-click a final action to apply immediately.',
   ],
   [
     '8. Connect using WebSocket',

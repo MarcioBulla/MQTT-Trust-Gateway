@@ -174,7 +174,7 @@ an administrator explicitly approves it. Permanent deletion stores a minimal
 fingerprint/serial tombstone so old certificates cannot be reimported as trusted.
 
 Administrative certificate, trust, and access changes are staged persistently. The
-yellow banner shows pending changes: click **Apply changes** to submit them together
+yellow **Restart Broker** button in the top bar indicates pending changes: click it to submit them together
 with one broker restart. **Shift-click the final action** to save and apply all
 pending changes immediately, without an additional restart confirmation. Required
 destructive-action confirmations still apply. Until applied, existing sessions

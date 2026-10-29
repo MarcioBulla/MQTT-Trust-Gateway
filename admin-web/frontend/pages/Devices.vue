@@ -174,7 +174,7 @@ function executeConfirm() {
     confirm.value = null;
     confirmText.value = '';
     await load();
-  }, 'Changes saved. Apply pending broker changes using the banner above.');
+  }, 'Changes saved. Use Restart Broker in the top bar to apply pending changes.');
 }
 const color = (s) =>
   ({ active: 'success', expiring: 'warning', revoked: 'error', expired: 'error', untrusted: 'warning', pending_external_signature: 'info' })[s] || 'default';

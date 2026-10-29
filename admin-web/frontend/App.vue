@@ -99,7 +99,7 @@ onUnmounted(() => clearInterval(brokerPoll));
             :class="{ 'd-lg-none': state.user }"
           /><span class="text-truncate">MQTT Trust Gateway</span></span
         ></v-app-bar-title
-      ><v-btn icon="mdi-theme-light-dark" aria-label="Toggle theme" @click="toggleTheme" /><v-btn
+      ><v-tooltip v-if="state.user && (state.brokerChanges?.pendingChanges || state.brokerChanges?.applying)" :text="state.brokerChanges.pendingChanges ? 'Restart once to apply all pending broker changes.' : 'Waiting for broker acknowledgement.'" location="bottom"><template #activator="{ props: restartProps }"><v-btn v-bind="restartProps" color="amber" variant="flat" prepend-icon="mdi-restart" size="small" class="mr-2" :loading="state.brokerChanges.applying" :disabled="!!state.busy || state.brokerChanges.applying" @click="action(applyBrokerChanges)">Restart Broker</v-btn></template></v-tooltip><v-btn icon="mdi-theme-light-dark" aria-label="Toggle theme" @click="toggleTheme" /><v-btn
         v-if="state.user"
         prepend-icon="mdi-logout"
         @click="
@@ -111,15 +111,10 @@ onUnmounted(() => clearInterval(brokerPoll));
         >Sign out</v-btn
       ></v-app-bar
     >
+
     <v-main
       ><v-progress-linear v-if="state.busy" indeterminate color="primary" aria-label="Loading" />
       <v-container fluid class="pa-4 pa-md-8 content">
-        <v-alert v-if="state.user && (state.brokerChanges?.pendingChanges || state.brokerChanges?.applying)" type="warning" variant="tonal" class="mb-5">
-          <div class="d-flex flex-wrap align-center justify-space-between ga-3">
-            <div><strong>{{ state.brokerChanges.pendingChanges ? 'Broker changes pending' : 'Applying broker changes' }}</strong><div class="text-body-2">{{ state.brokerChanges.pendingChanges ? 'Access and trust changes are saved but are not enforced yet. Apply them together with one broker restart. Shift-click a final action to apply immediately.' : 'Waiting for the broker to restart and confirm the configuration.' }}</div></div>
-            <v-btn v-if="state.brokerChanges.pendingChanges" color="warning" :loading="!!state.busy" @click="action(applyBrokerChanges)">Apply changes</v-btn>
-          </div>
-        </v-alert>
         <v-alert
           v-if="state.error"
           type="error"
