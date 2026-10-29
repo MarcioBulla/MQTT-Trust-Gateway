@@ -47,6 +47,6 @@ require HTTPS or localhost with RP ID and origin verification.
 
 ## Workflow
 
-Follow https://example.invalid/trunk-based-development-en.html : short-lived
-branches, explicit staging, conventional English commits, tested local `--no-ff`
-integration. No push, remote merge or release is implied by local integration.
+Use short-lived branches, explicit staging, conventional English commits, and
+tested local `--no-ff` integration. Local integration does not imply a push,
+remote merge, or release.

@@ -34,7 +34,8 @@ Mosquitto is pinned to 2.1.2-alpine for native WebSocket TLS/CRL support.
 - `bun audit`: no known vulnerabilities in the installed dependency graph.
 - Rootless installation through `./gateway install --env /tmp/mqtt-gateway-test.env`
   and `systemctl --user start`: both units started successfully. The existing
-  unrelated node-red service was preserved. Test host ports: 8080/8883/8443.
+  isolated gateway used explicitly configured host ports to avoid conflicts
+  with other local services.
 - Eight end-to-end tests passed against the installed services, then passed
   again after backup/restore and update: password login/logout, CSRF and proxy
   header checks, device registration, CSR issuance/renewal, mTLS MQTT on TCP and
@@ -42,6 +43,11 @@ Mosquitto is pinned to 2.1.2-alpine for native WebSocket TLS/CRL support.
   removal and live device retained updates/deletions, Chromium virtual WebAuthn registration/login, TOTP QR/manual setup,
   TOTP password enforcement/replay rejection, desktop/mobile rendering, and
   revocation disconnecting active sessions and rejecting both transports.
+
+The opt-in installed-gateway suite requires `GATEWAY_TEST_URL`,
+`GATEWAY_TEST_DATA`, `GATEWAY_TEST_MQTT_PORT`, and `GATEWAY_TEST_WS_PORT`. Point
+these at an isolated test installation and use the host-published listener ports
+configured for that installation. Do not point the suite at a production gateway.
 - Native HTTPS without a proxy passed trusted-local-CA login, Secure cookie and
   HSTS checks.
 - A separate temporary rootless container joined mqtt-gateway and verified
@@ -67,7 +73,7 @@ physical hardware key, phone authenticator or platform-specific passkey sync was
 tested. TOTP uses interoperable SHA-1/six-digit/30-second parameters; actual Google
 Authenticator and KeePassXC applications were not controlled in this session.
 No real host reboot was performed and linger was not changed. No external
-Nginx or external proxy deployment was installed/tested. A real legacy step-ca signing
+reverse-proxy deployment was installed/tested. A real legacy step-ca signing
 hierarchy was not available; only JSON migration and backup restoration were
 executed. See migration.md before moving a real fleet.
 

@@ -93,7 +93,7 @@ test('broker SAN updates are explicit, idempotent and preserve CA, devices and r
       csr: await fs.readFile(path.join(dir, 'device.csr'), 'utf8'),
     });
     env.brokerExtraSans = parseBrokerExtraSans(
-      'example.invalid,LOCALHOST,example.invalid',
+      'mqtt.example.com,LOCALHOST,mqtt.example.com',
     );
     await refreshPki();
     assert.deepEqual(
@@ -109,7 +109,7 @@ test('broker SAN updates are explicit, idempotent and preserve CA, devices and r
     assert.equal(await updateBrokerCertificate(), true);
     const updatedCert = await read('broker/server.crt');
     const updated = new crypto.X509Certificate(updatedCert);
-    for (const hostname of ['mqtt-broker', 'localhost', 'example.invalid'])
+    for (const hostname of ['mqtt-broker', 'localhost', 'mqtt.example.com'])
       assert.ok(updated.checkHost(hostname));
     assert.equal(updated.checkHost('wrong.example.com'), undefined);
     assert.equal(updated.subjectAltName.match(/DNS:localhost/g).length, 1);
@@ -120,7 +120,7 @@ test('broker SAN updates are explicit, idempotent and preserve CA, devices and r
       '-purpose',
       'sslserver',
       '-verify_hostname',
-      'example.invalid',
+      'mqtt.example.com',
       path.join(dir, 'broker/server.crt'),
     ]);
     assert.ok(
@@ -150,7 +150,7 @@ test('broker SAN updates are explicit, idempotent and preserve CA, devices and r
     assert.equal(await updateBrokerCertificate(), true);
     assert.equal(
       new crypto.X509Certificate(await read('broker/server.crt')).checkHost(
-        'example.invalid',
+        'mqtt.example.com',
       ),
       undefined,
     );

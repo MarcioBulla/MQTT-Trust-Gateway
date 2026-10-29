@@ -12,10 +12,12 @@ import * as OTPAuth from 'otpauth';
 const run = promisify(execFile),
   delay = (ms) => new Promise((r) => setTimeout(r, ms));
 const url = process.env.GATEWAY_TEST_URL,
-  data = process.env.GATEWAY_TEST_DATA;
-if (!url || !data)
+  data = process.env.GATEWAY_TEST_DATA,
+  mqttPort = process.env.GATEWAY_TEST_MQTT_PORT,
+  websocketPort = process.env.GATEWAY_TEST_WS_PORT;
+if (!url || !data || !mqttPort || !websocketPort)
   throw new Error(
-    'Set GATEWAY_TEST_URL and GATEWAY_TEST_DATA to an isolated installed test gateway',
+    'Set GATEWAY_TEST_URL, GATEWAY_TEST_DATA, GATEWAY_TEST_MQTT_PORT, and GATEWAY_TEST_WS_PORT for an isolated installed test gateway',
   );
 const root = path.resolve(data),
   origin = new URL(url).origin;
@@ -58,7 +60,7 @@ async function applied() {
 }
 async function connection(transport = 'tcp', cert = certificate, keyFile = path.join(root, device + '.key')) {
   const client = mqtt.connect(
-    `${transport === 'tcp' ? 'mqtts' : 'wss'}://127.0.0.1:${transport === 'tcp' ? process.env.GATEWAY_TEST_MQTT_PORT || 8883 : process.env.GATEWAY_TEST_WS_PORT || 8443}${transport === 'tcp' ? '' : '/mqtt'}`,
+    `${transport === 'tcp' ? 'mqtts' : 'wss'}://127.0.0.1:${transport === 'tcp' ? mqttPort : websocketPort}${transport === 'tcp' ? '' : '/mqtt'}`,
     {
       servername: 'localhost',
       ca: await fs.readFile(path.join(root, 'broker/ca.crt')),
@@ -401,7 +403,7 @@ await test('installed rootless gateway lifecycle', { timeout: 120000 }, async (t
       assert.equal(status.enforcement.applied, true);
       const ca = await fs.readFile(path.join(root, 'broker/ca.crt'));
       const unauth = mqtt.connect(
-        'mqtts://127.0.0.1:' + (process.env.GATEWAY_TEST_MQTT_PORT || 8883),
+        'mqtts://127.0.0.1:' + mqttPort,
         { ca, servername: 'localhost', reconnectPeriod: 0, connectTimeout: 3000 },
       );
       await new Promise((resolve, reject) => {
