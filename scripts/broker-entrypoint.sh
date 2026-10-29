@@ -2,11 +2,16 @@
 set -eu
 umask 077
 config=/tmp/gateway-mosquitto.conf
+mkdir -p /broker/logs
+chmod 700 /broker/logs
+touch /broker/logs/mosquitto.log
+chmod 600 /broker/logs/mosquitto.log
 cat > "$config" <<CONF
 persistence true
 persistence_location /mosquitto/data/
 autosave_interval 30
 log_dest stdout
+log_dest file /broker/logs/mosquitto.log
 log_type error
 log_type warning
 log_type notice
@@ -50,6 +55,11 @@ while :; do
   mv /broker/applied-revision.tmp /broker/applied-revision
   while kill -0 "$pid" 2>/dev/null; do
     sleep 1
+    if [ "$(wc -c < /broker/logs/mosquitto.log)" -gt 1048576 ]; then
+      tail -c 524288 /broker/logs/mosquitto.log > /broker/logs/mosquitto.trim
+      cat /broker/logs/mosquitto.trim > /broker/logs/mosquitto.log
+      rm -f /broker/logs/mosquitto.trim
+    fi
     [ "$(cat /broker/revision)" = "$revision" ] || break
   done
   if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; exit 1; fi

@@ -10,6 +10,8 @@ import { registerAdminRoutes } from './routes/admin-routes.js';
 import { startMqtt, stopMqtt } from './services/mqtt-service.js';
 import { refreshPki, syncBroker } from './services/certificate-service.js';
 import { purgeExpiredArchives } from './services/identity-service.js';
+import { captureAdminLogs } from './services/runtime-logs.js';
+captureAdminLogs();
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', env.trustedProxies.length ? env.trustedProxies : false);
@@ -54,7 +56,7 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '128kb' }));
 app.use('/api', (req, res, next) => {
-  if (req.path === '/mqtt/events') return next();
+  if (req.path === '/mqtt/events' || req.path === '/logs/events') return next();
   exclusive(
     () =>
       new Promise((resolve) => {

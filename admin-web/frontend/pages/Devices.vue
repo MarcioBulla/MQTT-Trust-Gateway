@@ -188,6 +188,17 @@ const licenseDevice = (id) =>
   devices.value.find((device) => device.id === id) ||
   archived.value.find((device) => device.id === id) ||
   { id, enabled: false, status: 'unknown' };
+function searchRows(_value, query, item) {
+  const row = item?.raw || item || {};
+  const device = row.deviceId ? licenseDevice(row.deviceId) : row;
+  const certificate = row.latestCertificate || row;
+  return [row.name, row.id, row.deviceId, device.name, device.description,
+    certificate.serial, certificate.provisioningMethod, certificate.issuerName,
+    certificate.algorithm, certificate.status, certificate.validTo,
+    ...labelsFor(device).map((label) => label.name),
+    ...(device.certificates || []).map((entry) => [entry.serial, entry.provisioningMethod, entry.issuerName].filter(Boolean).join(' '))]
+    .filter((value) => value != null).join(' ').toLocaleLowerCase().includes(String(query).trim().toLocaleLowerCase());
+}
 const licenseCounts = (status) =>
   certs.value.filter((certificate) => !certificate.licenseArchivedAt && !certificate.licenseDeletedAt).filter((certificate) => status === 'inactive'
     ? ['expired', 'revoked', 'blocked'].includes(certificate.status)
@@ -240,7 +251,7 @@ const licenseCounts = (status) =>
       v-if="!props.licenses && tab === 'active'"
       :headers="headers"
       :items="identityRows"
-      :search="search"
+      :search="search" :custom-filter="searchRows"
       :loading="!!state.busy"
       class="mt-4 identity-table"
     >
@@ -261,7 +272,7 @@ const licenseCounts = (status) =>
         <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete device" class="text-error" @click="confirm = { device: item, action: 'delete' }" />
         </v-list></v-menu></div></template>
     </v-data-table>
-    <v-data-table v-if="!props.licenses && tab === 'archived'" :headers="archivedHeaders" :items="archived" :search="search" :loading="!!state.busy" class="mt-4">
+    <v-data-table v-if="!props.licenses && tab === 'archived'" :headers="archivedHeaders" :items="archived" :search="search" :custom-filter="searchRows" :loading="!!state.busy" class="mt-4">
       <template #item.daysRemaining="{ item }"><v-chip size="small" :color="item.daysRemaining <= 3 ? 'warning' : 'default'">{{ item.daysRemaining }} days</v-chip></template>
       <template #item.actions="{ item }"><div class="d-flex flex-wrap ga-1"><v-btn size="small" color="primary" variant="tonal" prepend-icon="mdi-restore" @click="confirm = { device: item, action: 'restore' }">Restore</v-btn><v-btn size="small" color="error" variant="tonal" prepend-icon="mdi-delete-forever-outline" @click="confirm = { device: item, action: 'delete' }">Delete now</v-btn></div></template>
     </v-data-table>
@@ -269,7 +280,7 @@ const licenseCounts = (status) =>
       v-if="props.licenses"
       :headers="certHeaders"
       :items="certs.filter((c) => !c.licenseDeletedAt && (tab === 'archived' ? !!c.licenseArchivedAt : !c.licenseArchivedAt) && (filter === 'All' || c.status === filter))"
-      :search="search"
+      :search="search" :custom-filter="searchRows"
       :loading="!!state.busy"
       class="mt-4 identity-table"
     >

@@ -203,6 +203,21 @@ certificate and key. Browser JavaScript cannot select TLS client certificates;
 browser/OS certificate provisioning is required if supported. The console avoids
 this limitation by using its protected backend MQTT bridge.
 
+## Live service logs
+
+Open **Account → Logs** for separate **Admin** and **MQTT broker** tabs. Each tab
+has independent Follow/Pause and Auto-scroll controls. Authenticated SSE streams
+refresh once per second and show the latest 500 lines, capped at 64 KiB. Pausing
+stops the stream; resuming fetches the latest tail.
+
+The admin writes its application output to `admin/logs/admin.log` (1 MiB plus one
+rotated file); Mosquitto writes to `broker/logs/mosquitto.log`, trimmed in place
+when it exceeds 1 MiB. Existing stdout/journal logging remains available. The web
+container does not access the Podman socket or host journal. Logs are rendered as
+plain text, sources are restricted to these two files, and streams stop when the
+administrative session expires. This view starts collecting service output after
+upgrading both images; it does not import old journal history.
+
 ## Shared rootless network
 
 `mqtt-gateway.network` creates the persistent network named `mqtt-gateway`.
