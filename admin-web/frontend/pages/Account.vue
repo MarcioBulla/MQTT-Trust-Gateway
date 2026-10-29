@@ -1,10 +1,28 @@
 <script setup>
+import DateTime from '../components/DateTime.vue';
+import { browserTimeZone, formatDateTime } from '../date-time';
+import { normalizeTimeZone } from '../../shared/time-zone.js';
 import DataList from '../components/DataList.vue';
 import { ref, onMounted, computed } from 'vue';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import { api, action, state, refreshUser } from '../api';
 import RuntimeLogs from '../components/RuntimeLogs.vue';
-const accountTab = ref('security'), auditSearch = ref('');
+const accountTab = ref('general'), auditSearch = ref('');
+const timeZone = ref(state.user?.timeZone || 'auto');
+const availableZones = [...new Set(['UTC', browserTimeZone, state.user?.timeZone, ...(Intl.supportedValuesOf?.('timeZone') || [])].filter((zone) => zone && zone !== 'auto'))];
+const timeZoneOptions = [{ title: `Automatic (${browserTimeZone})`, value: 'auto' }, ...availableZones.map((zone) => ({ title: zone.replaceAll('_', ' '), value: zone }))];
+const zoneIsValid = computed(() => { try { normalizeTimeZone(timeZone.value); return true; } catch { return false; } });
+const timePreview = computed(() => {
+  if (!zoneIsValid.value) return 'Select a valid time zone';
+  return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'long', timeZone: timeZone.value === 'auto' ? browserTimeZone : timeZone.value }).format(new Date());
+});
+function savePreferences() {
+  return action(async () => {
+    const result = await api('/me/preferences', 'PATCH', { timeZone: timeZone.value });
+    state.user = result.user;
+    timeZone.value = result.user.timeZone;
+  }, 'Display preferences saved');
+}
 
 const currentPassword = ref(''),
   password = ref(''),
@@ -107,8 +125,16 @@ onMounted(loadAudit);
 </script>
 <template>
   <div class="text-overline text-primary">ADMINISTRATION</div>
-  <h1 class="text-h4 font-weight-bold mb-6">Account & audit</h1>
-  <v-tabs v-model="accountTab" class="mb-5"><v-tab value="security">Account security</v-tab><v-tab value="audit">Recent audit events</v-tab><v-tab value="logs">Logs</v-tab><v-tab value="smtp">SMTP · WIP</v-tab></v-tabs>
+  <h1 class="text-h4 font-weight-bold mb-6">Settings</h1>
+  <v-tabs v-model="accountTab" class="mb-5"><v-tab value="general">General</v-tab><v-tab value="security">Account security</v-tab><v-tab value="audit">Recent audit events</v-tab><v-tab value="logs">Logs</v-tab></v-tabs>
+  <v-card v-if="accountTab === 'general'" class="pa-6" max-width="720">
+    <h2 class="text-h6 mb-2">Date and time</h2>
+    <p class="text-body-2 text-medium-emphasis mb-5">Choose the time zone used for messages, certificates and audit events. Your preference is saved to your account; stored timestamps and certificate validity remain in UTC.</p>
+    <v-form @submit.prevent="savePreferences"><v-autocomplete v-model="timeZone" :items="timeZoneOptions" label="Display time zone" auto-select-first :rules="[() => zoneIsValid || 'Select a valid time zone']" />
+    <p class="text-body-2 mb-5">Preview: {{ timePreview }}</p>
+    <v-btn type="submit" color="primary" :disabled="!zoneIsValid" :loading="!!state.busy">Save preferences</v-btn></v-form>
+  </v-card>
+  <v-card v-if="accountTab === 'general'" class="pa-6 mt-4" max-width="720"><v-chip color="warning" size="small" class="mb-3">WIP</v-chip><h2 class="text-h6">SMTP email settings</h2><p class="text-medium-emphasis mt-2">SMTP configuration and device offline email alerts are planned. Email delivery is not available yet.</p></v-card>
   <div v-show="accountTab === 'security'">
   <v-row
     ><v-col cols="12" md="6"
@@ -156,7 +182,7 @@ onMounted(loadAudit);
             v-for="p in state.user?.passkeys"
             :key="p.id"
             :title="p.name"
-            :subtitle="p.createdAt"
+            :subtitle="formatDateTime(p.createdAt)"
             ><template #append
               ><v-btn
                 size="small"
@@ -231,10 +257,9 @@ onMounted(loadAudit);
   <v-card v-if="accountTab === 'audit'" class="pa-5"
     ><h2 class="text-h6 mb-3">Recent audit events</h2>
     <div class="d-flex align-center ga-3 mb-4"><v-text-field v-model="auditSearch" label="Search audit events" prepend-inner-icon="mdi-magnify" hide-details /><v-btn icon="mdi-refresh" aria-label="Refresh audit events" @click="loadAudit" /></div>
-    <DataList :headers="headers" :items="entries" :search="auditSearch" :loading="!!state.busy" :items-per-page="15"
-  /></v-card>
+    <DataList :headers="headers" :items="entries" :search="auditSearch" :loading="!!state.busy" :items-per-page="15"><template #item.at="{ item }"><DateTime :value="item.at" /></template></DataList></v-card>
   <RuntimeLogs v-if="accountTab === 'logs'" />
-  <v-card v-if="accountTab === 'smtp'" class="pa-6"><v-chip color="warning" size="small" class="mb-3">WIP</v-chip><h2 class="text-h6">SMTP email settings</h2><p class="text-medium-emphasis mt-2">SMTP configuration and device offline email alerts are planned. Email delivery is not available yet.</p></v-card>
+
   <v-dialog
     :model-value="!!removing"
     :persistent="verifyingRemoval"

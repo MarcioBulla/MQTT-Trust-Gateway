@@ -32,3 +32,8 @@ These components do not change backend permissions or MQTT authorization.
 Observed retained messages support topic/payload search, sorting, pagination,
 details, topic copying and explicitly confirmed removal. Payloads render as
 escaped text; long payloads scroll within their cells and the details dialog.
+
+Use `DateTime.vue` for table timestamps. It formats the date and time on separate
+lines in the current user's configured time zone and keeps the original ISO UTC
+instant in the semantic `datetime` attribute and tooltip. Keep raw timestamps in
+table items so sorting and backend validity checks retain their UTC semantics.

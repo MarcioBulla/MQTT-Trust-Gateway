@@ -1,4 +1,6 @@
 <script setup>
+import DateTime from '../components/DateTime.vue';
+import { formatDateTime } from '../date-time';
 import RowActions from '../components/RowActions.vue';
 import DataList from '../components/DataList.vue';
 import { ref, computed, onMounted } from 'vue';
@@ -57,8 +59,8 @@ const certHeaders = [
   { title: '', key: 'actions', width: '145px', maxWidth: '150px', sortable: false },
 ];
 const archivedHeaders = [
-  { title: 'Device', key: 'id' }, { title: 'Archived (UTC)', key: 'archivedAt' },
-  { title: 'Scheduled deletion (UTC)', key: 'scheduledDeletionAt' }, { title: 'Days remaining', key: 'daysRemaining' },
+  { title: 'Device', key: 'id' }, { title: 'Archived', key: 'archivedAt' },
+  { title: 'Scheduled deletion', key: 'scheduledDeletionAt' }, { title: 'Days remaining', key: 'daysRemaining' },
   { title: '', key: 'actions', sortable: false, width: '64px' },
 ];
 const load = () =>
@@ -261,7 +263,7 @@ const licenseCounts = (status) =>
       <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="rawLabel in item.labels || []" :key="labelValue(rawLabel).name" size="small" closable :color="labelValue(rawLabel).color" variant="tonal" @click:close="removeLabel(item, labelValue(rawLabel).name)">{{ labelValue(rawLabel).name }}</v-chip><v-menu location="bottom start" :close-on-content-click="false" @update:model-value="openLabelMenu(item, $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to ${item.name || item.id}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLabels(item).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLabels(item)" :key="label.name" :title="label.name" @click="attachLabel(item, label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLabel(item)">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
       <template #item.latestCertificate.provisioningMethod="{ item }"><v-tooltip v-if="item.latestCertificate" :text="`Issuer: ${item.latestCertificate.issuerName || item.latestCertificate.issuer || 'Unknown'}${item.latestCertificate.brokerTrusted === false ? ' (not trusted)' : ''}`" location="top"><template #activator="{ props: tooltipProps }"><span v-bind="tooltipProps">{{ item.latestCertificate.provisioningMethod || '—' }}</span></template></v-tooltip><span v-else class="text-medium-emphasis">—</span></template>
       <template #item.latestCertificate.algorithm="{ item }">{{ item.latestCertificate?.algorithm || '—' }}</template>
-      <template #item.latestCertificate.status="{ item }"><v-tooltip v-if="item.latestCertificate" :text="`Expires ${item.latestCertificate.validTo || '—'}`" location="top"><template #activator="{ props: tooltipProps }"><v-chip v-bind="tooltipProps" size="small" :color="color(item.latestCertificate.status)">{{ item.latestCertificate.status }}</v-chip></template></v-tooltip><v-chip v-else size="small" color="warning">No certificate</v-chip></template>
+      <template #item.latestCertificate.status="{ item }"><v-tooltip v-if="item.latestCertificate" :text="`Expires ${formatDateTime(item.latestCertificate.validTo)}`" location="top"><template #activator="{ props: tooltipProps }"><v-chip v-bind="tooltipProps" size="small" :color="color(item.latestCertificate.status)">{{ item.latestCertificate.status }}</v-chip></template></v-tooltip><v-chip v-else size="small" color="warning">No certificate</v-chip></template>
       <template #item.enabled="{ item }"><div class="d-flex align-center ga-2"><v-switch :model-value="isAuthorized(item)" :disabled="!canAuthorize(item) && !isAuthorized(item)" color="success" density="compact" hide-details :aria-label="`Authorize ${item.id} for MQTT`" @update:model-value="updateAuthorization(item, $event)" /><span class="text-caption">{{ isAuthorized(item) ? 'Authorized' : canAuthorize(item) ? 'Disabled' : 'No valid credential' }}</span></div></template>
       <template #item.actions="{ item }"><div class="d-flex align-center justify-end ga-1"><v-btn size="small" variant="tonal" prepend-icon="mdi-pencil-outline" @click="editCredentials(item.id)">Edit</v-btn><RowActions label="Device actions" :disabled="!!state.busy">
         <v-list-item prepend-icon="mdi-information-outline" title="Details" @click="details = item" />
@@ -275,6 +277,8 @@ const licenseCounts = (status) =>
         </RowActions></div></template>
     </DataList>
     <DataList v-if="!props.licenses && tab === 'archived'" :headers="archivedHeaders" :items="archived" :search="search" :custom-filter="searchRows" :loading="!!state.busy" class="mt-4">
+      <template #item.archivedAt="{ item }"><DateTime :value="item.archivedAt" /></template>
+      <template #item.scheduledDeletionAt="{ item }"><DateTime :value="item.scheduledDeletionAt" /></template>
       <template #item.daysRemaining="{ item }"><v-chip size="small" :color="item.daysRemaining <= 3 ? 'warning' : 'default'">{{ item.daysRemaining }} days</v-chip></template>
       <template #item.actions="{ item }"><RowActions label="Archived device actions" :disabled="!!state.busy"><v-list-item title="Restore device" prepend-icon="mdi-restore" @click="confirm = { device: item, action: 'restore' }" /><v-list-item title="Delete now" prepend-icon="mdi-delete-forever-outline" class="text-error" @click="confirm = { device: item, action: 'delete' }" /></RowActions></template>
     </DataList>
@@ -287,6 +291,8 @@ const licenseCounts = (status) =>
       class="mt-4 identity-table" min-width="1100px"
     >
       <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="rawLabel in licenseDevice(item.deviceId).labels || []" :key="labelValue(rawLabel).name" size="small" :closable="licenseDevice(item.deviceId).status === 'active'" :color="labelValue(rawLabel).color" variant="tonal" @click:close="removeLabel(licenseDevice(item.deviceId), labelValue(rawLabel).name)">{{ labelValue(rawLabel).name }}</v-chip><v-menu v-if="licenseDevice(item.deviceId).status === 'active'" location="bottom start" :close-on-content-click="false" @update:model-value="openLabelMenu(licenseDevice(item.deviceId), $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to ${licenseDevice(item.deviceId).name || item.deviceId}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLabels(licenseDevice(item.deviceId)).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLabels(licenseDevice(item.deviceId))" :key="label.name" :title="label.name" @click="attachLabel(licenseDevice(item.deviceId), label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLabel(licenseDevice(item.deviceId))">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
+      <template #item.issuedAt="{ item }"><DateTime :value="item.issuedAt" /></template>
+      <template #item.validTo="{ item }"><DateTime :value="item.validTo" /></template>
       <template #item.serial="{ item }"
         ><span class="mono text-caption">{{ item.serial }}</span></template
       ><template #item.status="{ item }"
@@ -395,7 +401,7 @@ const licenseCounts = (status) =>
           v-for="c in details?.certificates"
           :key="c.id"
           :title="c.serial"
-          :subtitle="`${c.status} · ${c.validFrom} → ${c.validTo}`" /></v-list
+          :subtitle="`${c.status} · ${formatDateTime(c.validFrom)} → ${formatDateTime(c.validTo)}`" /></v-list
       ><v-btn @click="details = null">Close</v-btn></v-card
     ></v-dialog
   >

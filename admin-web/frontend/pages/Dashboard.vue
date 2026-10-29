@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { formatDateTime } from '../date-time';
 import { api, action, copy } from '../api';
 const status = ref(null);
 let timer;
@@ -103,8 +104,8 @@ const steps = computed(() => [
             {{ status.enforcement.revision }}
           </p>
           <v-divider class="my-4" />
-          <div>CA expires: {{ status.ca?.validTo }}</div>
-          <div>Broker certificate expires: {{ status.serverCertificate?.validTo }}</div>
+          <div>CA expires: {{ formatDateTime(status.ca?.validTo) }}</div>
+          <div>Broker certificate expires: {{ formatDateTime(status.serverCertificate?.validTo) }}</div>
           <v-btn class="mt-4" href="/api/certificates/ca" prepend-icon="mdi-download"
             >Download CA</v-btn
           ></v-card

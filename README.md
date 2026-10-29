@@ -98,10 +98,10 @@ Password hashes use Argon2id. Sessions expire, logout invalidates the server-sid
 session, and changing a password invalidates other sessions. Mutations require
 an allowed Origin and JSON. Authentication attempts are rate limited per source.
 Passkeys use verified RP ID, origin, challenge, signature, counter and required
-user verification. Manage them in Account. Existing legacy credentials are
+user verification. Manage them in Settings → Account security. Existing legacy credentials are
 preserved when importing the JSON database.
 
-Account also supports TOTP (Google Authenticator, KeePassXC and compatible apps).
+Settings also supports TOTP (Google Authenticator, KeePassXC and compatible apps).
 Click **Set up authenticator**, scan the QR code or enter the manual secret shown
 under it, then verify a six-digit code. Setup expires after ten minutes. Enabled
 TOTP is required with password login; passkeys remain independently usable.
@@ -275,9 +275,21 @@ certificate and key. Browser JavaScript cannot select TLS client certificates;
 browser/OS certificate provisioning is required if supported. The console avoids
 this limitation by using its protected backend MQTT bridge.
 
+## Display time zone
+
+Open **Settings → General → Date and time** to choose Automatic (the browser's
+time zone), UTC or a searchable IANA zone such as `America/Argentina/Buenos_Aires`.
+The preference is stored in your administrative account and persists across
+logins and restarts. Received, issued, expiry and audit dates use the same display
+zone, with the date and time on separate lines. Hover a table timestamp to see
+its original UTC instant. Certificate validity, MQTT timestamps and audit storage
+remain UTC; this preference does not change the server clock or access policy.
+Old `#/account` bookmarks redirect to `#/settings`. The planned SMTP section
+(WIP) is also grouped under General.
+
 ## Live service logs
 
-Open **Account → Logs** for separate **Admin** and **MQTT broker** tabs. Each tab
+Open **Settings → Logs** for separate **Admin** and **MQTT broker** tabs. Each tab
 has independent Follow/Pause and Auto-scroll controls. Authenticated SSE streams
 refresh once per second and show the latest 500 lines, capped at 64 KiB. Pausing
 stops the stream; resuming fetches the latest tail.
