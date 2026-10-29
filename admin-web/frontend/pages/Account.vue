@@ -1,4 +1,5 @@
 <script setup>
+import DataList from '../components/DataList.vue';
 import { ref, onMounted, computed } from 'vue';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import { api, action, state, refreshUser } from '../api';
@@ -230,7 +231,7 @@ onMounted(loadAudit);
   <v-card v-if="accountTab === 'audit'" class="pa-5"
     ><h2 class="text-h6 mb-3">Recent audit events</h2>
     <div class="d-flex align-center ga-3 mb-4"><v-text-field v-model="auditSearch" label="Search audit events" prepend-inner-icon="mdi-magnify" hide-details /><v-btn icon="mdi-refresh" aria-label="Refresh audit events" @click="loadAudit" /></div>
-    <v-data-table :headers="headers" :items="entries" :search="auditSearch" :items-per-page="15"
+    <DataList :headers="headers" :items="entries" :search="auditSearch" :loading="!!state.busy" :items-per-page="15"
   /></v-card>
   <RuntimeLogs v-if="accountTab === 'logs'" />
   <v-card v-if="accountTab === 'smtp'" class="pa-6"><v-chip color="warning" size="small" class="mb-3">WIP</v-chip><h2 class="text-h6">SMTP email settings</h2><p class="text-medium-emphasis mt-2">SMTP configuration and device offline email alerts are planned. Email delivery is not available yet.</p></v-card>
