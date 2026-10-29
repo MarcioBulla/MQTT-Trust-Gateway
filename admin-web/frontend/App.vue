@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
+import { formatDateTime } from './date-time';
 import { useTheme } from 'vuetify';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { api, state, action, refreshUser, copy, refreshBrokerChanges, applyBrokerChanges } from './api';
@@ -99,7 +100,18 @@ onUnmounted(() => clearInterval(brokerPoll));
             :class="{ 'd-lg-none': state.user }"
           /><span class="text-truncate">MQTT Trust Gateway</span></span
         ></v-app-bar-title
-      ><v-tooltip v-if="state.user && (state.brokerChanges?.pendingChanges || state.brokerChanges?.applying)" :text="state.brokerChanges.pendingChanges ? 'Restart once to apply all pending broker changes.' : 'Waiting for broker acknowledgement.'" location="bottom"><template #activator="{ props: restartProps }"><v-btn v-bind="restartProps" color="amber" variant="flat" prepend-icon="mdi-restart" size="small" class="mr-2" :loading="state.brokerChanges.applying" :disabled="!!state.busy || state.brokerChanges.applying" @click="action(applyBrokerChanges)">Restart Broker</v-btn></template></v-tooltip><v-btn icon="mdi-theme-light-dark" aria-label="Toggle theme" @click="toggleTheme" /><v-btn
+      ><v-tooltip v-if="state.user && (state.brokerChanges?.pendingChanges || state.brokerChanges?.applying)" location="bottom" interactive max-width="460" :open-delay="250">
+        <template #activator="{ props: restartProps }"><v-btn v-bind="restartProps" color="amber" variant="flat" prepend-icon="mdi-restart" size="small" class="mr-2" :loading="state.brokerChanges.applying" :disabled="!!state.busy || state.brokerChanges.applying" @click="action(applyBrokerChanges)">Restart Broker</v-btn></template>
+        <div v-if="state.brokerChanges.pendingChanges" class="pending-changes-tooltip">
+          <div class="font-weight-bold mb-2">Pending broker changes<span v-if="state.brokerChanges.changes?.length"> ({{ state.brokerChanges.changes.length }})</span></div>
+          <ol v-if="state.brokerChanges.changes?.length" class="pending-changes-list">
+            <li v-for="change in state.brokerChanges.changes" :key="change.id"><div class="font-weight-medium">{{ change.summary }}</div><div class="text-caption pending-change-detail">{{ change.detail }}</div><div class="text-caption opacity-70">{{ change.actor }} · {{ formatDateTime(change.at) }}</div></li>
+          </ol>
+          <p v-else class="mb-2">Broker configuration has pending changes. Details are unavailable for this earlier update.</p>
+          <div class="text-caption mt-2">Restart once to apply these changes. Current MQTT sessions will disconnect.</div>
+        </div>
+        <span v-else>Waiting for broker acknowledgement.</span>
+      </v-tooltip><v-btn icon="mdi-theme-light-dark" aria-label="Toggle theme" @click="toggleTheme" /><v-btn
         v-if="state.user"
         prepend-icon="mdi-logout"
         @click="
@@ -284,4 +296,11 @@ pre {
   font-family: monospace;
   overflow-wrap: anywhere;
 }
+</style>
+
+<style scoped>
+.pending-changes-tooltip { text-align: left; }
+.pending-changes-list { padding-left: 20px; max-height: 320px; overflow-y: auto; }
+.pending-changes-list li { padding-right: 8px; margin-bottom: 10px; }
+.pending-change-detail { overflow-wrap: anywhere; }
 </style>

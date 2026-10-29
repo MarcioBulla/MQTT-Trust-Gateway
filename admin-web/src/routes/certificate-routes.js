@@ -331,7 +331,7 @@ export function registerCertificateRoutes(app) {
       if (typeof req.body.enabled === 'boolean') { d.enabled = req.body.enabled; d.trusted = req.body.enabled; }
       saveDb(db);
       if (accessChanged) await syncBroker(true);
-      audit(req.user.username, 'device.updated', d.id);
+      audit(req.user.username, accessChanged ? (d.enabled ? 'device.authorization_enabled' : 'device.authorization_disabled') : 'device.metadata_updated', d.id);
       res.json({ ok: true });
     }),
   );
