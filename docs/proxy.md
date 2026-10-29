@@ -68,6 +68,14 @@ resource that actually supports raw TCP passthrough. An HTTP resource alone
 does not provide raw MQTT forwarding or preserve mTLS certificates. Follow the
 official documentation for your installed version: https://docs.external proxy.net/ .
 
+For full public hostname validation on these TCP routes, configure
+`MQTT_BROKER_EXTRA_SANS=example.invalid` in `gateway.env` and run
+`./gateway broker-certificate` with the updated image installed. This changes
+only the Mosquitto server certificate and preserves the CA and device trust.
+See [controlled SAN updates](../README.md#public-mqtt-hostnames-and-broker-sans).
+The HTTP resource's public HTTPS certificate does not cover the raw TCP broker
+endpoint: the device must trust `server-ca.crt` and verify the broker's DNS SAN.
+
 ## Protocol map
 
 | Endpoint | Protocol | External integration |

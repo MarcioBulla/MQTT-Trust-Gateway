@@ -341,54 +341,89 @@ export async function certificateIsInCrl(serial) {
     return [...stdout.matchAll(/Serial Number:\s*([0-9A-F]+)/gi)].some((match) => normalize(match[1]) === normalize(serial));
   } catch { return false; }
 }
-async function serviceCertificate(name, server = false) {
-  const certFile = server ? broker('server.crt') : path.join(env.dataDir, 'mqtt-client.crt');
-  const keyFile = server ? broker('server.key') : path.join(env.dataDir, 'mqtt-client.key');
+function servicePaths(server) {
+  return {
+    certFile: server ? broker('server.crt') : path.join(env.dataDir, 'mqtt-client.crt'),
+    keyFile: server ? broker('server.key') : path.join(env.dataDir, 'mqtt-client.key'),
+  };
+}
+function brokerHosts() {
   const hosts = [
     ...new Set(
-      ['mqtt-broker', 'localhost', env.hostname, env.domain, env.localAddress].filter(Boolean),
+      [
+        'mqtt-broker',
+        'localhost',
+        env.hostname,
+        env.domain,
+        env.localAddress,
+        ...env.brokerExtraSans,
+      ]
+        .filter(Boolean)
+        .map((h) => h.toLowerCase()),
     ),
   ];
-  if (hosts.some((h) => !/^[A-Za-z0-9.:-]+$/.test(h)))
+  if (hosts.some((h) => !/^[a-z0-9.:-]+$/.test(h)))
     throw new Error('Invalid broker hostname/address');
-  if ((await exists(certFile)) && (await exists(keyFile))) {
-    const current = new crypto.X509Certificate(await fs.readFile(certFile));
-    const key = crypto.createPrivateKey(await fs.readFile(keyFile));
-    const signer = new crypto.X509Certificate(await fs.readFile(ca('ca.crt')));
-    const namesMatch =
-      !server || hosts.every((h) => (isIP(h) ? current.checkIP(h) : current.checkHost(h)));
-    if (
-      namesMatch &&
-      current.checkPrivateKey(key) &&
-      current.verify(signer.publicKey) &&
-      Date.parse(current.validTo) - Date.now() > 30 * 86400000
-    )
-      return;
-  }
+  return hosts;
+}
+async function serviceCertificateCurrent(server, matchSans = false) {
+  const { certFile, keyFile } = servicePaths(server);
+  if (!(await exists(certFile)) || !(await exists(keyFile))) return false;
+  const current = new crypto.X509Certificate(await fs.readFile(certFile));
+  const key = crypto.createPrivateKey(await fs.readFile(keyFile));
+  const signer = new crypto.X509Certificate(await fs.readFile(ca('ca.crt')));
+  const expected = brokerHosts()
+    .filter((h) => !isIP(h))
+    .map((h) => `DNS:${h}`)
+    .sort();
+  // Compare exact SANs as well as hostname checks so removing a configured name works.
+  const actual = (current.subjectAltName || '').split(/,\s*/).sort();
+  const namesMatch =
+    !server ||
+    !matchSans ||
+    (JSON.stringify(expected) === JSON.stringify(actual.filter((h) => h.startsWith('DNS:'))) &&
+      actual.length === brokerHosts().length &&
+      brokerHosts().every((h) => (isIP(h) ? current.checkIP(h) : current.checkHost(h))));
+  return (
+    namesMatch &&
+    current.checkPrivateKey(key) &&
+    current.verify(signer.publicKey) &&
+    Date.parse(current.validFrom) <= Date.now() &&
+    Date.parse(current.validTo) - Date.now() > 30 * 86400000
+  );
+}
+async function serviceCertificate(name, server = false, matchSans = false) {
+  const { certFile, keyFile } = servicePaths(server);
+  const hosts = brokerHosts();
+  // Configuration edits alone never replace a healthy certificate during maintenance.
+  if (await serviceCertificateCurrent(server, matchSans)) return false;
   await work(async (dir) => {
     const csr = path.join(dir, 'request.csr'),
       ext = path.join(dir, 'extensions.cnf');
-    await openssl([
-      'req',
-      '-new',
-      '-newkey',
-      'ec',
-      '-pkeyopt',
-      'ec_paramgen_curve:P-256',
-      '-nodes',
-      '-keyout',
-      keyFile,
-      '-out',
-      csr,
-      '-subj',
-      `/CN=${name}`,
-    ]);
-    await fs.chmod(keyFile, 0o600);
+    const temporaryKey = path.join(dir, 'service.key'),
+      temporaryCert = path.join(dir, 'service.crt');
+    const existingKey = await exists(keyFile);
+    if (existingKey) await fs.copyFile(keyFile, temporaryKey);
+    else
+      await openssl([
+        'genpkey',
+        '-algorithm',
+        'EC',
+        '-pkeyopt',
+        'ec_paramgen_curve:P-256',
+        '-out',
+        temporaryKey,
+      ]);
+    await fs.chmod(temporaryKey, 0o600);
+    await openssl(['req', '-new', '-key', temporaryKey, '-out', csr, '-subj', `/CN=${name}`]);
     const san = hosts.map((h) => `${isIP(h) ? 'IP' : 'DNS'}:${h}`).join(',');
     await fs.writeFile(
       ext,
       `basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=${server ? 'serverAuth' : 'clientAuth'}\n${server ? `subjectAltName=${san}\n` : ''}`,
     );
+    const signer = new crypto.X509Certificate(await fs.readFile(ca('ca.crt')));
+    const days = Math.min(365, Math.floor((Date.parse(signer.validTo) - Date.now()) / 86400000));
+    if (days < 1) throw new Error('CA expires too soon to issue a service certificate');
     await openssl([
       'x509',
       '-req',
@@ -401,14 +436,42 @@ async function serviceCertificate(name, server = false) {
       '-set_serial',
       `0x${crypto.randomBytes(16).toString('hex')}`,
       '-days',
-      '365',
+      String(days),
       '-sha256',
       '-extfile',
       ext,
       '-out',
-      certFile,
+      temporaryCert,
     ]);
+    await openssl([
+      'verify',
+      '-CAfile',
+      ca('ca.crt'),
+      '-purpose',
+      server ? 'sslserver' : 'sslclient',
+      temporaryCert,
+    ]);
+    // Retain the service key on renewal and publish the certificate atomically.
+    if (!existingKey) await atomic(keyFile, await fs.readFile(temporaryKey));
+    await atomic(certFile, await fs.readFile(temporaryCert), 0o644);
   });
+  return true;
+}
+export async function brokerCertificateNeedsUpdate() {
+  // This command must never initialize or replace a missing CA.
+  if (!(await exists(ca('ca.crt'))) || !(await exists(ca('ca.key'))))
+    throw new Error('Existing CA is required. Run gateway install first.');
+  return !(await serviceCertificateCurrent(true, true));
+}
+export async function updateBrokerCertificate() {
+  if (!(await brokerCertificateNeedsUpdate())) return false;
+  if (await exists(broker('pending-revision')))
+    throw new Error(
+      'Apply pending broker changes in the console before updating the server certificate.',
+    );
+  const changed = await serviceCertificate('mqtt-broker', true, true);
+  if (changed) await atomic(broker('revision'), crypto.randomUUID(), 0o644);
+  return changed;
 }
 export async function syncBroker(force = false, { defer = false } = {}) {
   const db = loadDb();

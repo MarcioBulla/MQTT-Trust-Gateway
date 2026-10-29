@@ -12,6 +12,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "test": "node --test test/*.test.js",
+    "test:public-tls": "node --test test/integration/broker-public-tls.test.js",
     "test:integration": "node --test test/integration/*.test.js"
   },
   "dependencies": {
