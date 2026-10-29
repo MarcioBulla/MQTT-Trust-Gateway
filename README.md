@@ -173,7 +173,11 @@ Restore cancels that deadline but leaves the identity disabled and untrusted unt
 an administrator explicitly approves it. Permanent deletion stores a minimal
 fingerprint/serial tombstone so old certificates cannot be reimported as trusted.
 
-Administrative certificate, trust, and access changes are staged persistently. The
+Administrative certificate, trust, and access changes are staged persistently.
+Hover or focus **Restart Broker** to see a scrollable list of pending operations,
+including affected identities or certificate serials, the administrator and time.
+Only broker-related public audit details appear; MQTT payloads and authentication
+events are excluded. The list is cleared when the revision is submitted. The
 yellow **Restart Broker** button in the top bar indicates pending changes: click it to submit them together
 with one broker restart. **Shift-click the final action** to save and apply all
 pending changes immediately, without an additional restart confirmation. Required

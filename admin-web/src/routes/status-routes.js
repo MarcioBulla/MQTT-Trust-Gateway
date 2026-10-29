@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { pendingBrokerChanges } from '../services/pending-broker-changes.js';
 import path from 'node:path';
 import { env } from '../config.js';
 import { requireAuth } from '../auth.js';
@@ -8,7 +9,8 @@ import { mqttConnectionStatus } from '../services/mqtt-service.js';
 async function brokerChangeStatus() {
   const read = (name) => fs.readFile(path.join(env.brokerDir, name), 'utf8').catch(() => null);
   const [revision, appliedRevision, pendingRevision] = await Promise.all([read('revision'), read('applied-revision'), read('pending-revision')]);
-  return { revision, appliedRevision, pendingRevision, pendingChanges: Boolean(pendingRevision), applied: Boolean(revision && revision === appliedRevision && !pendingRevision), applying: Boolean(!pendingRevision && revision && revision !== appliedRevision) };
+  const changes = pendingRevision ? await pendingBrokerChanges(revision) : [];
+  return { changes, revision, appliedRevision, pendingRevision, pendingChanges: Boolean(pendingRevision), applied: Boolean(revision && revision === appliedRevision && !pendingRevision), applying: Boolean(!pendingRevision && revision && revision !== appliedRevision) };
 }
 export function registerStatusRoutes(app) {
   app.get('/api/broker/status', requireAuth(async (_req, res) => res.json(await brokerChangeStatus())));

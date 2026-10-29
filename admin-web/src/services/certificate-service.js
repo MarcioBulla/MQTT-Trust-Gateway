@@ -6,7 +6,7 @@ import { isIP } from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { env } from '../config.js';
-import { loadDb, saveDb } from '../db.js';
+import { loadDb, saveDb, sqlite } from '../db.js';
 const run = promisify(execFile);
 const ca = (name) => path.join(env.caDir, name);
 const broker = (name) => path.join(env.brokerDir, name);
@@ -470,8 +470,13 @@ export async function updateBrokerCertificate() {
       'Apply pending broker changes in the console before updating the server certificate.',
     );
   const changed = await serviceCertificate('mqtt-broker', true, true);
-  if (changed) await atomic(broker('revision'), crypto.randomUUID(), 0o644);
+  if (changed) await submitBrokerRevision(crypto.randomUUID());
   return changed;
+}
+async function submitBrokerRevision(revision) {
+  const auditId = sqlite.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM audit').get().id;
+  await atomic(broker('audit-cursor'), JSON.stringify({ revision, auditId }));
+  await atomic(broker('revision'), revision, 0o644);
 }
 export async function syncBroker(force = false, { defer = false } = {}) {
   const db = loadDb();
@@ -506,7 +511,9 @@ export async function syncBroker(force = false, { defer = false } = {}) {
   if (force || acl !== previous || policy !== previousPolicy) {
     await atomic(broker('acl'), acl, 0o600);
     await atomic(broker('policy-state'), policy, 0o600);
-    await atomic(broker(defer ? 'pending-revision' : 'revision'), crypto.randomUUID(), 0o644);
+    const revision = crypto.randomUUID();
+    if (defer) await atomic(broker('pending-revision'), revision, 0o644);
+    else await submitBrokerRevision(revision);
     if (!defer) await fs.rm(broker('pending-revision'), { force: true });
   }
 }
@@ -514,7 +521,7 @@ export function stageBroker(force = false) { return syncBroker(force, { defer: t
 export async function applyBrokerChanges() {
   const pending = await fs.readFile(broker('pending-revision'), 'utf8').catch(() => null);
   if (!pending) return false;
-  await atomic(broker('revision'), pending, 0o644);
+  await submitBrokerRevision(pending);
   await fs.rm(broker('pending-revision'), { force: true });
   return true;
 }

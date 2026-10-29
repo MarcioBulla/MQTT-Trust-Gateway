@@ -205,10 +205,14 @@ test('manual changes batch into one apply and license removal preserves the devi
   assert.equal(after.certificates.find((c) => c.id === second.record.id).status, 'active');
   assert.ok(after.certificates.find((c) => c.id === first.id).licenseDeletedAt);
   assert.equal(await fs.readFile(revisionFile, 'utf8'), before);
-  assert.equal((await request('/broker/status')).pendingChanges, true);
+  const pendingStatus = await request('/broker/status');
+  assert.equal(pendingStatus.pendingChanges, true);
+  for (const type of ['certificate.generated', 'device.approved', 'license.archived', 'license.deleted'])
+    assert.ok(pendingStatus.changes.some((change) => change.action === type));
   assert.equal((await request('/broker/apply', 'POST', {})).changed, true);
   const applied = await fs.readFile(revisionFile, 'utf8');
   assert.notEqual(applied, before);
+  assert.deepEqual((await request('/broker/status')).changes, []);
   assert.equal((await request('/broker/apply', 'POST', {})).changed, false);
   assert.equal(await fs.readFile(revisionFile, 'utf8'), applied);
 });
