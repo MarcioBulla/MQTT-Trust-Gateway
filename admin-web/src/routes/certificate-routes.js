@@ -8,7 +8,8 @@ import {
   certificateMetadata,
   signDeviceCsr,
   revokeCertificate,
-  syncBroker,
+  certificateIsInCrl,
+  stageBroker as syncBroker,
   inspectCsr,
   generateExternalCsr,
   takePendingPrivateKey,
@@ -104,6 +105,30 @@ async function issue(req, res, previous) {
   res.json({ certificate, record: publicCertificate(record) });
 }
 export function registerCertificateRoutes(app) {
+  async function removeLicense(req, res, permanent) {
+    const db = loadDb(), certificate = find(db, req.params.id);
+    const phrase = `${permanent ? 'DELETE' : 'ARCHIVE'} ${certificate.serial || certificate.id}`;
+    if (req.body.confirm !== phrase) return res.status(400).json({ error: `Type ${phrase} to confirm` });
+    if (certificate.licenseDeletedAt) return res.status(409).json({ error: 'License already deleted' });
+    let cryptographicallyBlocked = ['local', 'legacy'].includes(certificate.issuer) && await certificateIsInCrl(certificate.serial);
+    if (!cryptographicallyBlocked && ['local', 'legacy'].includes(certificate.issuer)) {
+      try { await revokeCertificate(certificate); cryptographicallyBlocked = true; } catch { /* Block the identity below if CRL generation fails. */ }
+    }
+    certificate.status = 'revoked';
+    certificate.revokedAt ||= new Date().toISOString();
+    certificate.revokedBy ||= req.user.username;
+    certificate.licenseArchivedAt ||= new Date().toISOString();
+    if (permanent) certificate.licenseDeletedAt = new Date().toISOString();
+    if (!cryptographicallyBlocked) {
+      const device = deviceRecord(db, certificate.deviceId);
+      if (device) { device.enabled = false; device.trusted = false; }
+    }
+    saveDb(db); await syncBroker(true);
+    audit(req.user.username, permanent ? 'license.deleted' : 'license.archived', `${certificate.deviceId}:${certificate.serial || certificate.id}`);
+    res.json({ ok: true, devicePreserved: true, identityBlocked: !cryptographicallyBlocked, message: cryptographicallyBlocked ? 'License removed. Apply pending broker changes to enforce revocation.' : 'License removed; device preserved but locally disabled because issuer revocation cannot be enforced individually. Apply pending broker changes.' });
+  }
+  app.post('/api/certificates/:id/archive', requireAuth((req, res) => removeLicense(req, res, false)));
+  app.delete('/api/certificates/:id', requireAuth((req, res) => removeLicense(req, res, true)));
   app.get(
     '/api/certificates/ca',
     requireAuth((_req, res) => res.download(path.join(env.caDir, 'ca.crt'), 'gateway-ca.crt')),
@@ -121,7 +146,7 @@ export function registerCertificateRoutes(app) {
     }
     saveDb(db); await syncBroker(true);
     audit(req.user.username, 'ca.trusted', result.fingerprint);
-    res.status(201).json({ trustedCa: result, enforcement: 'Broker restart requested to apply its trust bundle.' });
+    res.status(201).json({ trustedCa: result, enforcement: 'Trust change saved; apply pending broker changes.' });
   }));
   app.delete('/api/trusted-cas/:id', requireAuth(async (req, res) => {
     const db = loadDb(), item = db.trustedCas.find((ca) => ca.id === req.params.id);
@@ -130,7 +155,7 @@ export function registerCertificateRoutes(app) {
     for (const cert of db.certificates) if (cert.issuerFingerprint === item.fingerprint) cert.brokerTrusted = false;
     saveDb(db); await initializeCa(); await syncBroker(true);
     audit(req.user.username, 'ca.untrusted', item.fingerprint);
-    res.json({ ok: true, enforcement: 'Broker restart requested; certificates from this CA are no longer trusted.' });
+    res.json({ ok: true, enforcement: 'Trust removal saved; apply pending broker changes to block this CA.' });
   }));
   app.get(
     '/api/certificates',
@@ -245,7 +270,7 @@ export function registerCertificateRoutes(app) {
       if (!crlUpdated) audit(req.user.username, 'certificate.crl_update_failed', `${c.deviceId}:${c.serial}`);
       res.json({
         certificate: publicCertificate(c),
-        enforcement: crlUpdated ? 'Certificate CRL and device ACL updated; broker restart requested.' : 'CRL update failed. Device-wide ACL blocking was applied and the broker restart was requested.',
+        enforcement: crlUpdated ? 'Revocation saved; apply pending broker changes.' : 'CRL update failed. Device-wide ACL blocking is staged; apply pending broker changes.',
       });
     }),
   );
@@ -330,7 +355,7 @@ export function registerCertificateRoutes(app) {
     }
     await syncBroker(true);
     audit(req.user.username, 'device.archived', device.id);
-    res.json({ device, enforcement: 'Broker restart requested; existing sessions are disconnected.' });
+    res.json({ device, enforcement: 'Access changes saved; apply pending broker changes to disconnect existing sessions.' });
   }));
   app.post('/api/devices/:id/restore', requireAuth(async (req, res) => {
     const db = loadDb(), device = deviceRecord(db, req.params.id);
@@ -346,13 +371,13 @@ export function registerCertificateRoutes(app) {
     if (!hasUsableCredential(db, device.id)) return res.status(409).json({ error: 'Cannot authorize this identity without a valid, trusted, unrevoked certificate' });
     device.enabled = true; device.trusted = true; device.approvedAt = new Date().toISOString(); device.approvedBy = req.user.username;
     saveDb(db); await syncBroker(true); audit(req.user.username, 'device.approved', device.id);
-    res.json({ ok: true, enforcement: 'Broker revision requested.' });
+    res.json({ ok: true, enforcement: 'Authorization saved; apply pending broker changes.' });
   }));
   app.delete('/api/devices/:id', requireAuth(async (req, res) => {
     if (req.body.confirm !== `DELETE ${req.params.id}`) return res.status(400).json({ error: 'Type DELETE and the exact device identifier to confirm' });
     const db = loadDb();
     if (!deviceRecord(db, req.params.id)) return res.status(404).json({ error: 'Device not found' });
-    await permanentlyDeleteDevice(db, req.params.id, req.user.username);
+    await permanentlyDeleteDevice(db, req.params.id, req.user.username, Date.now(), true);
     res.json({ ok: true, message: 'Identity removed; public revocation evidence and a permanent identity tombstone were retained.' });
   }));
 }

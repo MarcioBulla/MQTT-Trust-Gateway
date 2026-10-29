@@ -1,7 +1,13 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
-import { api, action, state, refreshUser } from '../api';
+import { api, action, state, refreshUser, copy } from '../api';
+const accountTab = ref('security'), auditSearch = ref('');
+const logCommands = [
+  { title: 'Admin application', command: 'journalctl --user -u mqtt-admin.service -n 100 --no-pager' },
+  { title: 'MQTT broker', command: 'journalctl --user -u mqtt-broker.service -n 100 --no-pager' },
+  { title: 'Follow both services', command: 'journalctl --user -u mqtt-admin.service -u mqtt-broker.service -f' },
+];
 const currentPassword = ref(''),
   password = ref(''),
   name = ref(''),
@@ -94,15 +100,18 @@ function changePassword() {
     password.value = '';
   }, 'Password updated; other sessions invalidated');
 }
-onMounted(() =>
-  action(async () => {
+function loadAudit() {
+  return action(async () => {
     entries.value = (await api('/audit')).entries;
-  }),
-);
+  });
+}
+onMounted(loadAudit);
 </script>
 <template>
   <div class="text-overline text-primary">ADMINISTRATION</div>
   <h1 class="text-h4 font-weight-bold mb-6">Account & audit</h1>
+  <v-tabs v-model="accountTab" class="mb-5"><v-tab value="security">Account security</v-tab><v-tab value="audit">Recent audit events</v-tab><v-tab value="logs">Logs</v-tab><v-tab value="smtp">SMTP · WIP</v-tab></v-tabs>
+  <div v-show="accountTab === 'security'">
   <v-row
     ><v-col cols="12" md="6"
       ><v-card class="pa-6 h-100"
@@ -220,10 +229,14 @@ onMounted(() =>
       </div>
     </template>
   </v-card>
-  <v-card class="pa-5 mt-5"
+  </div>
+  <v-card v-if="accountTab === 'audit'" class="pa-5"
     ><h2 class="text-h6 mb-3">Recent audit events</h2>
-    <v-data-table :headers="headers" :items="entries" :items-per-page="15"
+    <div class="d-flex align-center ga-3 mb-4"><v-text-field v-model="auditSearch" label="Search audit events" prepend-inner-icon="mdi-magnify" hide-details /><v-btn icon="mdi-refresh" aria-label="Refresh audit events" @click="loadAudit" /></div>
+    <v-data-table :headers="headers" :items="entries" :search="auditSearch" :items-per-page="15"
   /></v-card>
+  <v-card v-if="accountTab === 'logs'" class="pa-6"><h2 class="text-h6 mb-3">Service logs</h2><p class="text-medium-emphasis mb-4">Run these commands on the host as the rootless Gateway user. Service logs are stored in the user journal; the web container has no access to the host journal.</p><div v-for="log in logCommands" :key="log.title" class="mb-5"><div class="text-subtitle-2 mb-2">{{ log.title }}</div><div class="d-flex align-center ga-3"><code class="text-break flex-grow-1">{{ log.command }}</code><v-btn icon="mdi-content-copy" variant="text" size="small" :aria-label="`Copy ${log.title} log command`" @click="copy(log.command)" /></div></div></v-card>
+  <v-card v-if="accountTab === 'smtp'" class="pa-6"><v-chip color="warning" size="small" class="mb-3">WIP</v-chip><h2 class="text-h6">SMTP email settings</h2><p class="text-medium-emphasis mt-2">SMTP configuration and device offline email alerts are planned. Email delivery is not available yet.</p></v-card>
   <v-dialog
     :model-value="!!removing"
     :persistent="verifyingRemoval"

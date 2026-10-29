@@ -1,8 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useTheme } from 'vuetify';
 import { startAuthentication } from '@simplewebauthn/browser';
-import { api, state, action, refreshUser, copy } from './api';
+import { api, state, action, refreshUser, copy, refreshBrokerChanges, applyBrokerChanges } from './api';
 const theme = useTheme(),
   drawer = ref(null),
   username = ref(''),
@@ -49,7 +49,12 @@ function passkey() {
     passkeyPending.value = false;
   });
 }
-onMounted(() => action(refreshUser));
+let brokerPoll;
+onMounted(() => {
+  action(refreshUser);
+  brokerPoll = setInterval(() => refreshBrokerChanges().catch(() => {}), 5000);
+});
+onUnmounted(() => clearInterval(brokerPoll));
 </script>
 <template>
   <v-app>
@@ -109,6 +114,12 @@ onMounted(() => action(refreshUser));
     <v-main
       ><v-progress-linear v-if="state.busy" indeterminate color="primary" aria-label="Loading" />
       <v-container fluid class="pa-4 pa-md-8 content">
+        <v-alert v-if="state.user && (state.brokerChanges?.pendingChanges || state.brokerChanges?.applying)" type="warning" variant="tonal" class="mb-5">
+          <div class="d-flex flex-wrap align-center justify-space-between ga-3">
+            <div><strong>{{ state.brokerChanges.pendingChanges ? 'Broker changes pending' : 'Applying broker changes' }}</strong><div class="text-body-2">{{ state.brokerChanges.pendingChanges ? 'Access and trust changes are saved but are not enforced yet. Apply them together with one broker restart. Shift-click a final action to apply immediately.' : 'Waiting for the broker to restart and confirm the configuration.' }}</div></div>
+            <v-btn v-if="state.brokerChanges.pendingChanges" color="warning" :loading="!!state.busy" @click="action(applyBrokerChanges)">Apply changes</v-btn>
+          </div>
+        </v-alert>
         <v-alert
           v-if="state.error"
           type="error"

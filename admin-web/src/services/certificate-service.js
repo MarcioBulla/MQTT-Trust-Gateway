@@ -334,6 +334,13 @@ export async function revokeCertificate({ certificate }) {
     await generateCRL();
   });
 }
+export async function certificateIsInCrl(serial) {
+  try {
+    const { stdout } = await openssl(['crl', '-in', ca('ca.crl'), '-text', '-noout']);
+    const normalize = (value) => String(value).replace(/^0+/, '').toUpperCase();
+    return [...stdout.matchAll(/Serial Number:\s*([0-9A-F]+)/gi)].some((match) => normalize(match[1]) === normalize(serial));
+  } catch { return false; }
+}
 async function serviceCertificate(name, server = false) {
   const certFile = server ? broker('server.crt') : path.join(env.dataDir, 'mqtt-client.crt');
   const keyFile = server ? broker('server.key') : path.join(env.dataDir, 'mqtt-client.key');
@@ -403,7 +410,7 @@ async function serviceCertificate(name, server = false) {
     ]);
   });
 }
-export async function syncBroker(force = false) {
+export async function syncBroker(force = false, { defer = false } = {}) {
   const db = loadDb();
   let acl = `user ${env.adminMqttClientId}\ntopic readwrite #\ntopic read $SYS/#\n`;
   const now = Date.now();
@@ -436,8 +443,17 @@ export async function syncBroker(force = false) {
   if (force || acl !== previous || policy !== previousPolicy) {
     await atomic(broker('acl'), acl, 0o600);
     await atomic(broker('policy-state'), policy, 0o600);
-    await atomic(broker('revision'), crypto.randomUUID(), 0o644);
+    await atomic(broker(defer ? 'pending-revision' : 'revision'), crypto.randomUUID(), 0o644);
+    if (!defer) await fs.rm(broker('pending-revision'), { force: true });
   }
+}
+export function stageBroker(force = false) { return syncBroker(force, { defer: true }); }
+export async function applyBrokerChanges() {
+  const pending = await fs.readFile(broker('pending-revision'), 'utf8').catch(() => null);
+  if (!pending) return false;
+  await atomic(broker('revision'), pending, 0o644);
+  await fs.rm(broker('pending-revision'), { force: true });
+  return true;
 }
 export async function prepareGateway() {
   await initializeCa();

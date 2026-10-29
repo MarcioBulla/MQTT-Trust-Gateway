@@ -33,8 +33,12 @@ const headers = [
 ];
 const identityRows = computed(() => devices.value.map((device) => ({
   ...device,
-  latestCertificate: [...(device.certificates || [])].sort((a, b) => Date.parse(b.issuedAt || 0) - Date.parse(a.issuedAt || 0))[0] || null,
+  latestCertificate: [...(device.certificates || [])].sort((a, b) =>
+    Number(isUsableCertificate(b)) - Number(isUsableCertificate(a)) || Date.parse(b.issuedAt || 0) - Date.parse(a.issuedAt || 0))[0] || null,
 })));
+function isUsableCertificate(certificate) {
+  return ['active', 'expiring'].includes(certificate.status) && certificate.brokerTrusted !== false && Date.parse(certificate.validTo) > Date.now();
+}
 const labelColors = [
   { title: 'Blue', value: 'blue' }, { title: 'Teal', value: 'teal' },
   { title: 'Green', value: 'green' }, { title: 'Amber', value: 'amber' },
@@ -64,6 +68,7 @@ const load = () =>
     issue.value.days = s.defaultDays;
   });
 onMounted(load);
+defineExpose({ reload: load });
 function create() {
   action(async () => {
     await api('/devices', 'POST', { ...form.value, labels: form.value.labels.split(',').map((label) => label.trim()).filter(Boolean) });
@@ -81,12 +86,11 @@ function updateAuthorization(device, enabled) {
   action(async () => {
     await api(`/devices/${device.id}`, 'PATCH', { enabled: false });
     await load();
-  }, 'Device authorization disabled. Broker sessions are being disconnected.');
+  }, 'Authorization change saved. Apply pending broker changes to enforce it.');
 }
 const canAuthorize = (device) => {
   const credentials = device.certificates || [];
-  return credentials.some((certificate) =>
-    ['active', 'expiring'].includes(certificate.status) && certificate.brokerTrusted !== false && Date.parse(certificate.validTo) > Date.now());
+  return credentials.some(isUsableCertificate);
 };
 const isAuthorized = (device) => device.enabled && device.trusted !== false && canAuthorize(device);
 const labelValue = (label) => typeof label === 'string' ? { name: label, color: 'primary' } : { name: label.name, color: label.color || 'primary' };
@@ -157,7 +161,11 @@ function sign() {
 function executeConfirm() {
   action(async () => {
     const c = confirm.value;
-    if (c.cert) await api(`/certificates/${c.cert.id}/revoke`, 'POST', {});
+    if (c.license) {
+      const result = await api(`/certificates/${c.license.id}${c.action === 'archive' ? '/archive' : ''}`, c.action === 'archive' ? 'POST' : 'DELETE', { confirm: confirmText.value });
+      if (result.identityBlocked) state.notice = result.message;
+    }
+    else if (c.cert) await api(`/certificates/${c.cert.id}/revoke`, 'POST', {});
     else if (c.action === 'archive') await api(`/devices/${c.device.id}/archive`, 'POST', { confirm: confirmText.value });
     else if (c.action === 'delete') await api(`/devices/${c.device.id}`, 'DELETE', { confirm: confirmText.value });
     else if (c.action === 'restore') await api(`/devices/${c.device.id}/restore`, 'POST', {});
@@ -166,12 +174,12 @@ function executeConfirm() {
     confirm.value = null;
     confirmText.value = '';
     await load();
-  }, 'Authorization updated. Check broker revision on Overview.');
+  }, 'Changes saved. Apply pending broker changes using the banner above.');
 }
 const color = (s) =>
   ({ active: 'success', expiring: 'warning', revoked: 'error', expired: 'error', untrusted: 'warning', pending_external_signature: 'info' })[s] || 'default';
 const confirmationPhrase = () =>
-  confirm.value?.action === 'archive'
+  confirm.value?.license ? `${confirm.value.action === 'archive' ? 'ARCHIVE' : 'DELETE'} ${confirm.value.license.serial || confirm.value.license.id}` : confirm.value?.action === 'archive'
     ? confirm.value.device.id
     : confirm.value?.action === 'delete'
       ? `DELETE ${confirm.value.device.id}`
@@ -181,7 +189,7 @@ const licenseDevice = (id) =>
   archived.value.find((device) => device.id === id) ||
   { id, enabled: false, status: 'unknown' };
 const licenseCounts = (status) =>
-  certs.value.filter((certificate) => status === 'inactive'
+  certs.value.filter((certificate) => !certificate.licenseArchivedAt && !certificate.licenseDeletedAt).filter((certificate) => status === 'inactive'
     ? ['expired', 'revoked', 'blocked'].includes(certificate.status)
     : certificate.status === status).length;
 </script>
@@ -211,7 +219,7 @@ const licenseCounts = (status) =>
     </v-col>
   </v-row>
   <v-card class="pa-4"
-    ><v-tabs v-if="!props.licenses" v-model="tab" class="mb-3" @update:model-value="load"><v-tab value="active">Active ({{ devices.length }})</v-tab><v-tab value="archived">Archived ({{ archived.length }})</v-tab></v-tabs>
+    ><v-tabs v-if="props.licenses" v-model="tab" class="mb-3"><v-tab value="active">Active licenses</v-tab><v-tab value="archived">Archived licenses</v-tab></v-tabs><v-tabs v-if="!props.licenses" v-model="tab" class="mb-3" @update:model-value="load"><v-tab value="active">Active ({{ devices.length }})</v-tab><v-tab value="archived">Archived ({{ archived.length }})</v-tab></v-tabs>
     <div class="d-flex align-center ga-3 flex-wrap">
       <v-text-field
         v-model="search"
@@ -260,7 +268,7 @@ const licenseCounts = (status) =>
     <v-data-table
       v-if="props.licenses"
       :headers="certHeaders"
-      :items="certs.filter((c) => filter === 'All' || c.status === filter)"
+      :items="certs.filter((c) => !c.licenseDeletedAt && (tab === 'archived' ? !!c.licenseArchivedAt : !c.licenseArchivedAt) && (filter === 'All' || c.status === filter))"
       :search="search"
       :loading="!!state.busy"
       class="mt-4 identity-table"
@@ -275,8 +283,8 @@ const licenseCounts = (status) =>
         <v-list-item v-if="item.canDownload" prepend-icon="mdi-download" title="Download certificate" :href="`/api/certificates/${item.id}/download`" />
         <v-list-item prepend-icon="mdi-autorenew" title="Renew / replace" @click="openIssue(item.deviceId, item.id)" />
         <v-list-item v-if="item.status !== 'revoked'" prepend-icon="mdi-cancel" title="Revoke certificate" class="text-error" @click="confirm = { cert: item }" />
-        <v-list-item v-if="licenseDevice(item.deviceId).status === 'active'" prepend-icon="mdi-archive-arrow-down-outline" title="Archive device" @click="confirm = { device: licenseDevice(item.deviceId), action: 'archive' }" />
-        <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete device" class="text-error" @click="confirm = { device: licenseDevice(item.deviceId), action: 'delete' }" />
+        <v-list-item v-if="!item.licenseArchivedAt" prepend-icon="mdi-archive-arrow-down-outline" title="Archive license" @click="confirm = { license: item, action: 'archive' }" />
+        <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete license" class="text-error" @click="confirm = { license: item, action: 'delete' }" />
       </v-list></v-menu></div></template>
     </v-data-table>
   </v-card>
@@ -337,11 +345,12 @@ const licenseCounts = (status) =>
   >
   <v-dialog :model-value="!!confirm" max-width="520" @update:model-value="confirm = null"
     ><v-card class="pa-6"
-      ><h2 class="text-h5 mb-3">{{ confirm?.action === 'archive' ? 'Archive device' : confirm?.action === 'restore' ? 'Restore device' : confirm?.action === 'delete' ? 'Permanently delete device' : confirm?.cert ? 'Revoke certificate' : 'Confirm authorization change' }}</h2>
-      <p v-if="confirm?.cert">
+      ><h2 class="text-h5 mb-3">{{ confirm?.license ? (confirm.action === 'archive' ? 'Archive license' : 'Delete license') : confirm?.action === 'archive' ? 'Archive device' : confirm?.action === 'restore' ? 'Restore device' : confirm?.action === 'delete' ? 'Permanently delete device' : confirm?.cert ? 'Revoke certificate' : 'Confirm authorization change' }}</h2>
+      <p v-if="confirm?.license">{{ confirm.action === 'archive' ? 'Archive' : 'Delete' }} this license for {{ confirm.license.deviceId }}? The device is preserved. The certificate is revoked; security evidence remains. Apply pending broker changes to enforce it.</p>
+      <p v-else-if="confirm?.cert">
         Permanently revoke {{ confirm.cert.deviceId }} certificate {{ confirm.cert.serial }}?
       </p>
-      <p v-else-if="confirm?.action === 'archive'">Archive {{ confirm?.device?.id }}? MQTT access stops immediately. The device will be deleted in 30 days unless restored.</p>
+      <p v-else-if="confirm?.action === 'archive'">Archive {{ confirm?.device?.id }}? MQTT access stops when pending broker changes are applied. The device will be deleted in 30 days unless restored.</p>
       <p v-else-if="confirm?.action === 'restore'">Restore {{ confirm?.device?.id }}? It remains disabled until explicitly approved.</p>
       <p v-else-if="confirm?.action === 'delete'">Permanently delete {{ confirm?.device?.id }} now? Audit evidence remains and the identifier can never be reused.</p>
       <p v-else-if="confirm?.action === 'approve'">Approve {{ confirm?.device?.id }} and allow it to connect to MQTT? Explicit approval is required to enable this device.</p>
@@ -353,13 +362,10 @@ const licenseCounts = (status) =>
         <v-text-field v-model="confirmText" label="Enter confirmation" autocomplete="off" autocapitalize="off" spellcheck="false" />
       </template>
       <v-alert v-if="confirm?.action === 'delete'" type="error" variant="tonal" class="mb-4">This action cannot be undone.</v-alert>
-      <v-alert type="warning" variant="tonal" class="my-4"
-        >The broker will restart to apply access changes. All current MQTT sessions will disconnect
-        and eligible clients can reconnect.</v-alert
-      >
+
       <div class="d-flex justify-end ga-2">
         <v-btn @click="confirm = null">Cancel</v-btn
-        ><v-btn color="error" :disabled="['archive', 'delete'].includes(confirm?.action) && confirmText !== confirmationPhrase()" :loading="!!state.busy" @click="executeConfirm">{{ confirm?.action === 'archive' ? 'Archive device' : confirm?.action === 'delete' ? 'Confirm delete' : 'Confirm' }}</v-btn>
+        ><v-btn color="error" :disabled="['archive', 'delete'].includes(confirm?.action) && confirmText !== confirmationPhrase()" :loading="!!state.busy" @click="executeConfirm">{{ confirm?.license ? (confirm.action === 'archive' ? 'Archive license' : 'Delete license') : confirm?.action === 'archive' ? 'Archive device' : confirm?.action === 'delete' ? 'Confirm delete' : 'Confirm' }}</v-btn>
       </div></v-card
     ></v-dialog
   >

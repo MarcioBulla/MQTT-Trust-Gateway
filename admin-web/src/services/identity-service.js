@@ -24,7 +24,7 @@ export function restoreDeviceRecord(device) {
   return device;
 }
 
-export async function permanentlyDeleteDevice(db, id, actor = 'system', now = Date.now()) {
+export async function permanentlyDeleteDevice(db, id, actor = 'system', now = Date.now(), defer = false) {
   const index = db.devices.findIndex((device) => device.id === id);
   if (index < 0) return false;
   const device = db.devices[index];
@@ -51,7 +51,7 @@ export async function permanentlyDeleteDevice(db, id, actor = 'system', now = Da
   db.devices.splice(index, 1);
   db.certificates = db.certificates.filter((cert) => cert.deviceId !== id);
   saveDb(db);
-  await syncBroker(true);
+  await syncBroker(true, { defer });
   audit(actor, 'device.deleted', id);
   return true;
 }

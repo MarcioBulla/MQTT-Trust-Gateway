@@ -162,26 +162,32 @@ there is no duplicate licensing token. Renewing issues a new serial and preserve
 history. Supply a new CSR for key rotation, or reuse the original CSR. Renewal
 does not revoke the old serial: revoke it explicitly when the rollout is complete.
 Revoking a certificate disables the whole device identity, removes topic
-authorization and requests a broker restart. Local certificates are also added
+authorization in the staged policy. Local certificates are also added
 to the internal CA CRL. External issuers cannot be revoked by this Gateway; their
 certificates are blocked locally. Re-enabling a device does not undo certificate
 revocation.
 
 Trusted Devices supports **Archive**, **Restore**, and **Delete now**. Archiving
-immediately removes authorization and schedules permanent removal after 30 days.
+records disabled authorization and schedules permanent removal after 30 days; apply pending broker changes to enforce the block.
 Restore cancels that deadline but leaves the identity disabled and untrusted until
 an administrator explicitly approves it. Permanent deletion stores a minimal
 fingerprint/serial tombstone so old certificates cannot be reimported as trusted.
 
-Revocations update the CRL and request a broker restart. The broker supervisor
-checks the revision every second and restarts Mosquitto, disconnecting existing
-sessions. Overview reports pending/applied revisions. If the broker is down,
-enforcement remains pending until restart; do not treat an API response alone as
-proof of enforcement. Expired authorization ACLs are reconciled every 30 seconds.
-CRLs are refreshed daily with seven-day validity; prolonged admin outage causes
-fail-closed certificate validation when the CRL expires. Service certificates
-renew automatically within 30 days of expiry. CA rotation is an explicit
-maintenance task; it never happens silently.
+Administrative certificate, trust, and access changes are staged persistently. The
+yellow banner shows pending changes: click **Apply changes** to submit them together
+with one broker restart. **Shift-click the final action** to save and apply all
+pending changes immediately, without an additional restart confirmation. Required
+destructive-action confirmations still apply. Until applied, existing sessions
+and the previous broker policy can remain active. The supervisor checks the
+submitted revision every second, restarts Mosquitto, and records acknowledgement.
+Automatic certificate-expiry enforcement and scheduled security maintenance still
+apply their changes automatically. License archive/delete preserves the device
+and public revocation evidence. For external certificates or CRL failures, safe
+local blocking can disable the complete identity until it is reprovisioned.
+Expired authorization ACLs are reconciled every 30 seconds. CRLs are refreshed
+daily with seven-day validity; a prolonged admin outage causes fail-closed
+certificate validation when the CRL expires. Service certificates renew within
+30 days of expiry. CA rotation remains an explicit maintenance task.
 
 ## MQTT Manager
 

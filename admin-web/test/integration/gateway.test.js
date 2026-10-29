@@ -48,6 +48,7 @@ async function api(route, method = 'GET', body, expected = 200) {
   return result;
 }
 async function applied() {
+  await api('/broker/apply', 'POST', {});
   for (let i = 0; i < 20; i++) {
     const s = await api('/status');
     if (s.enforcement.applied && s.mqtt.connected) return;
@@ -368,11 +369,12 @@ await test('installed rootless gateway lifecycle', { timeout: 120000 }, async (t
       await api(`/devices/${device}/restore`, 'POST', {});
       await applied();
       for (const transport of ['tcp', 'websocket']) await assert.rejects(connection(transport));
-      await api(`/devices/${device}/approve`, 'POST', { confirm: device }); await applied();
+      await api(`/devices/${device}/approve`, 'POST', { confirm: device }, 409);
       for (const transport of ['tcp', 'websocket']) await assert.rejects(connection(transport));
       const csr = await fs.readFile(path.join(root, device + '.csr'), 'utf8');
       const replacement = await api('/certificates/sign', 'POST', { deviceId: device, csr, days: 2 });
       certificate = replacement.certificate;
+      await api(`/devices/${device}/approve`, 'POST', { confirm: device });
       await applied();
       const restored = await connection(); await restored.endAsync(true);
     },

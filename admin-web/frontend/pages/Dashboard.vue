@@ -40,7 +40,7 @@ const steps = computed(() => [
   ],
   [
     '7. Revoke',
-    'Revoke a certificate in Licenses or disable the device in Devices. Check that the broker revision is applied. The broker restarts and disconnects all sessions.',
+    'Revoke a certificate in Licenses or disable the device in Devices. Use Apply changes in the banner and check broker acknowledgement. Shift-click a final action to apply immediately.',
   ],
   [
     '8. Connect using WebSocket',
@@ -64,9 +64,6 @@ const steps = computed(() => [
     <v-btn icon="mdi-refresh" aria-label="Refresh status" @click="load" />
   </div>
   <template v-if="status">
-    <v-alert v-if="!status.enforcement.applied" type="warning" class="mb-5"
-      >Authorization update pending. The broker has not acknowledged the latest revision.</v-alert
-    >
     <v-row
       ><v-col
         v-for="[label, value] in [

@@ -2,10 +2,21 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { env } from '../config.js';
 import { requireAuth } from '../auth.js';
-import { loadDb, auditLog } from '../db.js';
-import { certificateMetadata } from '../services/certificate-service.js';
+import { loadDb, auditLog, audit } from '../db.js';
+import { certificateMetadata, applyBrokerChanges } from '../services/certificate-service.js';
 import { mqttConnectionStatus } from '../services/mqtt-service.js';
+async function brokerChangeStatus() {
+  const read = (name) => fs.readFile(path.join(env.brokerDir, name), 'utf8').catch(() => null);
+  const [revision, appliedRevision, pendingRevision] = await Promise.all([read('revision'), read('applied-revision'), read('pending-revision')]);
+  return { revision, appliedRevision, pendingRevision, pendingChanges: Boolean(pendingRevision), applied: Boolean(revision && revision === appliedRevision && !pendingRevision), applying: Boolean(!pendingRevision && revision && revision !== appliedRevision) };
+}
 export function registerStatusRoutes(app) {
+  app.get('/api/broker/status', requireAuth(async (_req, res) => res.json(await brokerChangeStatus())));
+  app.post('/api/broker/apply', requireAuth(async (req, res) => {
+    const changed = await applyBrokerChanges();
+    if (changed) audit(req.user.username, 'broker.changes_applied', 'Pending broker configuration submitted');
+    res.json({ changed, ...await brokerChangeStatus() });
+  }));
   app.get(
     '/api/status',
     requireAuth(async (_req, res) => {
@@ -42,11 +53,7 @@ export function registerStatusRoutes(app) {
             Date.parse(c.validTo) < now + 30 * 86400000,
         ).length,
         expiredCertificates: db.certificates.filter((c) => Date.parse(c.validTo) <= now).length,
-        enforcement: {
-          revision,
-          appliedRevision,
-          applied: Boolean(revision && revision === appliedRevision),
-        },
+        enforcement: await brokerChangeStatus(),
         defaultDays: env.certDays,
         maxDays: env.maxCertDays,
       });

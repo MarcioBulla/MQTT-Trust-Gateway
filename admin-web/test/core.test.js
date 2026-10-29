@@ -170,3 +170,45 @@ test('bootstrap tokens tolerate surrounding whitespace while rejecting incorrect
   assert.equal(matchesBootstrapToken(null, token), false);
   assert.equal(matchesBootstrapToken({ token }, token), false);
 });
+test('manual changes batch into one apply and license removal preserves the device and other credentials', async (t) => {
+  const { default: express } = await import('express');
+  const { createSession } = await import('../src/auth.js');
+  const { registerCertificateRoutes } = await import('../src/routes/certificate-routes.js');
+  const { registerStatusRoutes } = await import('../src/routes/status-routes.js');
+  const db = loadDb(), user = { id: 'batch-admin', username: 'batch-admin', credentials: [] };
+  db.users.push(user);
+  let cookie;
+  createSession(db, user, { secure: false }, { setHeader: (_name, value) => { cookie = value.split(';')[0]; } });
+  saveDb(db);
+  const app = express(); app.use(express.json());
+  registerCertificateRoutes(app); registerStatusRoutes(app);
+  app.use((error, _req, res, _next) => res.status(error.status || 500).json({ error: error.message }));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
+  async function request(route, method = 'GET', body, expected = 200) {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api${route}`, { method, headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    assert.equal(response.status, expected, `${method} ${route}: ${response.status}`);
+    return response.headers.get('content-type')?.includes('application/zip') ? response.arrayBuffer() : response.json();
+  }
+  const revisionFile = path.join(dir, 'broker/revision'), before = await fs.readFile(revisionFile, 'utf8');
+  await request('/devices', 'POST', { id: 'batch-device' }, 201);
+  await request('/devices/batch-device/approve', 'POST', { confirm: 'batch-device' }, 409);
+  await request('/certificates/generate', 'POST', { id: 'batch-device', algorithm: 'ecdsa-p256', days: 2, bundle: true });
+  await request('/devices/batch-device/approve', 'POST', { confirm: 'batch-device' });
+  const second = await request('/certificates/generate', 'POST', { id: 'batch-device', algorithm: 'ecdsa-p256', days: 2 });
+  const first = loadDb().certificates.find((c) => c.deviceId === 'batch-device' && c.id !== second.record.id);
+  await request(`/certificates/${first.id}/archive`, 'POST', { confirm: `ARCHIVE ${first.serial}` });
+  await request(`/certificates/${first.id}`, 'DELETE', { confirm: `DELETE ${first.serial}` });
+  const after = loadDb();
+  assert.ok(after.devices.some((d) => d.id === 'batch-device'));
+  assert.equal(after.certificates.find((c) => c.id === second.record.id).status, 'active');
+  assert.ok(after.certificates.find((c) => c.id === first.id).licenseDeletedAt);
+  assert.equal(await fs.readFile(revisionFile, 'utf8'), before);
+  assert.equal((await request('/broker/status')).pendingChanges, true);
+  assert.equal((await request('/broker/apply', 'POST', {})).changed, true);
+  const applied = await fs.readFile(revisionFile, 'utf8');
+  assert.notEqual(applied, before);
+  assert.equal((await request('/broker/apply', 'POST', {})).changed, false);
+  assert.equal(await fs.readFile(revisionFile, 'utf8'), applied);
+});
