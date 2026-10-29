@@ -10,7 +10,7 @@ import argon2 from 'argon2';
 import { chromium } from '@playwright/test';
 import * as OTPAuth from 'otpauth';
 
-await test('authenticator removal requires fresh, scoped authentication', async (t) => {
+await test('authentication changes require fresh, scoped authentication', async (t) => {
   process.env.ADMIN_DATA_DIR = await fs.mkdtemp(path.join(os.tmpdir(), 'gateway-reauth-'));
   const { env } = await import('../src/config.js');
   const { loadDb, saveDb, exclusive, sqlite } = await import('../src/db.js');
@@ -212,4 +212,41 @@ await test('authenticator removal requires fresh, scoped authentication', async 
     await api('/passkeys/' + target, 'DELETE', { reauth: await proof('remove-passkey', target) });
     assert.equal((await api('/me')).user.passkeys.length, 1);
   });
+  await t.test('password changes accept a scoped passkey and require password plus TOTP as the fallback', async () => {
+    const target = await registerKey();
+    assert.equal((await api('/me')).user.hasPassword, false);
+    const newPassword = 'New password approved by a passkey';
+    await api('/me/password', 'POST', { password: newPassword }, 403);
+    await api('/me/password', 'POST', { password: 'short' }, 400);
+    const wrongAction = await proof('remove-passkey', target);
+    await api('/me/password', 'POST', { password: newPassword, reauth: wrongAction }, 403);
+    const invalid = await proof('change-password');
+    invalid.credential.response.signature = 'AAAA';
+    await api('/me/password', 'POST', { password: newPassword, reauth: invalid }, 403);
+    const originalSession = cookie;
+    const loginOptions = await api('/login/options', 'POST', { username: 'test-admin' });
+    await api('/login/verify', 'POST', { username: 'test-admin', credential: await ceremony(loginOptions) });
+    const otherSession = cookie;
+    cookie = originalSession;
+    const reauth = await proof('change-password');
+    await api('/me/password', 'POST', { password: newPassword, reauth }, 403, otherSession);
+    await api('/me/password', 'POST', { password: newPassword, reauth });
+    assert.notEqual(cookie, originalSession);
+    await api('/me', 'GET', undefined, 401, originalSession);
+    await api('/me', 'GET', undefined, 401, otherSession);
+    assert.equal((await api('/me')).user.hasPassword, true);
+    assert.ok(await argon2.verify(loadDb().users[0].passwordHash, newPassword));
+    await api('/me/password', 'POST', { password: 'Replay must not change this password', reauth }, 403);
+    await api('/me/password', 'POST', { password: newPassword, currentPassword: 'wrong' }, 403);
+    const setup = await api('/me/totp/options', 'POST', {});
+    const otp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.secret) });
+    await api('/me/totp/verify', 'POST', { code: otp.generate() });
+    await api('/me/password', 'POST', { password: 'Password fallback without TOTP', currentPassword: newPassword }, 403);
+    const finalPassword = 'Password fallback with fresh authenticator';
+    await api('/me/password', 'POST', { password: finalPassword, currentPassword: newPassword, totp: otp.generate({ timestamp: Date.now() + 30000 }) });
+    assert.ok(await argon2.verify(loadDb().users[0].passwordHash, finalPassword));
+    assert.equal((await api('/me')).user.totpEnabled, true);
+    assert.ok((await api('/me')).user.passkeys.some((key) => key.id === target));
+  });
+
 });

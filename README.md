@@ -98,7 +98,10 @@ Password hashes use Argon2id. Sessions expire, logout invalidates the server-sid
 session, and changing a password invalidates other sessions. Mutations require
 an allowed Origin and JSON. Authentication attempts are rate limited per source.
 Passkeys use verified RP ID, origin, challenge, signature, counter and required
-user verification. Manage them in Settings → Account security. Existing legacy credentials are
+user verification. Manage them in Settings → Account security. Password changes
+can be authorized with a registered passkey or the current password plus a fresh
+TOTP code when enabled. Passkey confirmation is bound to the current session and
+password-change action; other sessions are signed out after a successful change. Existing legacy credentials are
 preserved when importing the JSON database.
 
 Settings also supports TOTP (Google Authenticator, KeePassXC and compatible apps).
@@ -278,6 +281,10 @@ Native MQTT clients may use `wss://HOST:8443/mqtt` with the same device CA,
 certificate and key. Browser JavaScript cannot select TLS client certificates;
 browser/OS certificate provisioning is required if supported. The console avoids
 this limitation by using its protected backend MQTT bridge.
+
+The eye button in Overview's Connection details masks hostnames, domains, IPs,
+URLs and ports and disables their copy buttons. This display preference is saved
+in the browser; it does not change API access permissions.
 
 ## Display time zone
 

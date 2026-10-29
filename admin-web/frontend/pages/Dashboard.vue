@@ -3,6 +3,11 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { formatDateTime } from '../date-time';
 import { api, action, copy } from '../api';
 const status = ref(null);
+const connectionDetailsHidden = ref(localStorage.getItem('gateway.hideConnectionDetails') === 'true');
+function toggleConnectionDetails() {
+  connectionDetailsHidden.value = !connectionDetailsHidden.value;
+  localStorage.setItem('gateway.hideConnectionDetails', String(connectionDetailsHidden.value));
+}
 let timer;
 const load = () =>
   action(async () => {
@@ -113,8 +118,8 @@ const steps = computed(() => [
       >
       <v-col cols="12" md="6"
         ><v-card class="pa-6 h-100"
-          ><h2 class="text-h6 mb-4">Connection details</h2>
-          <v-table class="connection-table"
+          ><div class="d-flex align-center justify-space-between ga-3 mb-4"><h2 class="text-h6">Connection details</h2><v-tooltip :text="connectionDetailsHidden ? 'Show connection details' : 'Hide connection details'" location="top"><template #activator="{ props }"><v-btn v-bind="props" :icon="connectionDetailsHidden ? 'mdi-eye-outline' : 'mdi-eye-off-outline'" variant="text" size="small" :aria-label="connectionDetailsHidden ? 'Show connection details' : 'Hide connection details'" :aria-pressed="connectionDetailsHidden" aria-controls="connection-details-values" @click="toggleConnectionDetails" /></template></v-tooltip></div>
+          <v-table id="connection-details-values" class="connection-table"
             ><tbody>
               <tr
                 v-for="[label, value] in [
@@ -130,12 +135,13 @@ const steps = computed(() => [
                 :key="label"
               >
                 <td>{{ label }}</td>
-                <td class="mono">{{ value }}</td>
+                <td class="mono"><span v-if="connectionDetailsHidden" aria-label="Hidden">••••••</span><span v-else>{{ value }}</span></td>
                 <td>
                   <v-btn
                     size="small"
                     icon="mdi-content-copy"
                     :aria-label="`Copy ${label}`"
+                    :disabled="connectionDetailsHidden"
                     variant="text"
                     @click="copy(String(value))"
                   />

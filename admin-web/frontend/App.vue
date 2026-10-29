@@ -68,8 +68,8 @@ onUnmounted(() => clearInterval(brokerPoll));
             <div class="text-subtitle-1 font-weight-bold">Gateway console</div>
           </div>
         </div>
-        <div class="text-caption text-medium-emphasis mt-1">
-          Local control. Verified identities.
+        <div class="text-caption text-medium-emphasis font-italic mt-1">
+          From beginner to beginner
         </div>
       </div>
       <v-divider /><v-list nav class="pa-3"
