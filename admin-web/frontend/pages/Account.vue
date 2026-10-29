@@ -24,6 +24,9 @@ function savePreferences() {
   }, 'Display preferences saved');
 }
 
+const passwordMethod = ref(state.user?.hasPassword ? 'password' : 'passkey'),
+  passwordTotp = ref(''),
+  changingPassword = ref(false);
 const currentPassword = ref(''),
   password = ref(''),
   name = ref(''),
@@ -106,15 +109,30 @@ function addPasskey() {
     registeringPasskey.value = false;
   });
 }
-function changePassword() {
-  action(async () => {
-    await api('/me/password', 'POST', {
-      currentPassword: currentPassword.value,
-      password: password.value,
-    });
+async function changePassword() {
+  if (changingPassword.value) return;
+  changingPassword.value = true;
+  await action(async () => {
+    const newPassword = password.value;
+    if (newPassword.length < 12 || newPassword.length > 256)
+      throw new Error('Password must contain 12–256 characters');
+    let reauth;
+    if (passwordMethod.value === 'passkey') {
+      const options = await api('/reauth/options', 'POST', { action: 'change-password' });
+      const credential = await startAuthentication({ optionsJSON: options });
+      reauth = { method: 'passkey', credential };
+    } else {
+      reauth = { method: 'password', password: currentPassword.value, totp: passwordTotp.value };
+    }
+    await api('/me/password', 'POST', { password: newPassword, reauth });
     currentPassword.value = '';
     password.value = '';
-  }, 'Password updated; other sessions invalidated');
+    passwordTotp.value = '';
+    await refreshUser();
+  }, 'Password updated; other sessions signed out');
+  currentPassword.value = '';
+  passwordTotp.value = '';
+  changingPassword.value = false;
 }
 function loadAudit() {
   return action(async () => {
@@ -140,16 +158,21 @@ onMounted(loadAudit);
     ><v-col cols="12" md="6"
       ><v-card class="pa-6 h-100"
         ><h2 class="text-h6 mb-4">Password · {{ state.user?.username }}</h2>
-        <v-form @submit.prevent="changePassword"
-          ><v-text-field
-            v-model="currentPassword"
+        <p class="text-body-2 mb-4">Confirm your identity with your current password or a registered passkey. Other sessions are signed out after the change.</p>
+        <v-form @submit.prevent="changePassword">
+          <v-select v-if="removalMethods.length > 1" v-model="passwordMethod" :items="removalMethods" label="Authorize password change with" :disabled="changingPassword" />
+          <p v-else-if="passwordMethod === 'passkey'" class="text-body-2 mb-4">Your passkey will authorize this password change.</p>
+          <v-text-field
+            v-if="passwordMethod === 'password'"
+            v-model="currentPassword" :disabled="changingPassword" required
             persistent-placeholder
             name="currentPassword"
             label="Current password"
             type="password"
             autocomplete="current-password"
-          /><v-text-field
-            v-model="password"
+          /><v-text-field v-if="passwordMethod === 'password' && state.user?.totpEnabled" v-model="passwordTotp" label="Authenticator code" name="totp" autocomplete="one-time-code" inputmode="numeric" maxlength="6" :disabled="changingPassword" required />
+          <v-text-field
+            v-model="password" :disabled="changingPassword"
             persistent-placeholder
             name="newPassword"
             label="New password (12–256 characters)"
@@ -158,8 +181,8 @@ onMounted(loadAudit);
             minlength="12"
             maxlength="256"
             required
-          /><v-btn type="submit" color="primary" :loading="!!state.busy"
-            >Update password</v-btn
+          /><v-btn type="submit" color="primary" :loading="changingPassword" :disabled="!!state.busy || changingPassword" :prepend-icon="passwordMethod === 'passkey' ? 'mdi-fingerprint' : 'mdi-lock-reset'"
+            >{{ passwordMethod === 'passkey' ? 'Authorize with passkey and update' : 'Update password' }}</v-btn
           ></v-form
         ></v-card
       ></v-col

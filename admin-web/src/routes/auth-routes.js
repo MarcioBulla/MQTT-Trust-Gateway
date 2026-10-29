@@ -12,7 +12,7 @@ import {
 import { env } from '../config.js';
 import { enrollTotp, verifyTotp } from '../totp.js';
 import {
-  removalOperation,
+  authenticationOperation,
   reauthenticationOptions,
   verifyReauthentication,
   rotateAfterAuthenticationChange,
@@ -156,24 +156,19 @@ export function registerAuthRoutes(app) {
   }));
   app.post(
     '/api/me/password',
+    rateLimit,
     requireAuth(async (req, res) => {
       const db = loadDb(),
         user = db.users.find((u) => u.id === req.user.id);
-      if (
-        user.passwordHash &&
-        !(await argon2
-          .verify(user.passwordHash, String(req.body.currentPassword || ''))
-          .catch(() => false))
-      )
-        return res.status(403).json({ error: 'Current password is incorrect' });
-      user.passwordHash = await hash(req.body.password);
-      db.sessions = Object.fromEntries(
-        Object.entries(db.sessions).filter(([, s]) => s.userId !== user.id),
-      );
-      createSession(db, user, req, res);
-      saveDb(db);
+      const newPassword = password(req.body.password);
+      // Preserve older password clients while requiring fresh proof for all users,
+      // including accounts that currently have only passkeys.
+      req.body.reauth ??= { method: 'password', password: req.body.currentPassword, totp: req.body.totp };
+      await verifyReauthentication(req, db, user, authenticationOperation('change-password'));
+      user.passwordHash = await hash(newPassword);
+      rotateAfterAuthenticationChange(req, res, db, user);
       audit(user.username, 'password.changed');
-      res.json({ ok: true });
+      res.json({ ok: true, user: publicUser(user) });
     }),
   );
   app.post(
@@ -217,7 +212,7 @@ export function registerAuthRoutes(app) {
       const db = loadDb(),
         user = db.users.find((u) => u.id === req.user.id);
       if (!user.totp) return res.status(409).json({ error: 'Authenticator is not enabled' });
-      await verifyReauthentication(req, db, user, removalOperation('disable-totp'));
+      await verifyReauthentication(req, db, user, authenticationOperation('disable-totp'));
       delete user.totp;
       delete user.pendingTotp;
       rotateAfterAuthenticationChange(req, res, db, user);
@@ -234,7 +229,7 @@ export function registerAuthRoutes(app) {
       const db = loadDb(),
         user = db.users.find((u) => u.id === req.user.id);
       const { action, target = '' } = req.body;
-      const operation = removalOperation(action, target);
+      const operation = authenticationOperation(action, target);
       if (action === 'remove-passkey' && !userCredentials(user).some((c) => c.id === target))
         return res.status(404).json({ error: 'Passkey not found' });
       if (action === 'disable-totp' && !user.totp)
@@ -307,7 +302,7 @@ export function registerAuthRoutes(app) {
         req,
         db,
         user,
-        removalOperation('remove-passkey', req.params.id),
+        authenticationOperation('remove-passkey', req.params.id),
       );
       user.credentials = userCredentials(user).filter((c) => c.id !== req.params.id);
       delete user.credentialID;

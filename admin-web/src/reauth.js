@@ -10,8 +10,8 @@ import { saveDb, audit } from './db.js';
 import { userCredentials, credentialIdCandidates, findUserCredential } from './passkeys.js';
 import { verifyTotp } from './totp.js';
 
-export function removalOperation(action, target = '') {
-  if (action === 'disable-totp' && target === '') return 'disable-totp';
+export function authenticationOperation(action, target = '') {
+  if (['disable-totp', 'change-password'].includes(action) && target === '') return action;
   if (
     action === 'remove-passkey' &&
     typeof target === 'string' &&
