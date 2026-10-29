@@ -105,7 +105,7 @@ onUnmounted(() => clearInterval(brokerPoll));
         <div v-if="state.brokerChanges.pendingChanges" class="pending-changes-tooltip">
           <div class="font-weight-bold mb-2">Pending broker changes<span v-if="state.brokerChanges.changes?.length"> ({{ state.brokerChanges.changes.length }})</span></div>
           <ol v-if="state.brokerChanges.changes?.length" class="pending-changes-list">
-            <li v-for="change in state.brokerChanges.changes" :key="change.id"><div class="font-weight-medium">{{ change.summary }}</div><div class="text-caption pending-change-detail">{{ change.detail }}</div><div class="text-caption opacity-70">{{ change.actor }} · {{ formatDateTime(change.at) }}</div></li>
+            <li v-for="change in state.brokerChanges.changes" :key="change.id"><div class="font-weight-medium">{{ change.summary }}</div><div v-if="change.deviceId" class="text-caption pending-change-detail">Device: <strong>{{ change.deviceName || change.deviceId }}</strong><span v-if="change.deviceName && change.deviceName !== change.deviceId"> ({{ change.deviceId }})</span></div><div v-if="change.certificateSerial" class="text-caption pending-change-detail">Serial: {{ change.certificateSerial }}</div><div v-else-if="!change.deviceId || !change.action?.startsWith('device.')" class="text-caption pending-change-detail">{{ change.detail }}</div><div class="text-caption opacity-70">{{ change.actor }} · {{ formatDateTime(change.at) }}</div></li>
           </ol>
           <p v-else class="mb-2">Broker configuration has pending changes. Details are unavailable for this earlier update.</p>
           <div class="text-caption mt-2">Restart once to apply these changes. Current MQTT sessions will disconnect.</div>
