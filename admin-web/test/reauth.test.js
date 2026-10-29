@@ -114,7 +114,23 @@ await test('authentication changes require fresh, scoped authentication', async 
     ({ authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
       options: authenticatorOptions,
     }));
-    const credential = await ceremony(await api('/passkeys/options', 'POST', {}), true);
+    if (!registerKey.checked) {
+      await api('/passkeys/options', 'POST', {}, 403);
+      await api('/passkeys/options', 'POST', { reauth: { method: 'password', password } }, 403);
+      registerKey.checked = true;
+    }
+    const { enrollTotp } = await import('../src/totp.js');
+    const enrollment = await enrollTotp('test-admin');
+    const state = loadDb(), previousTotp = state.users[0].totp, previousPassword = state.users[0].passwordHash;
+    state.users[0].passwordHash = await argon2.hash(password);
+    state.users[0].totp = { encrypted: enrollment.pending.encrypted };
+    saveDb(state);
+    const otp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(enrollment.secret) });
+    const credential = await ceremony(await api('/passkeys/options', 'POST', { reauth: { method: 'password', password, totp: otp.generate() } }), true);
+    const updated = loadDb();
+    updated.users[0].totp = previousTotp;
+    updated.users[0].passwordHash = previousPassword;
+    saveDb(updated);
     await api('/passkeys/verify', 'POST', { credential, name: 'Virtual test key' });
     return credential.id;
   }
@@ -126,6 +142,19 @@ await test('authentication changes require fresh, scoped authentication', async 
   }
   const passwordProof = (totp) => ({ reauth: { method: 'password', password, totp } });
   await api('/login/password', 'POST', { username: 'test-admin', password });
+  await t.test('password alone bootstraps only accounts without a second factor', async () => {
+    const state = loadDb(), credentials = state.users[0].credentials;
+    state.users[0].credentials = [];
+    saveDb(state);
+    await api('/passkeys/options', 'POST', {}, 403);
+    await api('/passkeys/options', 'POST', { reauth: { method: 'password', password: 'incorrect password' } }, 403);
+    await api('/passkeys/options', 'POST', { reauth: { method: 'password', password } });
+    const updated = loadDb();
+    updated.users[0].credentials = credentials;
+    saveDb(updated);
+    await api('/passkeys/options', 'POST', { reauth: { method: 'password', password } }, 403);
+    registerKey.checked = true;
+  });
   const firstSession = cookie;
   await api('/login/password', 'POST', { username: 'test-admin', password });
   const otherSession = cookie;
@@ -142,7 +171,8 @@ await test('authentication changes require fresh, scoped authentication', async 
         { reauth: { method: 'password', password: 'wrong' } },
         403,
       );
-      await api('/passkeys/' + fakeId, 'DELETE', passwordProof());
+      await api('/passkeys/' + fakeId, 'DELETE', passwordProof(), 403);
+      await api('/passkeys/' + fakeId, 'DELETE', { reauth: await proof('remove-passkey', fakeId) });
       assert.notEqual(cookie, firstSession);
       await api('/me', 'GET', undefined, 401, firstSession);
       await api('/me', 'GET', undefined, 401, otherSession);
@@ -150,7 +180,9 @@ await test('authentication changes require fresh, scoped authentication', async 
     },
   );
   await t.test('password also requires TOTP when enabled and rejects reused codes', async () => {
-    const setup = await api('/me/totp/options', 'POST', {}),
+    await api('/me/totp/options', 'POST', {}, 403);
+    await api('/me/totp/options', 'POST', passwordProof(), 403);
+    const setup = await api('/me/totp/options', 'POST', { reauth: await proof('enable-totp') }),
       otp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.secret) });
     await api('/me/totp/verify', 'POST', { code: otp.generate() });
     await api('/passkeys/' + firstKey, 'DELETE', passwordProof(), 403);
@@ -164,7 +196,7 @@ await test('authentication changes require fresh, scoped authentication', async 
     const reauth = await proof('disable-totp');
     await api('/passkeys/' + secondKey, 'DELETE', { reauth }, 403);
     await api('/me/totp', 'DELETE', { reauth });
-    const setup = await api('/me/totp/options', 'POST', {}),
+    const setup = await api('/me/totp/options', 'POST', { reauth: await proof('enable-totp') }),
       otp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.secret) });
     await api('/me/totp/verify', 'POST', { code: otp.generate() });
     await api('/me/totp', 'DELETE', { reauth }, 403);
@@ -212,7 +244,11 @@ await test('authentication changes require fresh, scoped authentication', async 
     await api('/passkeys/' + target, 'DELETE', { reauth: await proof('remove-passkey', target) });
     assert.equal((await api('/me')).user.passkeys.length, 1);
   });
-  await t.test('password changes accept a scoped passkey and require password plus TOTP as the fallback', async () => {
+  await t.test('password changes accept a scoped passkey and require password plus TOTP as the fallback', async (t) => {
+    // Move beyond the rate-limit window without weakening production limits.
+    const realNow = Date.now;
+    Date.now = () => realNow() + 61000;
+    t.after(() => { Date.now = realNow; });
     const target = await registerKey();
     assert.equal((await api('/me')).user.hasPassword, false);
     const newPassword = 'New password approved by a passkey';
@@ -238,7 +274,7 @@ await test('authentication changes require fresh, scoped authentication', async 
     assert.ok(await argon2.verify(loadDb().users[0].passwordHash, newPassword));
     await api('/me/password', 'POST', { password: 'Replay must not change this password', reauth }, 403);
     await api('/me/password', 'POST', { password: newPassword, currentPassword: 'wrong' }, 403);
-    const setup = await api('/me/totp/options', 'POST', {});
+    const setup = await api('/me/totp/options', 'POST', { reauth: await proof('enable-totp') });
     const otp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.secret) });
     await api('/me/totp/verify', 'POST', { code: otp.generate() });
     await api('/me/password', 'POST', { password: 'Password fallback without TOTP', currentPassword: newPassword }, 403);

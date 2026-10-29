@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { sensitiveScopes, sensitiveGrants } from './sensitive-grants.js';
 import argon2 from 'argon2';
 import {
   generateAuthenticationOptions,
@@ -11,7 +12,8 @@ import { userCredentials, credentialIdCandidates, findUserCredential } from './p
 import { verifyTotp } from './totp.js';
 
 export function authenticationOperation(action, target = '') {
-  if (['disable-totp', 'change-password'].includes(action) && target === '') return action;
+  if (action === 'reveal' && sensitiveScopes.includes(target)) return `reveal:${target}`;
+  if (['disable-totp', 'change-password', 'add-passkey', 'enable-totp', 'sensitive-settings'].includes(action) && target === '') return action;
   if (
     action === 'remove-passkey' &&
     typeof target === 'string' &&
@@ -44,10 +46,11 @@ export async function reauthenticationOptions(req, db, user, operation) {
   saveDb(db);
   return options;
 }
-export async function verifyReauthentication(req, db, user, operation) {
+export async function verifyReauthentication(req, db, user, operation, { requireTotp = Boolean(user.totp || userCredentials(user).length) } = {}) {
   const proof = req.body?.reauth;
   try {
     if (proof?.method === 'password') {
+      if (requireTotp && !user.totp) throw new Error('Additional authentication required');
       if (
         !user.passwordHash ||
         typeof proof.password !== 'string' ||
@@ -95,6 +98,7 @@ export async function verifyReauthentication(req, db, user, operation) {
   audit(user.username, 'reauth.verified', operation);
 }
 export function rotateAfterAuthenticationChange(req, res, db, user) {
+  sensitiveGrants.revokeUser(user.id);
   db.sessions = Object.fromEntries(
     Object.entries(db.sessions).filter(([, s]) => s.userId !== user.id),
   );

@@ -1,6 +1,12 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { formatDateTime } from './date-time';
+import { useRoute } from 'vue-router';
+import SensitiveValue from './components/SensitiveValue.vue';
+import StepUpAuthDialog from './components/StepUpAuthDialog.vue';
+import { hideSensitive, requestReveal, isRevealed, revealScopes } from './sensitive';
+import { effectiveThemeColors } from '../shared/theme-presets.js';
+import { defaultPresentation } from '../shared/presentation-preferences.js';
 import { useTheme } from 'vuetify';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { api, state, action, refreshUser, copy, refreshBrokerChanges, applyBrokerChanges } from './api';
@@ -11,6 +17,16 @@ const theme = useTheme(),
   setupToken = ref(''),
   totp = ref(''),
   passkeyPending = ref(false);
+watch(() => state.user?.presentation, value => {
+  const preferences = value || defaultPresentation();
+  for (const name of ['light', 'dark']) {
+    Object.assign(theme.themes.value[name].colors, effectiveThemeColors(preferences, name));
+  }
+}, { immediate: true, deep: true });
+const route = useRoute();
+const routeScope = computed(() => /^\/(devices|licenses)(\/|$)/.test(route.path) ? 'devices' : route.path === '/mqtt' ? 'mqtt' : route.path === '/settings' ? 'audit' : 'infrastructure');
+const currentInformationVisible = computed(() => { void revealScopes[routeScope.value]; return isRevealed(routeScope.value); });
+watch(() => route.fullPath, () => hideSensitive(), { flush: 'sync' });
 const links = [
   ['/', 'Overview', 'mdi-view-dashboard-outline'],
   ['/devices', 'Devices & certificates', 'mdi-chip'],
@@ -105,13 +121,13 @@ onUnmounted(() => clearInterval(brokerPoll));
         <div v-if="state.brokerChanges.pendingChanges" class="pending-changes-tooltip">
           <div class="font-weight-bold mb-2">Pending broker changes<span v-if="state.brokerChanges.changes?.length"> ({{ state.brokerChanges.changes.length }})</span></div>
           <ol v-if="state.brokerChanges.changes?.length" class="pending-changes-list">
-            <li v-for="change in state.brokerChanges.changes" :key="change.id"><div class="font-weight-medium">{{ change.summary }}</div><div v-if="change.deviceId" class="text-caption pending-change-detail">Device: <strong>{{ change.deviceName || change.deviceId }}</strong><span v-if="change.deviceName && change.deviceName !== change.deviceId"> ({{ change.deviceId }})</span></div><div v-if="change.certificateSerial" class="text-caption pending-change-detail">Serial: {{ change.certificateSerial }}</div><div v-else-if="!change.deviceId || !change.action?.startsWith('device.')" class="text-caption pending-change-detail">{{ change.detail }}</div><div class="text-caption opacity-70">{{ change.actor }} · {{ formatDateTime(change.at) }}</div></li>
+            <li v-for="change in state.brokerChanges.changes" :key="change.id"><div class="font-weight-medium">{{ change.summary }}</div><div v-if="change.deviceId" class="text-caption pending-change-detail">Device: <strong>{{ change.deviceName || change.deviceId }}</strong><span v-if="change.deviceName && change.deviceName !== change.deviceId"> ({{ change.deviceId }})</span></div><div v-if="change.certificateSerial || change.hasCertificateSerial" class="text-caption pending-change-detail">Serial: <SensitiveValue scope="devices" :value="change.certificateSerial" label="Certificate serial" /></div><div v-else-if="!change.deviceId || !change.action?.startsWith('device.')" class="text-caption pending-change-detail">{{ change.detail }}</div><div class="text-caption opacity-70">{{ change.actor }} · {{ formatDateTime(change.at) }}</div></li>
           </ol>
           <p v-else class="mb-2">Broker configuration has pending changes. Details are unavailable for this earlier update.</p>
           <div class="text-caption mt-2">Restart once to apply these changes. Current MQTT sessions will disconnect.</div>
         </div>
         <span v-else>Waiting for broker acknowledgement.</span>
-      </v-tooltip><v-btn icon="mdi-theme-light-dark" aria-label="Toggle theme" @click="toggleTheme" /><v-btn
+      </v-tooltip><v-btn v-if="state.user" :icon="currentInformationVisible ? 'mdi-eye' : 'mdi-eye-off'" :aria-label="currentInformationVisible ? 'Hide sensitive information' : 'Show sensitive information'" @click="currentInformationVisible ? hideSensitive() : requestReveal(routeScope)"><v-icon :icon="currentInformationVisible ? 'mdi-eye' : 'mdi-eye-off'" /><v-tooltip activator="parent" location="bottom">{{ currentInformationVisible ? 'Hide sensitive information' : 'Show sensitive information' }}</v-tooltip></v-btn><v-btn icon="mdi-theme-light-dark" aria-label="Toggle theme" @click="toggleTheme" /><v-btn
         v-if="state.user"
         prepend-icon="mdi-logout"
         @click="
@@ -124,7 +140,7 @@ onUnmounted(() => clearInterval(brokerPoll));
       ></v-app-bar
     >
 
-    <v-main
+    <StepUpAuthDialog v-if="state.user" /><v-main
       ><v-progress-linear v-if="state.busy" indeterminate color="primary" aria-label="Loading" />
       <v-container fluid class="pa-4 pa-md-8 content">
         <v-alert
@@ -267,10 +283,10 @@ onUnmounted(() => clearInterval(brokerPoll));
   max-width: 1600px;
 }
 .v-theme--light {
-  --v-theme-background: 245, 247, 250;
+
 }
 .v-theme--dark {
-  --v-theme-background: 14, 19, 27;
+
 }
 pre {
   white-space: pre-wrap;

@@ -7,22 +7,30 @@ export const state = reactive({
   notice: '',
   error: '',
   brokerChanges: null,
+  sensitiveScopes: {},
 });
+let stepUpHandler;
+export function registerStepUpHandler(handler) { stepUpHandler = handler; }
 let shiftClick = false, brokerMutation = 0;
 document.addEventListener('click', (event) => {
   shiftClick = event.shiftKey;
   setTimeout(() => { shiftClick = false; }, 0);
 }, true);
 export function markBrokerMutation() { brokerMutation++; }
+function brokerDetails(data) {
+  if (!(state.sensitiveScopes.devices?.deadline > performance.now()) && data?.changes)
+    return { ...data, changes: data.changes.map(({ certificateSerial, detail, ...change }) => ({ ...change, hasCertificateSerial: Boolean(certificateSerial || change.hasCertificateSerial) })) };
+  return data;
+}
 export async function refreshBrokerChanges() {
   if (!state.user) return;
   const response = await fetch('/api/broker/status', { credentials: 'same-origin' });
-  if (response.ok) state.brokerChanges = await response.json();
+  if (response.ok) state.brokerChanges = brokerDetails(await response.json());
 }
 export async function applyBrokerChanges() {
-  state.brokerChanges = await api('/broker/apply', 'POST', {});
+  state.brokerChanges = brokerDetails(await api('/broker/apply', 'POST', {}));
 }
-export async function api(url, method = 'GET', body) {
+export async function api(url, method = 'GET', body, verificationRetried = false) {
   state.busy++;
   try {
     const response = await fetch(`/api${url}`, {
@@ -33,6 +41,10 @@ export async function api(url, method = 'GET', body) {
     });
     const data = await response.json();
     if (!response.ok) {
+      if (response.status === 403 && data.stepUpRequired && !verificationRetried && stepUpHandler) {
+        await stepUpHandler(data.scope);
+        return api(url, method, body, true);
+      }
       if (response.status === 401) state.user = null;
       throw new Error(data.error || 'Request failed');
     }

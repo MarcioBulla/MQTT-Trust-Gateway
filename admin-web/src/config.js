@@ -40,6 +40,7 @@ export const env = {
   caName: process.env.CA_COMMON_NAME || 'MQTT Trust Gateway CA',
   caDays: integer('CA_VALIDITY_DAYS', 3650, 2, 7300),
   sessionHours: integer('SESSION_HOURS', 12, 1, 168),
+  sensitiveRevealSeconds: integer('SENSITIVE_REVEAL_SECONDS', 60, 1, 300),
   historyLimit: integer('MQTT_HISTORY_LIMIT', 200, 10, 2000),
   retainedEnabled: process.env.MQTT_RETAIN_ENABLED !== 'false',
   auditDays: integer('AUDIT_RETENTION_DAYS', 90, 1, 3650),

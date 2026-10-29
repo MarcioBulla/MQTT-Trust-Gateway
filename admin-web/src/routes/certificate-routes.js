@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { hasSensitiveGrant } from '../sensitive-access.js';
 import { env } from '../config.js';
 import { requireAuth } from '../auth.js';
 import { loadDb, saveDb, audit } from '../db.js';
@@ -36,6 +37,15 @@ const state = (c) =>
       : Date.parse(c.validTo) < Date.now() + 30 * 86400000
         ? 'expiring'
         : 'active';
+// Explicit allowlist: list metadata remains available without revealing cryptographic identifiers.
+export function certificateListView(certificate, revealed) {
+  const record = publicCertificate(certificate);
+  if (revealed) return record;
+  const fields = ['id', 'deviceId', 'subject', 'provisioningMethod', 'issuer', 'issuerName', 'algorithm',
+    'issuedAt', 'validFrom', 'validTo', 'status', 'brokerTrusted', 'canDownload',
+    'licenseArchivedAt', 'licenseDeletedAt', 'renewedFrom', 'labels', 'keyReceived', 'keyDownloaded'];
+  return Object.fromEntries(fields.filter(field => record[field] !== undefined).map(field => [field, record[field]]));
+}
 export function publicCertificate(c) {
   const { csr, certificate, oneTimeKeyToken, privateKey, publicKey, ...publicData } = c;
   return { ...publicData, status: c.status === 'active' && c.brokerTrusted === false ? 'untrusted' : state(c), canDownload: Boolean(certificate) };
@@ -134,7 +144,8 @@ export function registerCertificateRoutes(app) {
     requireAuth((_req, res) => res.download(path.join(env.caDir, 'ca.crt'), 'gateway-ca.crt')),
   );
   app.get('/api/trusted-cas', requireAuth((_req, res) => {
-    const trustedCas = (loadDb().trustedCas || []).map(({ certificate, ...item }) => item);
+    const revealed = hasSensitiveGrant(_req, 'devices');
+    const trustedCas = (loadDb().trustedCas || []).map(({ certificate, fingerprint, ...item }) => revealed ? { ...item, fingerprint } : Object.fromEntries(['id', 'subject', 'validFrom', 'validTo', 'algorithm', 'enabled', 'addedAt'].filter(key => item[key] !== undefined).map(key => [key, item[key]])));
     res.json({ trustedCas });
   }));
   app.post('/api/trusted-cas', requireAuth(async (req, res) => {
@@ -160,7 +171,7 @@ export function registerCertificateRoutes(app) {
   app.get(
     '/api/certificates',
     requireAuth((_req, res) =>
-      res.json({ certificates: loadDb().certificates.map(publicCertificate) }),
+      res.json({ certificates: loadDb().certificates.map(c => certificateListView(c, hasSensitiveGrant(_req, 'devices'))) }),
     ),
   );
   app.get(
@@ -284,7 +295,7 @@ export function registerCertificateRoutes(app) {
           ...d,
           connectionStatus: 'unknown',
           lastActivity: null,
-          certificates: db.certificates.filter((c) => c.deviceId === d.id).map(publicCertificate),
+          certificates: db.certificates.filter((c) => c.deviceId === d.id).map(c => certificateListView(c, hasSensitiveGrant(_req, 'devices'))),
         })),
       });
     }),

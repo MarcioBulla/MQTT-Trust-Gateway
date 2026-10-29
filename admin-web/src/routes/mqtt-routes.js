@@ -1,3 +1,4 @@
+import { hasSensitiveGrant } from '../sensitive-access.js';
 import { requireAuth, currentUser } from '../auth.js';
 import { audit, loadDb, saveDb } from '../db.js';
 import {
@@ -7,10 +8,17 @@ import {
   subscribe,
   publishMessage,
 } from '../services/mqtt-service.js';
+export function messageMetadata(message) {
+  const { id, timestamp, qos, retain, bytes } = message;
+  return { id, timestamp, qos, retain, bytes };
+}
 export function registerMqttRoutes(app) {
   app.get(
     '/api/mqtt/history',
-    requireAuth((_req, res) => res.json(mqttHistory())),
+    requireAuth((req, res) => {
+      const history = mqttHistory();
+      res.set('Cache-Control', 'no-store').json(hasSensitiveGrant(req, 'mqtt') ? history : { ...history, messages: history.messages.map(messageMetadata), retained: [], subscriptions: [] });
+    }),
   );
   app.get(
     '/api/mqtt/events',
@@ -23,7 +31,9 @@ export function registerMqttRoutes(app) {
       res.flushHeaders();
       let blocked = false;
       const listener = (message) => {
-        if (!blocked) blocked = !res.write(`data: ${JSON.stringify(message)}\n\n`);
+        if (!currentUser(req)) return res.end();
+        const visible = hasSensitiveGrant(req, 'mqtt') ? message : messageMetadata(message);
+        if (!blocked) blocked = !res.write(`data: ${JSON.stringify(visible)}\n\n`);
       };
       res.on('drain', () => {
         blocked = false;

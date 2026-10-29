@@ -1,9 +1,11 @@
 <script setup>
+import { revealScopes } from '../sensitive';
+import SensitiveValue from '../components/SensitiveValue.vue';
 import DateTime from '../components/DateTime.vue';
 import { formatDateTime } from '../date-time';
 import RowActions from '../components/RowActions.vue';
 import DataList from '../components/DataList.vue';
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, action, state, copy } from '../api';
 import { certificateMethods } from '../certificate-methods';
@@ -65,13 +67,18 @@ const archivedHeaders = [
 ];
 const load = () =>
   action(async () => {
+    const grant = revealScopes.devices;
     const [d, a, c, s] = await Promise.all([api('/devices'), api('/devices?status=archived'), api('/certificates'), api('/status')]);
+    if (!d || !a || !c || revealScopes.devices !== grant) return;
     devices.value = d.devices;
     archived.value = a.devices.map((item) => ({ ...item, daysRemaining: Math.max(0, Math.ceil((Date.parse(item.scheduledDeletionAt) - Date.now()) / 86400000)) }));
     certs.value = c.certificates;
     issue.value.days = s.defaultDays;
   });
-onMounted(load);
+watch(() => revealScopes.devices, () => {
+  devices.value = []; archived.value = []; certs.value = []; details.value = null; confirm.value = null;
+  load();
+}, { immediate: true, flush: 'sync' });
 defineExpose({ reload: load });
 function create() {
   action(async () => {
@@ -294,7 +301,7 @@ const licenseCounts = (status) =>
       <template #item.issuedAt="{ item }"><DateTime :value="item.issuedAt" /></template>
       <template #item.validTo="{ item }"><DateTime :value="item.validTo" /></template>
       <template #item.serial="{ item }"
-        ><span class="mono text-caption">{{ item.serial }}</span></template
+        ><span class="mono text-caption"><SensitiveValue scope="devices" :value="item.serial" label="Certificate serial" /></span></template
       ><template #item.status="{ item }"
         ><v-chip size="small" :color="color(item.status)">{{ item.status }}</v-chip></template
       >
@@ -400,8 +407,7 @@ const licenseCounts = (status) =>
         ><v-list-item
           v-for="c in details?.certificates"
           :key="c.id"
-          :title="c.serial"
-          :subtitle="`${c.status} · ${formatDateTime(c.validFrom)} → ${formatDateTime(c.validTo)}`" /></v-list
+          :subtitle="`${c.status} · ${formatDateTime(c.validFrom)} → ${formatDateTime(c.validTo)}`"><template #title><SensitiveValue scope="devices" :value="c.serial" label="Certificate serial" /></template></v-list-item></v-list
       ><v-btn @click="details = null">Close</v-btn></v-card
     ></v-dialog
   >

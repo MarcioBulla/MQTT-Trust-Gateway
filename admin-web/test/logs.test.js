@@ -10,7 +10,9 @@ process.env.ADMIN_DATA_DIR = path.join(root, 'admin');
 process.env.BROKER_CONFIG_DIR = path.join(root, 'broker');
 const { appendAdminLog, logSnapshot, LOG_LIMIT, LOG_TAIL_BYTES } = await import('../src/services/runtime-logs.js');
 const { loadDb, saveDb, sqlite } = await import('../src/db.js');
-const { createSession } = await import('../src/auth.js');
+const { sensitiveGrants } = await import('../src/sensitive-grants.js');
+const { guardSensitiveApi } = await import('../src/sensitive-access.js');
+const { createSession, sessionKey } = await import('../src/auth.js');
 const { registerLogRoutes } = await import('../src/routes/log-routes.js');
 
 test('service log tails are bounded, redact admin secrets, rotate, and reject arbitrary paths', async () => {
@@ -34,7 +36,7 @@ test('service log tails are bounded, redact admin secrets, rotate, and reject ar
 });
 
 test('live log SSE requires authentication, follows new lines, and ends when the session expires', async (t) => {
-  const app = express(); registerLogRoutes(app);
+  const app = express(); app.use('/api', guardSensitiveApi); registerLogRoutes(app);
   const db = loadDb(), user = { id: 'log-admin', username: 'log-admin' };
   db.users.push(user);
   let cookie;
@@ -44,6 +46,9 @@ test('live log SSE requires authentication, follows new lines, and ends when the
   t.after(async () => { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); sqlite.close(); await fs.rm(root, { recursive: true, force: true }); });
   const url = `http://127.0.0.1:${server.address().port}/api/logs/events`;
   assert.equal((await fetch(url)).status, 401);
+  assert.equal((await fetch(url, { headers: { Cookie: cookie } })).status, 403);
+  const grant = sensitiveGrants.issue({ userId: user.id, sessionId: sessionKey({ headers: { cookie } }), scope: 'audit' });
+  cookie += `; sensitive_audit=${grant.token}`;
   assert.equal((await fetch(`${url}?source=../../ca/ca.key`, { headers: { Cookie: cookie } })).status, 400);
   const response = await fetch(`${url}?source=admin`, { headers: { Cookie: cookie } });
   assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /text\/event-stream/);
