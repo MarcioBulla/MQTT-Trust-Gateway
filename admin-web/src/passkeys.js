@@ -53,6 +53,7 @@ export function publicUser(user) {
   return {
     id: user.id,
     username: user.username,
+    timeZone: user.timeZone || 'auto',
     hasPassword: Boolean(user.passwordHash),
     totpEnabled: Boolean(user.totp),
     passkeys: userCredentials(user).map((credential) => ({

@@ -1,4 +1,6 @@
 <script setup>
+import DateTime from '../components/DateTime.vue';
+import { formatDateTime } from '../date-time';
 import RowActions from '../components/RowActions.vue';
 import DataList from '../components/DataList.vue';
 import { ref, computed, onMounted, onUnmounted } from 'vue';
@@ -138,7 +140,7 @@ function removeRetained() {
             <pre class="py-2"
               >{{ format(item) }}{{ item.truncated ? ' [truncated]' : '' }}</pre></template
           ><template #item.timestamp="{ item }"
-            ><span class="text-caption">{{ item.timestamp }}</span></template
+            ><DateTime :value="item.timestamp" /></template
           ><template #item.retain="{ item }">{{ item.retain ? 'Yes' : 'No' }}</template></DataList
         >
         <v-form
@@ -264,7 +266,7 @@ function removeRetained() {
       >
       <template #item.bytes="{ item }">{{ item.bytes }} B</template>
       <template #item.timestamp="{ item }"
-        ><span class="text-caption">{{ item.timestamp }}</span></template
+        ><DateTime :value="item.timestamp" /></template
       >
       <template #item.actions="{ item }"
         ><RowActions :label="`Actions for ${item.topic}`" :disabled="!!state.busy">
@@ -299,7 +301,7 @@ function removeRetained() {
         <v-chip size="small">QoS {{ retainedDetails.qos }}</v-chip
         ><v-chip size="small">{{ retainedDetails.bytes }} B</v-chip>
       </div>
-      <p class="text-caption text-medium-emphasis mb-4">Received {{ retainedDetails.timestamp }}</p>
+      <p class="text-caption text-medium-emphasis mb-4">Received {{ formatDateTime(retainedDetails.timestamp) }}</p>
       <pre class="retained-detail-payload"
         >{{ format(retainedDetails) }}{{ retainedDetails.truncated ? ' [truncated]' : '' }}</pre>
       <div class="d-flex justify-end mt-5">

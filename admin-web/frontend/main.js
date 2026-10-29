@@ -19,7 +19,8 @@ const routes = [
   { path: '/certificates', redirect: { path: '/devices', query: { view: 'certificates' } } },
   { path: '/licenses', component: Devices, props: { licenses: true } },
   { path: '/mqtt', component: Mqtt },
-  { path: '/account', component: Account },
+  { path: '/settings', component: Account },
+  { path: '/account', redirect: '/settings' },
 ];
 createApp(App)
   .use(

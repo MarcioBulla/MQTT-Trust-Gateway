@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { normalizeTimeZone } from '../../shared/time-zone.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import argon2 from 'argon2';
@@ -142,6 +143,17 @@ export function registerAuthRoutes(app) {
     '/api/me',
     requireAuth((req, res) => res.json({ user: publicUser(req.user) })),
   );
+  app.patch('/api/me/preferences', requireAuth((req, res) => {
+    let timeZone;
+    try { timeZone = normalizeTimeZone(req.body?.timeZone); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
+    const db = loadDb();
+    const user = db.users.find((entry) => entry.id === req.user.id);
+    user.timeZone = timeZone;
+    saveDb(db);
+    audit(user.username, 'preferences.updated', `timeZone=${timeZone}`);
+    res.json({ user: publicUser(user) });
+  }));
   app.post(
     '/api/me/password',
     requireAuth(async (req, res) => {
