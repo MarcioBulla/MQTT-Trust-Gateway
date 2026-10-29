@@ -31,6 +31,16 @@ const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listeni
 try{
  const page=await browser.newPage();page.setDefaultTimeout(10000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(`http://127.0.0.1:${server.address().port}/#/`);
+ const githubLink=page.getByRole('link',{name:'GitHub repository',exact:true});
+ assert.equal(await githubLink.getAttribute('href'),'https://github.com/MarcioBulla/MQTT-Trust-Gateway');
+ assert.equal(await githubLink.getAttribute('target'),'_blank');
+ assert.equal(await githubLink.getAttribute('rel'),'noopener noreferrer');
+ await page.getByRole('button',{name:'Collapse sidebar',exact:true}).click();
+ assert.equal(await page.locator('.v-navigation-drawer--rail').count(),1);
+ assert.equal(await page.evaluate(()=>localStorage.getItem('navigationRail')),'true');
+ await page.getByRole('button',{name:'Expand sidebar',exact:true}).click();
+ assert.equal(await page.locator('.v-navigation-drawer--rail').count(),0);
+ assert.equal(await page.evaluate(()=>localStorage.getItem('navigationRail')),'false');
  await page.getByText('Messages received',{exact:true}).waitFor();
  await page.getByRole('button',{name:'5. Connect using mTLS',exact:true}).click();
  await page.getByText('mosquitto_pub -h HOST -p PORT',{exact:false}).waitFor();

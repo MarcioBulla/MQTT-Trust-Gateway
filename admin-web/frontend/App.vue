@@ -7,16 +7,20 @@ import StepUpAuthDialog from './components/StepUpAuthDialog.vue';
 import { hideSensitive, requestReveal, isRevealed, revealScopes } from './sensitive';
 import { effectiveThemeColors } from '../shared/theme-presets.js';
 import { defaultPresentation } from '../shared/presentation-preferences.js';
-import { useTheme } from 'vuetify';
+import { useDisplay, useTheme } from 'vuetify';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { api, state, action, refreshUser, copy, refreshBrokerChanges, applyBrokerChanges } from './api';
-const theme = useTheme(),
+const { mobile } = useDisplay(),
+  theme = useTheme(),
   drawer = ref(null),
+  rail = ref(localStorage.getItem('navigationRail') === 'true'),
   username = ref(''),
   password = ref(''),
   setupToken = ref(''),
   totp = ref(''),
   passkeyPending = ref(false);
+const railMode = computed(() => rail.value && !mobile.value);
+watch(rail, value => localStorage.setItem('navigationRail', String(value)));
 watch(() => state.user?.presentation, value => {
   const preferences = value || defaultPresentation();
   for (const name of ['light', 'dark']) {
@@ -39,6 +43,12 @@ function toggleTheme() {
   const name = theme.global.name.value === 'dark' ? 'light' : 'dark';
   theme.global.name.value = name;
   localStorage.setItem('theme', name);
+}
+function toggleRail() {
+  rail.value = !rail.value;
+}
+function closeMobileDrawer() {
+  if (mobile.value) drawer.value = false;
 }
 function login() {
   action(async () => {
@@ -75,33 +85,78 @@ onUnmounted(() => clearInterval(brokerPoll));
 </script>
 <template>
   <v-app>
-    <v-navigation-drawer v-if="state.user" v-model="drawer">
-      <div class="pa-6">
-        <div class="d-flex align-center ga-3">
+    <v-navigation-drawer
+      v-if="state.user"
+      v-model="drawer"
+      :rail="railMode"
+      :class="{ 'drawer--rail': railMode }"
+      :width="288"
+      :rail-width="76"
+    >
+      <div class="drawer-header" :class="{ 'drawer-header--rail': railMode }">
+        <div class="drawer-brand">
           <img src="/MyMosquitto.svg" alt="" width="40" height="40" class="flex-shrink-0" />
-          <div>
+          <div v-if="!railMode" class="drawer-brand-copy">
             <div class="text-overline text-primary">MQTT / TRUST</div>
             <div class="text-subtitle-1 font-weight-bold">Gateway console</div>
           </div>
         </div>
-        <div class="text-caption text-medium-emphasis font-italic mt-1">
-          From beginner to beginner
-        </div>
+        <v-tooltip v-if="!mobile" :text="railMode ? 'Expand sidebar' : 'Collapse sidebar'" location="right">
+          <template #activator="{ props }">
+            <v-btn
+              v-bind="props"
+              :icon="railMode ? 'mdi-chevron-right' : 'mdi-chevron-left'"
+              :aria-label="railMode ? 'Expand sidebar' : 'Collapse sidebar'"
+              variant="text"
+              size="small"
+              @click="toggleRail"
+            />
+          </template>
+        </v-tooltip>
+      </div>
+      <div v-if="!railMode" class="text-caption text-medium-emphasis font-italic px-6 pb-4">
+        From beginner to beginner
       </div>
       <v-divider /><v-list nav class="pa-3"
-        ><v-list-item
+        ><v-tooltip
           v-for="[to, title, icon] in links"
           :key="to"
+          :text="title"
+          location="right"
+          :disabled="!railMode"
+        ><template #activator="{ props }"><v-list-item
+          v-bind="props"
           :to="to"
-          :title="title"
+          :title="railMode ? undefined : title"
+          :aria-label="title"
           :prepend-icon="icon"
           color="primary"
-      /></v-list>
-      <template #append
-        ><div class="pa-4 text-caption text-medium-emphasis">
-          Two services. Your infrastructure.
-        </div></template
-      >
+          @click="closeMobileDrawer"
+        /></template></v-tooltip></v-list>
+      <template #append>
+        <div class="drawer-footer" :class="{ 'drawer-footer--rail': railMode }">
+          <v-tooltip text="Open MQTT Trust Gateway on GitHub" location="right">
+            <template #activator="{ props }">
+              <v-btn
+                v-bind="props"
+                href="https://github.com/MarcioBulla/MQTT-Trust-Gateway"
+                target="_blank"
+                rel="noopener noreferrer"
+                :aria-label="railMode ? 'Open MQTT Trust Gateway on GitHub' : undefined"
+                :block="!railMode"
+                variant="text"
+                class="github-link"
+              >
+                <v-icon v-if="railMode" icon="mdi-github" />
+                <template v-else><v-icon start icon="mdi-github" />GitHub repository</template>
+              </v-btn>
+            </template>
+          </v-tooltip>
+          <div v-if="!railMode" class="text-caption text-medium-emphasis mt-2">
+            Two services. Your infrastructure.
+          </div>
+        </div>
+      </template>
     </v-navigation-drawer>
     <v-app-bar flat border
       ><v-app-bar-nav-icon v-if="state.user" @click="drawer = !drawer" /><v-app-bar-title
@@ -273,6 +328,55 @@ onUnmounted(() => clearInterval(brokerPoll));
   </v-app>
 </template>
 <style>
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 20px 16px 12px 24px;
+}
+.drawer-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.drawer-header--rail {
+  flex-direction: column;
+  justify-content: center;
+  padding: 16px 8px 12px;
+}
+.drawer-footer {
+  padding: 16px;
+}
+.v-navigation-drawer__append {
+  flex: 0 0 auto;
+  margin-top: auto;
+}
+.drawer--rail .v-navigation-drawer__append {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 68px;
+  overflow: visible;
+}
+.drawer-footer--rail {
+  display: flex;
+  justify-content: center;
+  padding: 8px 8px 20px;
+  min-height: 68px;
+}
+.drawer-footer--rail .github-link {
+  width: 44px;
+  height: 44px;
+}
+.github-link {
+  max-width: 100%;
+}
 .connection-table td {
   padding: 10px 8px !important;
 }

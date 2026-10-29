@@ -53,28 +53,27 @@ from an HTTP virtual host. For example an existing Nginx stream configuration
 can forward TCP bytes to mqtt-broker:8883 without terminating TLS. It requires
 Nginx's stream module. Do not send raw MQTT to an HTTP proxy_pass endpoint.
 
-## Existing external proxy installation (documentation only)
+## Existing proxy or tunnel
 
-Configure an HTTP resource for the admin upstream reachable from your existing
-connector, e.g. mqtt-admin:8080 if the connector participates in mqtt-gateway.
-Set the gateway's PUBLIC_URL to that resource's HTTPS origin and trust only the
-actual connector/proxy source addresses. Preserve the public Host and HTTPS
-forwarding information, and permit SSE. If that external proxy resource imposes its
-own authentication, configure it to coexist with the gateway's sessions.
+Configure an HTTPS origin for the admin upstream reachable from your existing
+proxy or connector, such as `mqtt-admin:8080` when it joins `mqtt-gateway`. Set
+`PUBLIC_URL` to the final HTTPS origin and trust only the proxy's actual source
+addresses. Preserve the public Host and HTTPS forwarding information, and allow
+server-sent events. If the proxy adds its own authentication, configure it to
+coexist with the Gateway's sessions.
 
-Whether TCP or UDP resources and TLS passthrough are available depends on your
-external proxy deployment/version. Only expose mqtt-broker:8883 or :8443 through a
-resource that actually supports raw TCP passthrough. An HTTP resource alone
-does not provide raw MQTT forwarding or preserve mTLS certificates. Follow the
-official documentation for your installed version: https://docs.external proxy.net/ .
+Only use raw TCP forwarding for MQTT TLS endpoints. An HTTP resource alone does
+not forward raw MQTT or preserve mTLS certificates. Verify that the selected
+proxy or tunnel supports raw TCP passthrough before exposing `mqtt-broker:8883`
+or the configured WSS listener.
 
-For full public hostname validation on these TCP routes, configure
-`MQTT_BROKER_EXTRA_SANS=example.invalid` in `gateway.env` and run
+For full public hostname validation on raw TCP routes, configure
+`MQTT_BROKER_EXTRA_SANS=mqtt.example.com` in `gateway.env` and run
 `./gateway broker-certificate` with the updated image installed. This changes
 only the Mosquitto server certificate and preserves the CA and device trust.
 See [controlled SAN updates](../README.md#public-mqtt-hostnames-and-broker-sans).
-The HTTP resource's public HTTPS certificate does not cover the raw TCP broker
-endpoint: the device must trust `server-ca.crt` and verify the broker's DNS SAN.
+An HTTPS certificate used by the admin web proxy does not cover the raw TCP
+broker endpoint: the device must trust `server-ca.crt` and verify the broker's DNS SAN.
 
 ## Protocol map
 
