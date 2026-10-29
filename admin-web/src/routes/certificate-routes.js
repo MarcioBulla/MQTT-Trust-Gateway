@@ -57,7 +57,7 @@ const normalizeLabels = (value) => {
 };
 const hasUsableCredential = (db, deviceId) => {
   const credentials = db.certificates.filter((certificate) => certificate.deviceId === deviceId);
-  return !credentials.length || credentials.some((certificate) =>
+  return credentials.some((certificate) =>
     certificate.status === 'active' && certificate.brokerTrusted !== false && Date.parse(certificate.validTo) > Date.now());
 };
 const ensureIdentity = (db, { id, name = id, description = '' }) => {
@@ -67,7 +67,7 @@ const ensureIdentity = (db, { id, name = id, description = '' }) => {
     throw Object.assign(new Error('This identity was permanently deleted and cannot be reused'), { status: 409 });
   let device = deviceRecord(db, id);
   if (!device) {
-    device = { id, name: String(name || id).slice(0, 100), description: String(description || '').slice(0, 1000), enabled: true, trusted: true, status: 'active', createdAt: new Date().toISOString() };
+    device = { id, name: String(name || id).slice(0, 100), description: String(description || '').slice(0, 1000), enabled: false, trusted: false, status: 'active', createdAt: new Date().toISOString() };
     db.devices.push(device);
   }
   if (device.status !== 'active')
@@ -278,8 +278,8 @@ export function registerCertificateRoutes(app) {
         name: String(req.body.name || id).slice(0, 100),
         description: String(req.body.description || '').slice(0, 1000),
         labels: normalizeLabels(req.body.labels),
-        enabled: true,
-        trusted: true,
+        enabled: false,
+        trusted: false,
         status: 'active',
         createdAt: new Date().toISOString(),
       });

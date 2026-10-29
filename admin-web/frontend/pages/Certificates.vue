@@ -13,6 +13,7 @@ const method = ref('generate'), dialog = ref(false), certificates = ref([]), dev
   preview = ref(null), generatedPending = ref(null), caPem = ref(''), caConfirmation = ref('');
 const pending = computed(() => certificates.value.filter((item) => item.status === 'pending_external_signature' && (!props.deviceId || item.deviceId === props.deviceId)));
 const displayedCertificates = computed(() => certificates.value.filter((item) => !props.deviceId || item.deviceId === props.deviceId));
+const deviceOptions = computed(() => devices.value.map((device) => ({ title: `${device.name || device.id} · ${device.id}`, value: device.id })));
 const currentDevice = computed(() => devices.value.find((item) => item.id === props.deviceId) || null);
 const headers = [
   { title: 'Device', key: 'deviceId' }, { title: 'Provisioning', key: 'provisioningMethod' },
@@ -132,7 +133,7 @@ defineExpose({ open });
 
   <v-dialog v-model="dialog" max-width="820" scrollable><v-card class="pa-6"><h2 class="text-h5 mb-4">{{ certificateMethods.find((item) => item.value === method)?.title }}</h2>
     <template v-if="!generatedPending">
-      <v-text-field v-model="form.deviceId" label="MQTT device identity" hint="Letters, digits, dots, underscores, and hyphens; this must match the certificate CN." :disabled="!!props.deviceId" required />
+      <v-combobox v-model="form.deviceId" :items="deviceOptions" item-title="title" item-value="value" :return-object="false" label="MQTT device identity" hint="Search by name or ID, or enter a new device ID. The ID must match the certificate CN." :disabled="!!props.deviceId" required />
       <v-text-field v-if="method === 'external' || method === 'import'" v-model="form.name" label="Device name" />
       <v-select v-if="method === 'generate' || method === 'external'" v-model="form.algorithm" label="Key algorithm" :items="[{ title: 'ECDSA P-256 (recommended)', value: 'ecdsa-p256' }, { title: 'RSA-2048', value: 'rsa-2048' }]" />
       <v-text-field v-if="method === 'generate' || method === 'sign'" v-model.number="form.days" type="number" min="1" label="Certificate validity (days)" />
