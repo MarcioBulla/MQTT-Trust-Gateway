@@ -1,4 +1,6 @@
 <script setup>
+import RowActions from '../components/RowActions.vue';
+import DataList from '../components/DataList.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, action, state, markBrokerMutation } from '../api';
@@ -131,11 +133,11 @@ defineExpose({ open });
   <div v-if="props.embedded" class="d-flex flex-wrap align-center justify-space-between ga-3 mb-4">
     <div><h2 class="text-h6">Certificate provisioning</h2><p class="text-body-2 text-medium-emphasis mb-0">Manage credentials from the same device registry. Use Add certificate above to choose a method.</p></div>
   </div>
-  <v-card v-if="!props.embedded && (!props.deviceId || editTab === 'licenses')" class="pa-4 mb-6"><v-text-field v-if="!props.deviceId" v-model="search" label="Search certificates" prepend-inner-icon="mdi-magnify" hide-details /><v-data-table :headers="headers" :items="displayedCertificates" :search="search" :loading="!!state.busy" class="mt-4 certificate-table">
+  <v-card v-if="!props.embedded && (!props.deviceId || editTab === 'licenses')" class="pa-4 mb-6"><v-text-field v-if="!props.deviceId" v-model="search" label="Search certificates" prepend-inner-icon="mdi-magnify" hide-details /><DataList :headers="headers" :items="displayedCertificates" :search="search" :loading="!!state.busy" class="mt-4 certificate-table">
     <template #item.algorithm="{ item }">{{ item.algorithm || '—' }}</template>
     <template #item.issuerName="{ item }">{{ item.issuerName || item.issuer || '—' }} <span v-if="item.brokerTrusted === false" class="text-warning">(not trusted)</span></template>
     <template #item.status="{ item }"><v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip></template>
-    <template #item.actions="{ item }"><v-menu location="bottom end"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-vertical" size="small" variant="text" aria-label="Certificate actions" /></template><v-list density="compact">
+    <template #item.actions="{ item }"><RowActions label="Certificate actions" :disabled="!!state.busy">
       <v-list-item title="Details" prepend-icon="mdi-information-outline" @click="details = item" />
       <v-list-item v-if="item.canDownload" title="Download certificate" prepend-icon="mdi-download" :href="`/api/certificates/${item.id}/download`" />
       <v-list-item v-if="item.canDownload" title="Issuer chain" prepend-icon="mdi-certificate-outline" :href="`/api/certificates/${item.id}/chain`" />
@@ -143,8 +145,8 @@ defineExpose({ open });
       <v-list-item v-if="['active', 'untrusted', 'expiring'].includes(item.status)" title="Renew / replace" prepend-icon="mdi-autorenew" @click="renew(item)" />
       <v-list-item title="Export info" prepend-icon="mdi-export-variant" @click="exportInfo(item)" />
       <v-list-item v-if="['active', 'untrusted', 'expiring'].includes(item.status)" title="Revoke certificate" prepend-icon="mdi-cancel" class="text-error" @click="revoke(item)" />
-    </v-list></v-menu></template>
-  </v-data-table></v-card>
+    </RowActions></template>
+  </DataList></v-card>
   <v-card v-if="!props.deviceId" class="pa-5"><h2 class="text-h6 mb-2">Trusted external CAs</h2><p class="text-body-2 text-medium-emphasis">Only approved CA certificates are added to the Mosquitto client trust bundle. Trust changes take effect after applying pending broker changes.</p><v-list v-if="trustedCas.length"><v-list-item v-for="ca in trustedCas" :key="ca.id" :title="ca.subject" :subtitle="`SHA-256 ${ca.fingerprint} · expires ${ca.validTo}`"><template #append><v-btn color="error" variant="tonal" prepend-icon="mdi-shield-remove-outline" @click="removeCa(ca)">Remove trust</v-btn></template></v-list-item></v-list><v-alert v-else type="info" variant="tonal" class="my-3">No external CAs are trusted.</v-alert><v-textarea v-model="caPem" label="External CA certificate (PEM)" rows="5" /><v-text-field v-model="caConfirmation" label="Type TRUST THIS CA to approve" /><v-btn color="primary" variant="flat" prepend-icon="mdi-shield-check-outline" :disabled="caConfirmation !== 'TRUST THIS CA' || !caPem" :loading="!!state.busy" @click="trustCa">Approve CA trust</v-btn></v-card>
 
   <v-dialog v-model="dialog" max-width="820" scrollable><v-card class="pa-6"><h2 class="text-h5 mb-4">{{ certificateMethods.find((item) => item.value === method)?.title }}</h2>
@@ -163,8 +165,3 @@ defineExpose({ open });
   </v-card></v-dialog>
   <v-dialog v-model="details" max-width="720"><v-card v-if="details" class="pa-6"><h2 class="text-h5 mb-4">{{ details.deviceId }} certificate</h2><v-table density="compact"><tbody><tr><th>Provisioning</th><td>{{ details.provisioningMethod }}</td></tr><tr><th>Subject</th><td>{{ details.subject || 'Pending external signature' }}</td></tr><tr><th>SAN</th><td>{{ details.san || 'None' }}</td></tr><tr><th>Serial</th><td>{{ details.serial || 'Pending' }}</td></tr><tr><th>SHA-256 fingerprint</th><td class="text-break">{{ details.fingerprint || 'Pending' }}</td></tr><tr><th>Issuer</th><td>{{ details.issuerName || details.issuer || 'Pending' }}</td></tr><tr><th>Algorithm</th><td>{{ details.algorithm }}</td></tr><tr><th>Validity</th><td>{{ details.validFrom || '—' }} → {{ details.validTo || '—' }}</td></tr><tr><th>Certificate state</th><td>{{ details.status }}</td></tr><tr><th>Broker trust</th><td>{{ details.brokerTrusted === false ? 'Not trusted; cannot connect' : 'Trusted' }}</td></tr><tr><th>Renewed from</th><td>{{ details.renewedFrom || '—' }}</td></tr></tbody></v-table><div class="d-flex justify-end mt-5"><v-btn @click="details = null">Close</v-btn></div></v-card></v-dialog>
 </template>
-
-<style scoped>
-.certificate-table :deep(table) { table-layout: fixed; min-width: 1000px; }
-.certificate-table :deep(th), .certificate-table :deep(td) { white-space: normal !important; overflow-wrap: anywhere; vertical-align: top; }
-</style>

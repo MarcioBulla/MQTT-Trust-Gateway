@@ -1,8 +1,12 @@
 <script setup>
+import RowActions from '../components/RowActions.vue';
+import DataList from '../components/DataList.vue';
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { api, action, state } from '../api';
+import { api, action, state, copy } from '../api';
 const messages = ref([]),
   retained = ref([]),
+  retainedSearch = ref(''),
+  retainedDetails = ref(null),
   paused = ref(false),
   filter = ref(''),
   subscription = ref('#'),
@@ -18,6 +22,18 @@ const filtered = computed(() =>
     .slice()
     .reverse(),
 );
+const retainedHeaders = [
+  { title: 'Topic', key: 'topic', width: '280px' },
+  { title: 'Payload', key: 'text', width: '340px' },
+  { title: 'QoS', key: 'qos', width: '80px' },
+  { title: 'Size', key: 'bytes', width: '90px' },
+  { title: 'Received', key: 'timestamp', width: '200px' },
+  { title: '', key: 'actions', sortable: false, width: '64px' },
+];
+function confirmRetainedRemoval(message) {
+  confirmation.value = '';
+  clearTopic.value = message.topic;
+}
 const headers = [
   { title: 'Received', key: 'timestamp' },
   { title: 'Topic', key: 'topic' },
@@ -111,15 +127,19 @@ function removeRetained() {
             max-width="180"
           />
         </div>
-        <v-data-table :headers="headers" :items="filtered" :items-per-page="10" class="mt-3"
+        <DataList
+          :headers="headers"
+          :items="filtered"
+          :items-per-page="10"
+          class="mt-3"
+          :loading="!!state.busy"
+          min-width="850px"
           ><template #item.payload="{ item }">
             <pre class="py-2"
               >{{ format(item) }}{{ item.truncated ? ' [truncated]' : '' }}</pre></template
           ><template #item.timestamp="{ item }"
             ><span class="text-caption">{{ item.timestamp }}</span></template
-          ><template #item.retain="{ item }">{{
-            item.retain ? 'Yes' : 'No'
-          }}</template></v-data-table
+          ><template #item.retain="{ item }">{{ item.retain ? 'Yes' : 'No' }}</template></DataList
         >
         <v-form
           class="d-flex ga-3 mt-4"
@@ -137,8 +157,8 @@ function removeRetained() {
           /><v-btn type="submit" color="primary">Subscribe</v-btn></v-form
         >
         <p class="text-caption text-medium-emphasis mt-3">
-          Default subscription: # at QoS 2. The buffer is bounded and cleared on admin restart.
-          MQTT 5 preserves live retain flags, including retained deletion updates.
+          Default subscription: # at QoS 2. The buffer is bounded and cleared on admin restart. MQTT
+          5 preserves live retain flags, including retained deletion updates.
         </p>
       </v-card></v-col
     ><v-col cols="12" lg="4"
@@ -185,35 +205,171 @@ function removeRetained() {
     </v-col></v-row
   >
   <v-card class="pa-5 mt-5"
-    ><div class="d-flex justify-space-between">
+    ><div class="d-flex align-center justify-space-between ga-3 flex-wrap">
       <h2 class="text-h6">Observed retained messages</h2>
-      <v-btn size="small" @click="action(load)">Refresh</v-btn>
+      <v-btn
+        icon="mdi-refresh"
+        size="small"
+        variant="text"
+        aria-label="Refresh retained messages"
+        :loading="!!state.busy"
+        @click="action(load)"
+      />
     </div>
     <p class="text-caption text-medium-emphasis my-3">
       Live MQTT 5 retained snapshot, refreshed on backend reconnect. Maximum 1,000 topics.
     </p>
-    <v-list
-      ><v-list-item v-for="m in retained" :key="m.topic" :title="m.topic" :subtitle="m.text"
-        ><template #append
-          ><v-btn size="small" color="error" variant="text" @click="clearTopic = m.topic"
-            >Remove retained</v-btn
-          ></template
-        ></v-list-item
-      ></v-list
+    <div class="d-flex align-center ga-3 flex-wrap mb-4">
+      <v-text-field
+        v-model="retainedSearch"
+        label="Search retained topics or payloads"
+        prepend-inner-icon="mdi-magnify"
+        hide-details
+        clearable
+        max-width="440"
+      />
+      <v-chip size="small" variant="tonal">{{ retained.length }} topics</v-chip>
+    </div>
+    <DataList
+      :headers="retainedHeaders"
+      :items="retained"
+      item-value="topic"
+      :search="retainedSearch || ''"
+      :loading="!!state.busy"
+      no-data-text="No retained messages found."
+      min-width="1050px"
+      aria-label="Observed retained messages"
     >
-    <p v-if="!retained.length">No retained messages observed.</p></v-card
+      <template #item.topic="{ item }"
+        ><v-tooltip text="Copy topic" location="top" :open-delay="650"
+          ><template #activator="{ props }"
+            ><v-btn
+              v-bind="props"
+              class="list-copy text-none"
+              variant="text"
+              density="compact"
+              :aria-label="`Copy topic ${item.topic}`"
+              @click="copy(item.topic)"
+              >{{ item.topic }}</v-btn
+            ></template
+          ></v-tooltip
+        ></template
+      >
+      <template #item.text="{ item }">
+        <pre class="retained-payload py-2"
+          >{{ format(item) }}{{ item.truncated ? ' [truncated]' : '' }}</pre>
+      </template>
+      <template #item.qos="{ item }"
+        ><v-chip size="small" variant="tonal">{{ item.qos }}</v-chip></template
+      >
+      <template #item.bytes="{ item }">{{ item.bytes }} B</template>
+      <template #item.timestamp="{ item }"
+        ><span class="text-caption">{{ item.timestamp }}</span></template
+      >
+      <template #item.actions="{ item }"
+        ><RowActions :label="`Actions for ${item.topic}`" :disabled="!!state.busy">
+          <v-list-item
+            title="Details"
+            prepend-icon="mdi-information-outline"
+            @click="retainedDetails = item"
+          />
+          <v-list-item
+            title="Copy topic"
+            prepend-icon="mdi-content-copy"
+            @click="copy(item.topic)"
+          />
+          <v-list-item
+            title="Remove retained"
+            prepend-icon="mdi-delete-outline"
+            class="text-error"
+            @click="confirmRetainedRemoval(item)"
+          /> </RowActions
+      ></template>
+    </DataList>
+  </v-card>
+  <v-dialog
+    :model-value="!!retainedDetails"
+    max-width="720"
+    @update:model-value="retainedDetails = null"
+    ><v-card v-if="retainedDetails" class="pa-6">
+      <h2 class="text-h5 mb-4">Retained message details</h2>
+      <div class="text-caption text-medium-emphasis">Topic</div>
+      <p class="text-break mb-4">{{ retainedDetails.topic }}</p>
+      <div class="d-flex flex-wrap ga-2 mb-4">
+        <v-chip size="small">QoS {{ retainedDetails.qos }}</v-chip
+        ><v-chip size="small">{{ retainedDetails.bytes }} B</v-chip>
+      </div>
+      <p class="text-caption text-medium-emphasis mb-4">Received {{ retainedDetails.timestamp }}</p>
+      <pre class="retained-detail-payload"
+        >{{ format(retainedDetails) }}{{ retainedDetails.truncated ? ' [truncated]' : '' }}</pre>
+      <div class="d-flex justify-end mt-5">
+        <v-btn @click="retainedDetails = null">Close</v-btn>
+      </div>
+    </v-card></v-dialog
   >
   <v-dialog :model-value="!!clearTopic" max-width="550" @update:model-value="clearTopic = null"
     ><v-card class="pa-6"
       ><h2 class="text-h5 mb-3">Remove retained message</h2>
-      <p class="mb-4">Type the exact topic to confirm: {{ clearTopic }}</p>
-      <v-text-field v-model="confirmation" label="Confirm topic" />
+      <p class="mb-4">
+        Remove the stored message from this topic? Subscribers will no longer receive it as a
+        retained message.
+      </p>
+      <div class="d-flex align-center flex-wrap ga-2 mb-3">
+        <span>Type</span
+        ><v-btn
+          prepend-icon="mdi-content-copy"
+          size="small"
+          color="primary"
+          variant="tonal"
+          rounded="pill"
+          class="confirmation-copy-button"
+          :aria-label="`Copy ${clearTopic} to clipboard`"
+          @click="copy(clearTopic)"
+          >{{ clearTopic }}</v-btn
+        ><span>to confirm.</span>
+      </div>
+      <v-text-field
+        v-model="confirmation"
+        label="Confirm topic"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+      />
       <div class="d-flex justify-end ga-2">
         <v-btn @click="clearTopic = null">Cancel</v-btn
-        ><v-btn color="error" :disabled="confirmation !== clearTopic" @click="removeRetained"
+        ><v-btn
+          color="error"
+          :loading="!!state.busy"
+          :disabled="confirmation !== clearTopic"
+          @click="removeRetained"
           >Remove</v-btn
         >
       </div></v-card
     ></v-dialog
   >
 </template>
+
+<style scoped>
+.retained-payload {
+  max-height: 120px;
+  overflow-y: auto;
+}
+.retained-detail-payload {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.confirmation-copy-button {
+  max-width: 100%;
+  height: auto !important;
+  min-height: 32px;
+  padding-block: 6px;
+  white-space: normal;
+}
+.confirmation-copy-button :deep(.v-btn__content) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+</style>
