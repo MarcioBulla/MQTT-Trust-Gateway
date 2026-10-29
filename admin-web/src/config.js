@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { parseBrokerExtraSans } from './broker-sans.js';
 function integer(name, fallback, min = 1, max = 65535) {
   const n = Number(process.env[name] || fallback);
   if (!Number.isInteger(n) || n < min || n > max) throw new Error(`Invalid ${name}`);
@@ -25,6 +26,7 @@ export const env = {
   tlsCert: process.env.ADMIN_TLS_CERT || '',
   tlsKey: process.env.ADMIN_TLS_KEY || '',
   mqttHost: process.env.MQTT_HOST || 'mqtt-broker',
+  brokerExtraSans: parseBrokerExtraSans(process.env.MQTT_BROKER_EXTRA_SANS),
   hostname: process.env.GATEWAY_HOSTNAME || 'localhost',
   domain: process.env.GATEWAY_DOMAIN || '',
   localAddress: process.env.LOCAL_ADDRESS || 'localhost',

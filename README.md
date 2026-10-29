@@ -189,6 +189,78 @@ daily with seven-day validity; a prolonged admin outage causes fail-closed
 certificate validation when the CRL expires. Service certificates renew within
 30 days of expiry. CA rotation remains an explicit maintenance task.
 
+## Public MQTT hostnames and broker SANs
+
+The Mosquitto server certificate always includes `mqtt-broker` and `localhost`,
+plus configured gateway hostname/domain/local address. Add other DNS names in
+`gateway.env` with the optional variable:
+
+```ini
+MQTT_BROKER_EXTRA_SANS=example.invalid,mqtt.example.com
+```
+
+Use comma-separated DNS names without schemes, paths, ports, wildcards or IP
+addresses. Whitespace is trimmed, names are lowercased, and duplicates removed.
+International names must use ASCII punycode. Invalid entries fail validation.
+With the variable absent or empty, the existing default SAN set is preserved.
+
+New installations and normal service-certificate renewals include these names.
+Editing the variable alone does **not** replace a healthy existing certificate.
+After updating the source, build the admin image and apply configuration changes
+without running a full gateway update:
+
+```sh
+podman build -t localhost/mqtt-trust-admin:latest -f admin-web/Containerfile admin-web
+./gateway broker-certificate
+```
+
+The command reads the current environment file, checks whether an update is
+needed, briefly stops only the admin application to exclude concurrent PKI
+writers, and signs only the broker server certificate using the **existing CA**.
+It preserves the broker key, device certificates, CA key, identities and ACLs.
+Mosquitto restarts once to load the certificate; active MQTT sessions disconnect
+and eligible clients can reconnect. Repeating the command with unchanged SANs and
+a healthy certificate does not replace certificates or restart services. Apply
+any pending console broker changes first; the command refuses to combine them
+with a server-certificate update. Keep a protected backup before maintenance.
+CA expiry or invalid existing key/certificate material requires operator review;
+the command never creates a replacement CA.
+
+For external proxy, use **Raw TCP** forwarding for both public MQTT TLS and native
+MQTT/WSS: for example public `8883` → gateway `8883`, and public `8443` →
+gateway `8443`. Mosquitto terminates TLS and validates client certificates.
+external proxy must forward the encrypted bytes unchanged, without TLS termination or
+PROXY protocol. Allow the corresponding TCP entrypoints, firewall/router ports.
+The admin HTTPS resource on port 443 is separate.
+
+Connect native clients to `wss://example.invalid:8443/mqtt` using
+`server-ca.crt` to validate the server, and `device.crt` / `device.key` for mTLS.
+No `--insecure`, hostname override or disabled TLS validation is needed once the
+public DNS name is present in the broker certificate. The server CA download
+remains valid because this operation does not rotate trust. Check offline:
+
+```sh
+openssl verify -CAfile server-ca.crt -purpose sslserver \
+  -verify_hostname example.invalid broker-server.crt
+```
+
+`broker-server.crt` is a public copy of `runtime/broker/server.crt`; never copy
+`server.key` or `ca.key` to clients. Device topic ACLs remain unchanged.
+
+Verify a deployed endpoint with an already authorized credential package:
+
+```sh
+cd admin-web
+MQTT_TEST_HOST=example.invalid \
+MQTT_TEST_CREDENTIALS=/absolute/path/to/device-credentials \
+MQTT_TEST_TLS_PORT=8883 MQTT_TEST_WSS_PORT=8443 bun run test:public-tls
+```
+
+This opt-in suite validates the actual hostname and CA chain, publishes and
+subscribes at QoS 0/1/2, checks ACL denial outside the identity namespace, and
+rejects connections without a device certificate on both transports. It creates
+no identities and changes no retained messages or permissions.
+
 ## MQTT Manager
 
 The console receives messages through authenticated SSE, with timestamps, topic

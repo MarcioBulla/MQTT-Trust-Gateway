@@ -2,6 +2,7 @@
 """Small rootless lifecycle tool. Environment files are parsed, never executed."""
 
 import argparse
+import fcntl
 import ipaddress
 import os
 from pathlib import Path
@@ -39,6 +40,7 @@ def main():
         choices=[
             "install",
             "update",
+            "broker-certificate",
             "status",
             "logs",
             "restart",
@@ -226,6 +228,36 @@ def main():
         print(
             "Optional reboot persistence: loginctl enable-linger YOUR_USER (host policy may require administrator approval)."
         )
+    elif args.command == "broker-certificate":
+        with (data / ".broker-certificate.lock").open("a") as lock:
+            os.chmod(lock.name, 0o600)
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # Read the latest env in a one-shot container. A running container retains
+            # its old environment; exec alone would silently ignore edited SANs.
+            command = [
+                "podman", "run", "--rm", "--userns=keep-id", "--user",
+                f"{os.getuid()}:{os.getgid()}", "--cap-drop=all",
+                "--security-opt=no-new-privileges", "--security-opt=label=disable",
+                "--network=none", "--read-only",
+                "--tmpfs=/tmp:rw,noexec,nosuid,size=32m", "--env-file", str(args.env),
+                # Do not relabel mounts used by live containers on SELinux hosts.
+                "-v", f"{data}/admin:/data", "-v", f"{data}/broker:/broker",
+                "localhost/mqtt-trust-admin:latest", "node", "src/cli.js",
+            ]
+            check = subprocess.run([*command, "broker-certificate-check"])
+            if check.returncode == 0:
+                return
+            if check.returncode != 10:
+                sys.exit("Broker certificate validation failed; no services were stopped.")
+            run("systemctl", "--user", "is-active", "--quiet", *units)
+            # Prevent concurrent signing/maintenance; the broker stays up until the
+            # complete certificate is published and its revision is submitted.
+            run("systemctl", "--user", "stop", "mqtt-admin.service")
+            try:
+                run(*command, "broker-certificate")
+            finally:
+                run("systemctl", "--user", "start", "mqtt-admin.service")
+            print("CA and device credentials preserved. The broker applies the new certificate once.")
     elif args.command in ["status", "logs", "restart", "stop"]:
         if args.command == "logs":
             run(
