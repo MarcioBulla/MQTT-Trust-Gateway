@@ -13,6 +13,8 @@ const props = defineProps({ embedded: Boolean, deviceId: { type: String, default
 const emit = defineEmits(['updated']);
 const router = useRouter();
 const editTab = ref('licenses');
+const devicesLoading = ref(false), deviceOptionsError = ref('');
+let deviceRequest = 0;
 const method = ref('generate'), dialog = ref(false), certificates = ref([]), devices = ref([]), trustedCas = ref([]),
   search = ref(''), form = ref({ deviceId: '', name: '', algorithm: 'ecdsa-p256', days: 90, csr: '', certificate: '', chain: '', privateKey: '', pendingId: '', previousId: '' }),
   details = ref(null),
@@ -27,9 +29,27 @@ const headers = [
   { title: 'Expires', key: 'validTo', width: '160px' }, { title: 'Status', key: 'status', width: '135px' },
   { title: '', key: 'actions', width: '64px', sortable: false },
 ];
+async function reloadDeviceOptions() {
+  const request = ++deviceRequest;
+  devicesLoading.value = true;
+  deviceOptionsError.value = '';
+  try {
+    const response = await api('/devices');
+    if (request === deviceRequest) devices.value = response.devices;
+  } catch (error) {
+    if (request === deviceRequest) deviceOptionsError.value = `Could not refresh devices: ${error.message}`;
+    throw error;
+  } finally {
+    if (request === deviceRequest) devicesLoading.value = false;
+  }
+}
+function refreshDeviceOptions() {
+  // Keep the form and the selected identity intact; show failures in the dialog.
+  return reloadDeviceOptions().catch(() => {});
+}
 async function load() {
-  const [c, d, ca] = await Promise.all([api('/certificates'), api('/devices'), api('/trusted-cas')]);
-  certificates.value = c.certificates; devices.value = d.devices; trustedCas.value = ca.trustedCas;
+  const [c, , ca] = await Promise.all([api('/certificates'), reloadDeviceOptions(), api('/trusted-cas')]);
+  certificates.value = c.certificates; trustedCas.value = ca.trustedCas;
   emit('updated');
 }
 onMounted(() => action(load));
@@ -37,6 +57,7 @@ function open(methodName) {
   method.value = methodName; preview.value = null; generatedPending.value = null;
   form.value = { deviceId: props.deviceId || '', name: currentDevice.value?.name || '', algorithm: 'ecdsa-p256', days: 90, csr: '', certificate: '', chain: '', privateKey: '', pendingId: '', previousId: '' };
   dialog.value = true;
+  refreshDeviceOptions();
 }
 async function fileText(event, field) {
   const file = event.target.files?.[0];
@@ -154,7 +175,10 @@ defineExpose({ open });
 
   <v-dialog v-model="dialog" max-width="820" scrollable><v-card class="pa-6"><h2 class="text-h5 mb-4">{{ certificateMethods.find((item) => item.value === method)?.title }}</h2>
     <template v-if="!generatedPending">
-      <v-combobox v-model="form.deviceId" :items="deviceOptions" item-title="title" item-value="value" :return-object="false" label="MQTT device identity" hint="Search by name or ID, or enter a new device ID. The ID must match the certificate CN." :disabled="!!props.deviceId" required />
+      <v-combobox v-model="form.deviceId" :items="deviceOptions" item-title="title" item-value="value" :return-object="false" label="MQTT device identity" hint="Search by name or ID, or enter a new device ID. The ID must match the certificate CN." :disabled="!!props.deviceId" :loading="devicesLoading" required>
+        <template #append><v-tooltip text="Refresh devices" location="top" :open-delay="500"><template #activator="{ props: refreshProps }"><v-btn v-bind="refreshProps" icon="mdi-refresh" variant="text" size="small" aria-label="Refresh device identities" :loading="devicesLoading" :disabled="devicesLoading" @click="refreshDeviceOptions" /></template></v-tooltip></template>
+      </v-combobox>
+      <v-alert v-if="deviceOptionsError" type="error" variant="tonal" density="compact" class="mb-4">{{ deviceOptionsError }}. Use Refresh devices to try again.</v-alert>
       <v-text-field v-if="method === 'external' || method === 'import'" v-model="form.name" label="Device name" />
       <v-select v-if="method === 'generate' || method === 'external'" v-model="form.algorithm" label="Key algorithm" :items="[{ title: 'ECDSA P-256 (recommended)', value: 'ecdsa-p256' }, { title: 'RSA-2048', value: 'rsa-2048' }]" />
       <v-text-field v-if="method === 'generate' || method === 'sign'" v-model.number="form.days" type="number" min="1" label="Certificate validity (days)" />

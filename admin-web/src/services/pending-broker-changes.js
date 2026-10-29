@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { env } from '../config.js';
-import { sqlite } from '../db.js';
+import { sqlite, loadDb } from '../db.js';
 
 const descriptions = {
   'certificate.issued': 'Certificate issued',
@@ -42,5 +42,19 @@ export async function pendingBrokerChanges(revision) {
     WHERE ${matchedCursor ? 'id > ?' : 'at >= ?'} AND action IN (${actions.map(() => '?').join(',')}) ORDER BY id`,
     )
     .all(matchedCursor ? cursor.auditId : since, ...actions);
-  return entries.map((entry) => ({ ...entry, summary: descriptions[entry.action] }));
+  const db = loadDb();
+  return entries.map((entry) => {
+    const credentialChange = /^(certificate|license)\./.test(entry.action);
+    const deviceChange = entry.action.startsWith('device.');
+    if (!credentialChange && !deviceChange) return { ...entry, summary: descriptions[entry.action] };
+    const [deviceId, credentialReference] = entry.detail.split(':');
+    const device = db.devices.find((item) => item.id === deviceId);
+    const credential = credentialChange ? db.certificates.find((item) => item.deviceId === deviceId &&
+      (item.serial === credentialReference || item.fingerprint === credentialReference || item.id === credentialReference)) : null;
+    return {
+      ...entry, summary: descriptions[entry.action], deviceId,
+      deviceName: device?.name || deviceId,
+      certificateSerial: credential?.serial || (credentialChange && entry.action !== 'certificate.imported' ? credentialReference : null),
+    };
+  });
 }

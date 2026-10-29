@@ -9,7 +9,7 @@ test('pending changes follow the submitted revision, persist and exclude unrelat
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gateway-pending-'));
   process.env.ADMIN_DATA_DIR = path.join(dir, 'admin');
   process.env.BROKER_CONFIG_DIR = path.join(dir, 'broker');
-  const { sqlite, audit } = await import('../src/db.js');
+  const { sqlite, audit, loadDb, saveDb } = await import('../src/db.js');
   const { pendingBrokerChanges } = await import('../src/services/pending-broker-changes.js');
   await fs.mkdir(process.env.BROKER_CONFIG_DIR);
   const file = (name) => path.join(process.env.BROKER_CONFIG_DIR, name);
@@ -21,6 +21,9 @@ test('pending changes follow the submitted revision, persist and exclude unrelat
   try {
     audit('admin', 'certificate.generated', 'old-device:old-serial');
     await cursor('first');
+    const db = loadDb();
+    db.devices.push({ id: 'new-device', name: 'Weather station', status: 'active' });
+    saveDb(db);
     audit('admin', 'certificate.generated', 'new-device:serial-1');
     audit('admin', 'device.authorization_enabled', 'new-device');
     audit('admin', 'certificate.revoked', 'new-device:serial-0');
@@ -34,6 +37,9 @@ test('pending changes follow the submitted revision, persist and exclude unrelat
       ['Certificate generated', 'Device authorization enabled', 'Certificate revoked'],
     );
     assert.ok(changes.every((change) => change.actor === 'admin'));
+    assert.equal(changes[0].deviceId, 'new-device');
+    assert.equal(changes[0].deviceName, 'Weather station');
+    assert.equal(changes[0].certificateSerial, 'serial-1');
     assert.ok(!JSON.stringify(changes).includes('unrelated'));
     const persisted = JSON.parse(
       execFileSync(
