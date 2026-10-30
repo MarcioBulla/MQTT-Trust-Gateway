@@ -14,14 +14,23 @@ Passkeys require HTTPS with an appropriate RP hostname or localhost. Changing
 RP hostname requires registering new passkeys; existing password/TOTP access
 can be used to do so. Do not bypass secure-context checks.
 
-For a proxy on the shared network use `http://mqtt-admin:8080`. Set PUBLIC_URL
-to the final HTTPS origin, ALLOWED_ORIGINS to any additional exact browser
-origins (comma-separated; no wildcards), and TRUSTED_PROXIES to the proxy's actual
-source IP or narrow CIDR. Do not trust all peers on a shared network. Preserve
-Host; set X-Forwarded-Proto=https. Requests from untrusted peers cannot assert
-HTTPS through forwarding headers. Allow credentials only on the same origin.
-The console uses HTTP REST and server-sent events; disable proxy buffering for
-`/api/mqtt/events`, and allow long-lived responses.
+Set `PUBLIC_URL` to the final HTTPS origin, `ALLOWED_ORIGINS` to any additional
+exact browser origins (comma-separated; no wildcards), preserve the public
+`Host`, and forward `X-Forwarded-Proto: https`. The backend accepts forwarding
+headers only from `TRUSTED_PROXIES`; never trust all peers on a shared network.
+Allow credentials only on the same origin. The console uses HTTP REST and
+server-sent events; disable proxy buffering for `/api/mqtt/events`, and allow
+long-lived responses.
+
+When an external proxy reaches the gateway through the host's loopback-published
+port, rootless port forwarding can hide the proxy's source IP from the admin
+container. In that setup, reserve an unused IPv4 address on `mqtt-gateway.network`
+as `ADMIN_CONTAINER_IP` and set `TRUSTED_PROXIES` to that exact address with `/32`.
+The installer pins the admin container to this address, keeping the trust entry
+stable across restarts. Keep `ADMIN_BIND=127.0.0.1`; do not use a subnet or `*` as
+the trusted proxy list. If the proxy can connect directly to the admin container
+over a network, use the proxy's observed container IP instead and leave
+`ADMIN_CONTAINER_IP` empty.
 
 ## Existing Nginx example (documentation only)
 

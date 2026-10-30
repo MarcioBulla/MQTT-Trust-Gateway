@@ -5,7 +5,7 @@ Wants=mqtt-broker.service
 [Container]
 Image=localhost/mqtt-trust-admin:latest
 ContainerName=mqtt-admin
-Network=mqtt-gateway.network
+Network=mqtt-gateway.network@ADMIN_NETWORK_IP@
 NetworkAlias=mqtt-admin
 UserNS=keep-id
 User=@UID@:@GID@

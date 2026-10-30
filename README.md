@@ -1,6 +1,6 @@
 # MQTT Trust Gateway
 
-**Version 1.0.0** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.0.0.md)
+**Version 1.0.1** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.0.1.md)
 
 A lightweight, self-hosted MQTT gateway for trusted device identities. It combines Eclipse Mosquitto with a Vue 3 / Vuetify 3 admin console and a local certificate authority.
 
@@ -87,6 +87,7 @@ cp gateway.env.example gateway.env
 - The installer validates configuration, builds both local images, prepares persistent directories, installs Quadlets under `~/.config/containers/systemd/`, reloads the user manager, and starts services.
 - Installation is idempotent and parses the env file without executing it as shell code.
 - The admin listener binds to loopback by default: open <http://localhost:8080>.
+- Behind a host-local HTTPS proxy with rootless Podman, reserve `ADMIN_CONTAINER_IP` on `mqtt-gateway.network` and set `TRUSTED_PROXIES` to that exact IP `/32`; see [proxy integration](docs/proxy.md). Never trust an entire shared subnet.
 - Create the first username and password in the browser with the one-time bootstrap token.
 - For another computer, use an SSH local port forward or configure native HTTPS / your own proxy as described in [proxy integration](docs/proxy.md). Remote HTTP administration is rejected. Passkeys require HTTPS or localhost.
 

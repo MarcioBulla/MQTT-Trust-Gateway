@@ -114,6 +114,13 @@ def main():
         sys.exit("Host ports must be distinct.")
     for key, default in [("ADMIN_BIND", "127.0.0.1"), ("MQTT_BIND", "0.0.0.0")]:
         ipaddress.ip_address(env.get(key, default))
+    admin_container_ip = env.get("ADMIN_CONTAINER_IP", "").strip()
+    if admin_container_ip:
+        try:
+            if ipaddress.ip_address(admin_container_ip).version != 4:
+                raise ValueError
+        except ValueError:
+            sys.exit("ADMIN_CONTAINER_IP must be a valid IPv4 address.")
     units = ["mqtt-broker.service", "mqtt-admin.service"]
     if args.command in ["install", "update", "uninstall"]:
         for name in [
@@ -183,6 +190,9 @@ def main():
             "ADMIN_BIND": env.get("ADMIN_BIND", "127.0.0.1"),
             "MQTT_BIND": env.get("MQTT_BIND", "0.0.0.0"),
             "ADMIN_PORT": env.get("ADMIN_APP_PORT", "8080"),
+            "ADMIN_NETWORK_IP": (
+                f":ip={admin_container_ip}" if admin_container_ip else ""
+            ),
             "TLS_PORT": env.get("MQTT_TLS_PORT", "8883"),
             "WS_PORT": env.get("MQTT_WS_PORT", "8443"),
         }
