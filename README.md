@@ -32,8 +32,8 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 4. 🧩 **Per-device rules:** configure MQTT access policies for each device.
 5. ✉️ **SMTP settings:** initially email administrators when licenses are near expiry.
 6. 🩺 **Health checks:** report device heartbeat and online status.
-7. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
-8. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
+7. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
+8. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
 
 ## 🏗️ Architecture
 
