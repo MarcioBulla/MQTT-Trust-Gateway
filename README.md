@@ -26,13 +26,12 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 
 ## 🚧 Work in progress
 
-- 🔄 **Gateway updates and rollback:** check for new MQTT Trust Gateway releases and package updates inside the containers, show available updates in the console, and provide an update button plus a release list in **Settings** for rollback. Apply container package updates through rebuilt images. Preserve persistent data and verify migration compatibility before allowing a rollback.
-- 📦 **Signed firmware and OTA:** add a **Firmware/OTA** tab in the device editor to upload, store, and manage signed firmware. The gateway stores the public verification key and verifies each firmware signature before accepting the upload; the private signing key remains exclusively with the developer. Zephyr devices can check for and download updates directly from the gateway over authenticated HTTPS, and MCUboot verifies the signature again before execution so only authorized firmware is installed.
-- ✉️ **SMTP settings:** configure an outbound mail server and sender identity from **Settings → General**.
-- 🧩 **Per-device rules:** add a dedicated **Rules** tab in the device editor for MQTT access policies.
-- ❔ **Contextual help:** explain certificate and identity operations, trust decisions, and downloadable files where each operation appears.
-- 🩺 **Device health checks:** add a per-device **Health Check** tab, define heartbeat/status reporting and stale thresholds, and show clear online, offline, or unknown states. Never infer device health from certificate validity.
-- 📬 **Offline alerts:** send SMTP alerts when a device remains offline beyond a configurable grace period, with deduplication and optional recovery notifications.
+1. 🔄 **Gateway updates:** update Gateway releases and container packages, with rollback support.
+2. ❔ **Contextual help:** explain certificate operations, trust, and downloadable files.
+3. 🧩 **Per-device rules:** configure MQTT access policies for each device.
+4. ✉️ **SMTP settings:** initially email administrators when licenses are near expiry.
+5. 🩺 **Health checks:** report device heartbeat and online status.
+6. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
 
 ## 🏗️ Architecture
 
