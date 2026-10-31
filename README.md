@@ -26,6 +26,8 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 
 ## 🚧 Work in progress
 
+- 🔄 **Gateway updates and rollback:** check for new MQTT Trust Gateway releases and package updates inside the containers, show available updates in the console, and provide an update button plus a release list in **Settings** for rollback. Apply container package updates through rebuilt images. Preserve persistent data and verify migration compatibility before allowing a rollback.
+- 📦 **Signed firmware and OTA:** add a **Firmware/OTA** tab in the device editor to upload, store, and manage signed firmware. The gateway stores the public verification key and verifies each firmware signature before accepting the upload; the private signing key remains exclusively with the developer. Zephyr devices can check for and download updates directly from the gateway over authenticated HTTPS, and MCUboot verifies the signature again before execution so only authorized firmware is installed.
 - ✉️ **SMTP settings:** configure an outbound mail server and sender identity from **Settings → General**.
 - 🧩 **Per-device rules:** add a dedicated **Rules** tab in the device editor for MQTT access policies.
 - 🩺 **Device health checks:** add a per-device **Health Check** tab and define how devices report status.
