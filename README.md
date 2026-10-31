@@ -30,7 +30,9 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 - 📦 **Signed firmware and OTA:** add a **Firmware/OTA** tab in the device editor to upload, store, and manage signed firmware. The gateway stores the public verification key and verifies each firmware signature before accepting the upload; the private signing key remains exclusively with the developer. Zephyr devices can check for and download updates directly from the gateway over authenticated HTTPS, and MCUboot verifies the signature again before execution so only authorized firmware is installed.
 - ✉️ **SMTP settings:** configure an outbound mail server and sender identity from **Settings → General**.
 - 🧩 **Per-device rules:** add a dedicated **Rules** tab in the device editor for MQTT access policies.
-- 🩺 **Device health checks:** add a per-device **Health Check** tab and define how devices report status.
+- ❔ **Contextual help:** explain certificate and identity operations, trust decisions, and downloadable files where each operation appears.
+- 🩺 **Device health checks:** add a per-device **Health Check** tab, define heartbeat/status reporting and stale thresholds, and show clear online, offline, or unknown states. Never infer device health from certificate validity.
+- 📬 **Offline alerts:** send SMTP alerts when a device remains offline beyond a configurable grace period, with deduplication and optional recovery notifications.
 
 ## 🏗️ Architecture
 
@@ -393,11 +395,6 @@ Restore into an empty `DATA_DIR` (never over live data):
 - Keep CA key, CA index, SQLite, and TOTP encryption key together. Losing the TOTP encryption key makes enrolled seeds unusable.
 - Installer updates preserve identities and certificates. Back up before upgrading.
 - Removing legacy CA/proxy/Compose services is a deliberate operator task after migration; the new installer does not manage them.
-
-## 🗺️ Planned
-
-- 📶 Define heartbeat/status reporting and stale thresholds, with clear online, offline, and unknown states. Device health must never be inferred from certificate validity.
-- 📬 Send SMTP alerts when a device remains offline beyond a configurable grace period, with deduplication and optional recovery notifications.
 
 ## 🧪 Development and verification
 
