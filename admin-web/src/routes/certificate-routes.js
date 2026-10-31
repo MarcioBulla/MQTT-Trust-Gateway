@@ -8,6 +8,7 @@ import { loadDb, saveDb, audit } from '../db.js';
 import {
   certificateMetadata,
   signDeviceCsr,
+  renewDeviceCertificate,
   revokeCertificate,
   certificateIsInCrl,
   stageBroker as syncBroker,
@@ -100,11 +101,15 @@ async function issue(req, res, previous) {
   const device = db.devices.find((d) => d.id === deviceId);
   if (!device || device.status !== 'active')
     return res.status(409).json({ error: 'Register or restore the device before provisioning' });
-  const csr = req.body.csr || previous?.csr;
-  if (typeof csr !== 'string' || !csr.includes('BEGIN CERTIFICATE REQUEST'))
+  if (previous && (previous.status !== 'active' || previous.licenseArchivedAt || previous.licenseDeletedAt || !['local', 'legacy'].includes(previous.issuer)))
+    return res.status(409).json({ error: 'Only active local-CA certificates can be renewed. External certificates must be renewed by their issuing CA.' });
+  const csr = previous ? previous.csr || '' : req.body.csr;
+  if (!previous && (typeof csr !== 'string' || !csr.includes('BEGIN CERTIFICATE REQUEST')))
     return res.status(400).json({ error: 'A PEM CSR is required' });
-  const certificate = await signDeviceCsr({ deviceId, csr, days: req.body.days });
-  const record = addIssuedRecord(db, { deviceId, certificate, csr, issuedBy: req.user.username, renewedFrom: previous?.id || '', method: 'csr' });
+  const certificate = previous
+    ? await renewDeviceCertificate({ deviceId, certificate: previous.certificate, days: req.body.days })
+    : await signDeviceCsr({ deviceId, csr, days: req.body.days });
+  const record = addIssuedRecord(db, { deviceId, certificate, csr, issuedBy: req.user.username, renewedFrom: previous?.id || '', method: previous?.provisioningMethod || 'csr', brokerTrusted: previous?.brokerTrusted !== false });
   saveDb(db);
   await syncBroker();
   audit(

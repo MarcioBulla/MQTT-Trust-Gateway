@@ -54,6 +54,22 @@ export async function api(url, method = 'GET', body, verificationRetried = false
     state.busy--;
   }
 }
+export async function downloadApiFile(url, filename, verificationRetried = false) {
+  const response = await fetch(`/api${url}`, { credentials: 'same-origin', cache: 'no-store' });
+  if (!response.ok) {
+    const data = await response.json();
+    if (response.status === 403 && data.stepUpRequired && !verificationRetried && stepUpHandler) {
+      await stepUpHandler(data.scope);
+      return downloadApiFile(url, filename, true);
+    }
+    if (response.status === 401) state.user = null;
+    throw new Error(data.error || 'Download failed');
+  }
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl; anchor.download = filename; anchor.click();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
 export async function action(fn, success = '') {
   const immediate = shiftClick, previousMutation = brokerMutation, previousPending = state.brokerChanges?.pendingRevision;
   state.error = '';

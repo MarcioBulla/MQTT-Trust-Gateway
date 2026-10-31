@@ -7,7 +7,7 @@ import RowActions from '../components/RowActions.vue';
 import DataList from '../components/DataList.vue';
 import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, action, state, copy } from '../api';
+import { api, action, state, copy, downloadApiFile } from '../api';
 import { certificateMethods } from '../certificate-methods';
 const props = defineProps({ licenses: Boolean });
 const emit = defineEmits(['add-certificate']);
@@ -160,11 +160,16 @@ function editCredentials(deviceId) {
 function sign() {
   action(async () => {
     const i = issue.value;
-    await api(i.previous ? `/certificates/${i.previous}/renew` : '/certificates/sign', 'POST', {
+    const result = await api(i.previous ? `/certificates/${i.previous}/renew` : '/certificates/sign', 'POST', {
       deviceId: i.deviceId,
       csr: i.csr || undefined,
       days: Number(i.days),
     });
+    if (i.previous) {
+      const url = URL.createObjectURL(new Blob([result.certificate], { type: 'application/x-pem-file' }));
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'device.crt'; anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
     issueDialog.value = false;
     await load();
   }, 'Certificate issued. Download it from the certificate history.');
@@ -274,9 +279,9 @@ const licenseCounts = (status) =>
       <template #item.enabled="{ item }"><div class="d-flex align-center ga-2"><v-switch :model-value="isAuthorized(item)" :disabled="!canAuthorize(item) && !isAuthorized(item)" color="success" density="compact" hide-details :aria-label="`Authorize ${item.id} for MQTT`" @update:model-value="updateAuthorization(item, $event)" /><span class="text-caption">{{ isAuthorized(item) ? 'Authorized' : canAuthorize(item) ? 'Disabled' : 'No valid credential' }}</span></div></template>
       <template #item.actions="{ item }"><div class="d-flex align-center justify-end ga-1"><v-btn size="small" variant="tonal" prepend-icon="mdi-pencil-outline" @click="editCredentials(item.id)">Edit</v-btn><RowActions label="Device actions" :disabled="!!state.busy">
         <v-list-item prepend-icon="mdi-information-outline" title="Details" @click="details = item" />
-        <v-list-item v-if="item.latestCertificate?.canDownload" prepend-icon="mdi-download" title="Download certificate" :href="`/api/certificates/${item.latestCertificate.id}/download`" />
-        <v-list-item v-if="item.latestCertificate && ['active', 'expiring', 'untrusted'].includes(item.latestCertificate.status)" prepend-icon="mdi-autorenew" title="Renew / replace certificate" @click="openIssue(item.id, item.latestCertificate.id)" />
-        <v-list-item v-if="item.latestCertificate && ['active', 'expiring', 'untrusted'].includes(item.latestCertificate.status)" prepend-icon="mdi-cancel" title="Revoke certificate" @click="confirm = { cert: item.latestCertificate }" />
+        <v-list-item v-if="item.latestCertificate?.canDownload" prepend-icon="mdi-download" title="Download certificate" @click="action(() => downloadApiFile(`/certificates/${item.latestCertificate.id}/download`, 'device.crt'))" />
+        <v-list-item v-if="item.latestCertificate && ['active', 'expiring'].includes(item.latestCertificate.status) && ['local', 'legacy'].includes(item.latestCertificate.issuer)" prepend-icon="mdi-autorenew" title="Renew" @click="openIssue(item.id, item.latestCertificate.id)" />
+        <v-list-item v-if="item.latestCertificate && ['active', 'expiring'].includes(item.latestCertificate.status) && ['local', 'legacy'].includes(item.latestCertificate.issuer)" prepend-icon="mdi-cancel" title="Revoke certificate" @click="confirm = { cert: item.latestCertificate }" />
         <v-list-item prepend-icon="mdi-certificate-plus" title="Issue certificate" :disabled="item.status !== 'active'" @click="openIssue(item.id)" />
         <v-list-item prepend-icon="mdi-shield-check-outline" :title="isAuthorized(item) ? 'Disable authorization' : 'Approve & authorize'" :disabled="!isAuthorized(item) && !canAuthorize(item)" @click="isAuthorized(item) ? updateAuthorization(item, false) : updateAuthorization(item, true)" />
         <v-list-item prepend-icon="mdi-archive-arrow-down-outline" title="Archive device" @click="confirm = { device: item, action: 'archive' }" />
@@ -306,8 +311,8 @@ const licenseCounts = (status) =>
         ><v-chip size="small" :color="color(item.status)">{{ item.status }}</v-chip></template
       >
       <template #item.actions="{ item }"><div class="d-flex align-center justify-end ga-1"><v-btn size="small" variant="tonal" prepend-icon="mdi-pencil-outline" @click="editCredentials(item.deviceId)">Edit</v-btn><RowActions label="License actions" :disabled="!!state.busy">
-        <v-list-item v-if="item.canDownload" prepend-icon="mdi-download" title="Download certificate" :href="`/api/certificates/${item.id}/download`" />
-        <v-list-item prepend-icon="mdi-autorenew" title="Renew / replace" @click="openIssue(item.deviceId, item.id)" />
+        <v-list-item v-if="item.canDownload" prepend-icon="mdi-download" title="Download certificate" @click="action(() => downloadApiFile(`/certificates/${item.id}/download`, 'device.crt'))" />
+        <v-list-item v-if="['active', 'expiring'].includes(item.status) && ['local', 'legacy'].includes(item.issuer)" prepend-icon="mdi-autorenew" title="Renew" @click="openIssue(item.deviceId, item.id)" />
         <v-list-item v-if="item.status !== 'revoked'" prepend-icon="mdi-cancel" title="Revoke certificate" class="text-error" @click="confirm = { cert: item }" />
         <v-list-item v-if="!item.licenseArchivedAt" prepend-icon="mdi-archive-arrow-down-outline" title="Archive license" @click="confirm = { license: item, action: 'archive' }" />
         <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete license" class="text-error" @click="confirm = { license: item, action: 'delete' }" />
@@ -345,12 +350,13 @@ const licenseCounts = (status) =>
       ><h2 class="text-h5 mb-3">
         {{ issue.previous ? 'Renew' : 'Issue' }} certificate · {{ issue.deviceId }}
       </h2>
-      <p class="text-body-2 mb-4">
+      <p v-if="!issue.previous" class="text-body-2 mb-4">
         Generate the private key on the device. Paste a signed PEM CSR. A renewal can reuse the
         previous CSR when this field is empty.
       </p>
+      <p v-else class="text-body-2 mb-4">Issue a new certificate from the registered public key. Validity starts today. The Gateway does not store or request the device private key. Install the new certificate on the device and continue using the private key already stored there.</p>
       <v-form @submit.prevent="sign"
-        ><v-textarea
+        ><v-textarea v-if="!issue.previous"
           v-model="issue.csr"
           label="Certificate signing request (PEM)"
           rows="9"
@@ -364,7 +370,7 @@ const licenseCounts = (status) =>
         />
         <div class="d-flex justify-end ga-2">
           <v-btn @click="issueDialog = false">Cancel</v-btn
-          ><v-btn color="primary" type="submit" :loading="!!state.busy">Issue certificate</v-btn>
+          ><v-btn color="primary" type="submit" :loading="!!state.busy">{{ issue.previous ? 'Renew' : 'Issue certificate' }}</v-btn>
         </div></v-form
       ></v-card
     ></v-dialog

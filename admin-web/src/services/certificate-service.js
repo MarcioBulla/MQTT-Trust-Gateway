@@ -252,6 +252,40 @@ export async function issueGeneratedCertificate({ deviceId, algorithm, days }) {
   return { certificate, privateKey: pair.privateKey };
 }
 
+// Reissue the registered public key; device private keys are never needed.
+// Callers serialize CA mutations through the existing database mutation queue.
+export async function renewDeviceCertificate({ deviceId, certificate, days = env.certDays }) {
+  days = Number(days);
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(deviceId) || deviceId === env.adminMqttClientId)
+    throw new Error('Invalid or reserved device identifier');
+  if (!Number.isInteger(days) || days < 1 || days > env.maxCertDays)
+    throw new Error(`Validity must be 1–${env.maxCertDays} days`);
+  const current = new crypto.X509Certificate(certificate);
+  const signer = new crypto.X509Certificate(await fs.readFile(ca('ca.crt')));
+  if (current.ca || current.subject !== `CN=${deviceId}` || !current.checkIssued(signer) || !current.verify(signer.publicKey))
+    throw new Error('Only certificates issued by the current local CA can be renewed here');
+  if (await certificateIsInCrl(current.serialNumber)) throw new Error('Revoked certificates cannot be renewed');
+  if (Date.now() + days * 86400000 >= Date.parse(signer.validTo))
+    throw new Error('Requested validity exceeds CA validity');
+  return work(async (dir) => {
+    const publicKey = path.join(dir, 'public.pem'), output = path.join(dir, 'certificate.crt');
+    const source = path.join(dir, 'current.crt');
+    await fs.writeFile(source, certificate, { mode: 0o600 });
+    await openssl(['verify', '-CAfile', ca('ca.crt'), '-CRLfile', ca('ca.crl'), '-crl_check', source]);
+    await fs.writeFile(publicKey, current.publicKey.export({ type: 'spki', format: 'pem' }), { mode: 0o600 });
+    const serial = BigInt(`0x${(await fs.readFile(ca('serial'), 'utf8')).trim()}`);
+    // Reserve before signing so any failure can only leave an unused serial.
+    const nextSerial = (serial + 1n).toString(16).toUpperCase();
+    await atomic(ca('serial'), `${nextSerial.padStart(nextSerial.length + nextSerial.length % 2, '0')}\n`);
+    await openssl(['x509', '-new', '-force_pubkey', publicKey, '-subj', `/CN=${deviceId}`,
+      '-CA', ca('ca.crt'), '-CAkey', ca('ca.key'), '-set_serial', `0x${serial.toString(16)}`,
+      '-days', String(days), '-sha256', '-extfile', ca('openssl.cnf'), '-extensions', 'client', '-out', output]);
+    // Register in the same OpenSSL index used by issuance and CRL revocation.
+    await openssl(['ca', '-config', ca('openssl.cnf'), '-valid', output]);
+    return fs.readFile(output, 'utf8');
+  });
+}
+
 export async function importClientCertificate({ certificate: value, chain = '', privateKey = '', expectedPublicKey = '' }) {
   const certPem = pemCertificates(value)[0];
   if (!certPem) throw new Error('A PEM X.509 client certificate is required');

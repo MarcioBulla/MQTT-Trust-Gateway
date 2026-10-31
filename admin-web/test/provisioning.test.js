@@ -27,6 +27,27 @@ test('provisioning supports both approved algorithms and private keys remain out
   assert.equal(JSON.stringify(loadDb()).includes('privateKey'), false);
 });
 
+test('renewal needs no CSR or private key, preserves both supported keys and remains revocable', async () => {
+  for (const algorithm of ['ecdsa-p256', 'rsa-2048']) {
+    const deviceId = `renew-${algorithm}`;
+    const issued = await pki.issueGeneratedCertificate({ deviceId, algorithm, days: 2 });
+    const renewed = await pki.renewDeviceCertificate({ deviceId, certificate: issued.certificate, days: 30 });
+    const before = new crypto.X509Certificate(issued.certificate), after = new crypto.X509Certificate(renewed);
+    assert.equal(after.checkPrivateKey(crypto.createPrivateKey(issued.privateKey)), true);
+    assert.notEqual(before.serialNumber, after.serialNumber);
+    assert.ok(Date.parse(after.validTo) > Date.parse(before.validTo));
+    assert.equal(after.verify(new crypto.X509Certificate(await fs.readFile(path.join(root, 'ca/ca.crt'))).publicKey), true);
+    await assert.rejects(pki.renewDeviceCertificate({ deviceId: 'wrong-device', certificate: renewed, days: 30 }));
+    await assert.rejects(pki.renewDeviceCertificate({ deviceId, certificate: renewed, days: 99999 }));
+    const next = await pki.issueGeneratedCertificate({ deviceId, algorithm, days: 2 });
+    assert.notEqual(new crypto.X509Certificate(next.certificate).serialNumber, after.serialNumber);
+    await pki.revokeCertificate({ certificate: renewed });
+    assert.equal(await pki.certificateIsInCrl(after.serialNumber), true);
+    await assert.rejects(pki.renewDeviceCertificate({ deviceId, certificate: renewed, days: 30 }));
+    assert.equal(await pki.certificateIsInCrl(before.serialNumber), false);
+  }
+});
+
 test('external CSR validation, identity override, CSR matching and untrusted issuer handling', async () => {
   const pendingId = crypto.randomUUID();
   const generated = await pki.generateExternalCsr({ deviceId: 'external-sensor', algorithm: 'ecdsa-p256', pendingId });
