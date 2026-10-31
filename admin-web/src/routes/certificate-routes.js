@@ -16,6 +16,7 @@ import {
   generateExternalCsr,
   takePendingPrivateKey,
   confirmPendingPrivateKey,
+  discardPendingPrivateKey,
   issueGeneratedCertificate,
   importClientCertificate,
   addTrustedCa,
@@ -103,13 +104,28 @@ async function issue(req, res, previous) {
     return res.status(409).json({ error: 'Register or restore the device before provisioning' });
   if (previous && (previous.status !== 'active' || previous.licenseArchivedAt || previous.licenseDeletedAt || !['local', 'legacy'].includes(previous.issuer)))
     return res.status(409).json({ error: 'Only active local-CA certificates can be renewed. External certificates must be renewed by their issuing CA.' });
-  const csr = previous ? previous.csr || '' : req.body.csr;
+  if (previous && req.body.csr !== undefined && typeof req.body.csr !== 'string')
+    return res.status(400).json({ error: 'A PEM CSR is required when rotating the device key' });
+  const suppliedCsr = typeof req.body.csr === 'string' ? req.body.csr.trim() : '';
+  const csr = previous ? suppliedCsr || previous.csr || '' : req.body.csr;
   if (!previous && (typeof csr !== 'string' || !csr.includes('BEGIN CERTIFICATE REQUEST')))
     return res.status(400).json({ error: 'A PEM CSR is required' });
+  if (previous && suppliedCsr && !suppliedCsr.includes('BEGIN CERTIFICATE REQUEST'))
+    return res.status(400).json({ error: 'A PEM CSR is required when rotating the device key' });
   const certificate = previous
-    ? await renewDeviceCertificate({ deviceId, certificate: previous.certificate, days: req.body.days })
+    ? suppliedCsr
+      ? await signDeviceCsr({ deviceId, csr: suppliedCsr, days: req.body.days })
+      : await renewDeviceCertificate({ deviceId, certificate: previous.certificate, days: req.body.days })
     : await signDeviceCsr({ deviceId, csr, days: req.body.days });
-  const record = addIssuedRecord(db, { deviceId, certificate, csr, issuedBy: req.user.username, renewedFrom: previous?.id || '', method: previous?.provisioningMethod || 'csr', brokerTrusted: previous?.brokerTrusted !== false });
+  const record = addIssuedRecord(db, {
+    deviceId,
+    certificate,
+    csr: previous ? suppliedCsr || previous.csr || '' : csr,
+    issuedBy: req.user.username,
+    renewedFrom: previous?.id || '',
+    method: previous ? (suppliedCsr ? 'csr' : previous.provisioningMethod || 'csr') : 'csr',
+    brokerTrusted: previous?.brokerTrusted !== false,
+  });
   saveDb(db);
   await syncBroker();
   audit(
@@ -219,6 +235,15 @@ export function registerCertificateRoutes(app) {
     const record = { id: pendingId, deviceId: device.id, csr: generated.csr, publicKey: generated.publicKey, publicKeyFingerprint: generated.preview.publicKeyFingerprint, algorithm: generated.algorithm, subject: generated.preview.subject, provisioningMethod: 'external-csr', status: 'pending_external_signature', issuedAt: new Date().toISOString(), issuedBy: req.user.username, privateKeyReceived: false };
     db.certificates.unshift(record); saveDb(db); audit(req.user.username, 'certificate.external_csr_created', `${device.id}:${record.id}`);
     res.status(201).json({ record: publicCertificate(record), csr: generated.csr, keyDeliveryExpiresInSeconds: 900 });
+  }));
+  app.delete('/api/certificates/:id/pending', requireAuth(async (req, res) => {
+    const db = loadDb(), record = find(db, req.params.id);
+    if (record.status !== 'pending_external_signature') return res.status(409).json({ error: 'Only a pending external CSR can be cancelled' });
+    db.certificates = db.certificates.filter((item) => item.id !== record.id);
+    discardPendingPrivateKey(record.id);
+    saveDb(db);
+    audit(req.user.username, 'certificate.external_csr_cancelled', `${record.deviceId}:${record.id}`);
+    res.json({ ok: true });
   }));
   app.get('/api/certificates/:id/private-key-once', requireAuth(async (req, res) => {
     const db = loadDb(), record = find(db, req.params.id);

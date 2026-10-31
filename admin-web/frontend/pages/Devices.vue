@@ -27,7 +27,7 @@ const devices = ref([]),
   labelColor = ref('blue'),
   labelMenuDevice = ref(null);
 const form = ref({ id: '', name: '', description: '', labels: '' }),
-  issue = ref({ deviceId: '', csr: '', days: 90, previous: null });
+  issue = ref({ deviceId: '', csr: '', days: 90, previous: null, renewalMode: 'reuse-key' });
 const headers = [
   { title: 'Name', key: 'name', width: '180px', maxWidth: '200px' },
   { title: 'Labels', key: 'labels', width: '170px', maxWidth: '190px' },
@@ -151,7 +151,7 @@ function removeLabel(device, name) {
 }
 const connectionColor = (status) => ({ connected: 'success', online: 'success', offline: 'error', disconnected: 'error' })[String(status || '').toLowerCase()] || 'medium-emphasis';
 function openIssue(id, previous = null) {
-  issue.value = { deviceId: id, previous, csr: '', days: issue.value.days };
+  issue.value = { deviceId: id, previous, csr: '', days: issue.value.days, renewalMode: 'reuse-key' };
   issueDialog.value = true;
 }
 function editCredentials(deviceId) {
@@ -162,7 +162,7 @@ function sign() {
     const i = issue.value;
     const result = await api(i.previous ? `/certificates/${i.previous}/renew` : '/certificates/sign', 'POST', {
       deviceId: i.deviceId,
-      csr: i.csr || undefined,
+      csr: i.previous ? (i.renewalMode === 'new-csr' ? i.csr : undefined) : i.csr || undefined,
       days: Number(i.days),
     });
     if (i.previous) {
@@ -172,7 +172,11 @@ function sign() {
     }
     issueDialog.value = false;
     await load();
-  }, 'Certificate issued. Download it from the certificate history.');
+  }, issue.value.previous
+    ? issue.value.renewalMode === 'new-csr'
+      ? 'Certificate renewed. Install the downloaded certificate with the matching private key generated on the device.'
+      : 'Certificate renewed. Install the downloaded certificate and keep using the current private key.'
+    : 'Certificate issued. Download it from the certificate history.');
 }
 function executeConfirm() {
   action(async () => {
@@ -351,16 +355,23 @@ const licenseCounts = (status) =>
         {{ issue.previous ? 'Renew' : 'Issue' }} certificate · {{ issue.deviceId }}
       </h2>
       <p v-if="!issue.previous" class="text-body-2 mb-4">
-        Generate the private key on the device. Paste a signed PEM CSR. A renewal can reuse the
-        previous CSR when this field is empty.
+        Generate a private key and CSR on the device, then submit the CSR for signing. Keep the
+        private key on the device; the Gateway only receives the public request.
       </p>
-      <p v-else class="text-body-2 mb-4">Issue a new certificate from the registered public key. Validity starts today. The Gateway does not store or request the device private key. Install the new certificate on the device and continue using the private key already stored there.</p>
+      <p v-else class="text-body-2 mb-3">Choose whether to keep the device key or rotate it. The Gateway never receives or stores a device private key.</p>
+      <p v-if="!issue.previous" class="text-body-2 mb-4">Generate a private key and CSR on the device, then submit the CSR for signing. Keep the private key on the device.</p>
       <v-form @submit.prevent="sign"
-        ><v-textarea v-if="!issue.previous"
+        ><v-radio-group v-if="issue.previous" v-model="issue.renewalMode" class="mb-2">
+          <v-radio value="reuse-key" label="Keep the current public key" />
+          <v-radio value="new-csr" label="Sign a new CSR generated on the device" />
+        </v-radio-group>
+        <p v-if="issue.previous && issue.renewalMode === 'reuse-key'" class="text-body-2 text-medium-emphasis">The new certificate uses the public key from the current certificate. Install it on the device and keep using its existing private key.</p>
+        <p v-else-if="issue.previous" class="text-body-2 text-medium-emphasis">Generate a new private key and CSR on the device, then paste the CSR below. Keep the private key on the device; install it with the newly signed certificate.</p>
+        <v-textarea v-if="!issue.previous || issue.renewalMode === 'new-csr'"
           v-model="issue.csr"
-          label="Certificate signing request (PEM)"
+          label="Device CSR (PEM)"
           rows="9"
-          :required="!issue.previous"
+          required
         /><v-text-field
           v-model="issue.days"
           label="Validity in days"

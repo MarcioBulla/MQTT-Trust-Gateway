@@ -245,6 +245,12 @@ export function confirmPendingPrivateKey(pendingId) {
   return true;
 }
 
+export function discardPendingPrivateKey(pendingId) {
+  const wasPending = pendingPrivateKeys.delete(pendingId);
+  const wasDelivered = deliveredPrivateKeys.delete(pendingId);
+  return wasPending || wasDelivered;
+}
+
 export async function issueGeneratedCertificate({ deviceId, algorithm, days }) {
   const pair = generateKeyPair(algorithm);
   const csr = await createCsr(deviceId, pair.privateKey);

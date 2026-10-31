@@ -18,10 +18,16 @@ const editTab = ref('licenses');
 const renewal = ref(null), renewalDays = ref(90);
 function submitRenewal() {
   action(async () => {
-    const result = await api(`/certificates/${renewal.value.id}/renew`, 'POST', { days: Number(renewalDays.value) });
+    const current = renewal.value;
+    const result = await api(`/certificates/${current.id}/renew`, 'POST', {
+      days: Number(renewalDays.value),
+      csr: current.mode === 'new-csr' ? current.csr : undefined,
+    });
     download('device.crt', result.certificate);
     renewal.value = null; await load();
-  }, 'Certificate renewed and downloaded. Install the new certificate on the device; keep its existing private key.');
+  }, renewal.value?.mode === 'new-csr'
+    ? 'Certificate renewed and downloaded. Install it with the matching private key generated on the device.'
+    : 'Certificate renewed and downloaded. Install it on the device and keep using its current private key.');
 }
 const devicesLoading = ref(false), deviceOptionsError = ref('');
 let deviceRequest = 0;
@@ -139,7 +145,14 @@ async function confirmKeyReceived() {
   }).then((message) => { if (message) state.notice = message; });
 }
 function importPending(item) { open('import'); form.value.deviceId = item.deviceId; form.value.pendingId = item.id; }
-function renew(item) { renewal.value = { id: item.id, deviceId: item.deviceId }; renewalDays.value = 90; }
+function cancelPending(item) {
+  if (!confirm(`Cancel the pending external CSR for ${item.deviceId} and remove it from the certificate list? This removes the Gateway's pending key material. If you already downloaded the private key, delete your copy if it is no longer needed.`)) return;
+  action(async () => {
+    await api(`/certificates/${item.id}/pending`, 'DELETE', {});
+    await load();
+  }, 'Pending external CSR cancelled and removed.');
+}
+function renew(item) { renewal.value = { id: item.id, deviceId: item.deviceId, mode: 'reuse-key', csr: '' }; renewalDays.value = 90; }
 function exportInfo(item) { download(`${item.deviceId}-${item.serial || item.id}.json`, new Blob([JSON.stringify(item, null, 2)], { type: 'application/json' })); }
 function revoke(item) {
   if (!confirm(`Revoke certificate ${item.serial}? Apply pending broker changes to enforce revocation.`)) return;
@@ -184,6 +197,7 @@ defineExpose({ open });
       <v-list-item v-if="item.canDownload" title="Download certificate" prepend-icon="mdi-download" @click="action(() => downloadApiFile(`/certificates/${item.id}/download`, 'device.crt'))" />
       <v-list-item v-if="item.canDownload" title="Issuer chain" prepend-icon="mdi-certificate-outline" @click="action(() => downloadApiFile(`/certificates/${item.id}/chain`, 'client-ca.crt'))" />
       <v-list-item v-if="item.status === 'pending_external_signature'" title="Import signed certificate" prepend-icon="mdi-file-sign" @click="importPending(item)" />
+      <v-list-item v-if="item.status === 'pending_external_signature'" title="Cancel pending CSR" prepend-icon="mdi-close-circle-outline" class="text-error" @click="cancelPending(item)" />
       <v-list-item v-if="['active', 'expiring'].includes(item.status) && ['local', 'legacy'].includes(item.issuer)" title="Renew" prepend-icon="mdi-autorenew" @click="renew(item)" />
       <v-list-item title="Export info" prepend-icon="mdi-export-variant" @click="exportInfo(item)" />
       <v-list-item v-if="['active', 'untrusted', 'expiring'].includes(item.status)" title="Revoke certificate" prepend-icon="mdi-cancel" class="text-error" @click="revoke(item)" />
@@ -208,6 +222,6 @@ defineExpose({ open });
     </template>
     <template v-else><v-alert type="warning" variant="tonal">Download this private key now. The Gateway keeps no disk copy and cannot recover it. After saving it securely, confirm receipt.</v-alert><div class="d-flex ga-2 mt-4"><v-btn :disabled="generatedPending.keyDownloaded" @click="deliverPendingKey">Download private key once</v-btn><v-btn color="primary" :disabled="!generatedPending.keyDownloaded" @click="confirmKeyReceived">I stored this key securely</v-btn></div></template>
   </v-card></v-dialog>
-  <v-dialog :model-value="!!renewal" max-width="520" @update:model-value="renewal = null"><v-card class="pa-6"><h2 class="text-h5 mb-3">Renew certificate · {{ renewal?.deviceId }}</h2><p class="text-body-2 mb-4">Issue a new certificate from the registered public key. Validity starts today. The Gateway does not store or request the device private key. Install the new certificate on the device and continue using the private key already stored there.</p><v-form @submit.prevent="submitRenewal"><v-text-field v-model.number="renewalDays" type="number" min="1" label="Validity from today (days)" required /><div class="d-flex justify-end ga-2"><v-btn @click="renewal = null">Cancel</v-btn><v-btn color="primary" type="submit" :loading="!!state.busy">Renew</v-btn></div></v-form></v-card></v-dialog>
+  <v-dialog :model-value="!!renewal" max-width="680" @update:model-value="renewal = null"><v-card class="pa-6"><h2 class="text-h5 mb-3">Renew certificate · {{ renewal?.deviceId }}</h2><p class="text-body-2 mb-3">Choose whether to keep the device key or rotate it. The Gateway never receives or stores a device private key.</p><v-form @submit.prevent="submitRenewal"><v-radio-group v-model="renewal.mode" class="mb-2"><v-radio value="reuse-key" label="Keep the current public key" /><v-radio value="new-csr" label="Sign a new CSR generated on the device" /></v-radio-group><p v-if="renewal.mode === 'reuse-key'" class="text-body-2 text-medium-emphasis">The new certificate uses the public key from the current certificate. Install it on the device and keep using its existing private key.</p><template v-else><p class="text-body-2 text-medium-emphasis">Generate a new private key and CSR on the device, then paste the CSR below. Keep the private key on the device; install it with the newly signed certificate.</p><v-textarea v-model="renewal.csr" label="New device CSR (PEM)" rows="8" required /></template><v-text-field v-model.number="renewalDays" type="number" min="1" label="Validity from today (days)" required /><div class="d-flex justify-end ga-2"><v-btn @click="renewal = null">Cancel</v-btn><v-btn color="primary" type="submit" :loading="!!state.busy">Renew</v-btn></div></v-form></v-card></v-dialog>
   <v-dialog v-model="details" max-width="720"><v-card v-if="details" class="pa-6"><h2 class="text-h5 mb-4">{{ details.deviceId }} certificate</h2><v-table density="compact"><tbody><tr><th>Provisioning</th><td>{{ details.provisioningMethod }}</td></tr><tr><th>Subject</th><td>{{ details.subject || 'Pending external signature' }}</td></tr><tr><th>SAN</th><td><SensitiveValue scope="devices" :value="details.san" label="Certificate san" /></td></tr><tr><th>Serial</th><td><SensitiveValue scope="devices" :value="details.serial" label="Certificate serial" /></td></tr><tr><th>SHA-256 fingerprint</th><td class="text-break"><SensitiveValue scope="devices" :value="details.fingerprint" label="Certificate fingerprint" /></td></tr><tr><th>Issuer</th><td>{{ details.issuerName || details.issuer || 'Pending' }}</td></tr><tr><th>Algorithm</th><td>{{ details.algorithm }}</td></tr><tr><th>Validity</th><td>{{ formatDateTime(details.validFrom) }} → {{ formatDateTime(details.validTo) }}</td></tr><tr><th>Certificate state</th><td>{{ details.status }}</td></tr><tr><th>Broker trust</th><td>{{ details.brokerTrusted === false ? 'Not trusted; cannot connect' : 'Trusted' }}</td></tr><tr><th>Renewed from</th><td>{{ details.renewedFrom || '—' }}</td></tr></tbody></v-table><div class="d-flex justify-end mt-5"><v-btn @click="details = null">Close</v-btn></div></v-card></v-dialog>
 </template>
