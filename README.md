@@ -28,6 +28,7 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 
 1. 🔄 **Gateway updates:** update Gateway releases and container packages, with rollback support.
 2. ❔ **Contextual help:** explain certificate operations, trust, and downloadable files.
+2.5. 🔐 **MCU certificate renewal:** improve the renewal workflow for MCU devices.
 3. 🧩 **Per-device rules:** configure MQTT access policies for each device.
 4. ✉️ **SMTP settings:** initially email administrators when licenses are near expiry.
 5. 🩺 **Health checks:** report device heartbeat and online status.
