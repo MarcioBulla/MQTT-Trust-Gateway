@@ -34,6 +34,10 @@ test('ordinary device metadata stays visible while serials and fingerprints requ
     const certificate = devices[0].certificates[0];
     for (const field of ['subject', 'algorithm', 'provisioningMethod', 'issuedAt', 'validFrom', 'validTo', 'status']) assert.ok(certificate[field]);
     assert.equal((await get('/certificates/certificate-id/download')).status, 403);
+    const chainDenied = await get('/certificates/certificate-id/chain');
+    assert.equal(chainDenied.status, 403);
+    assert.equal(chainDenied.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await chainDenied.json(), { error: 'Additional authentication required', stepUpRequired: true, scope: 'devices' });
     const grant = sensitiveGrants.issue({ userId: user.id, sessionId: sessionKey({ headers: { cookie } }), scope: 'devices' });
     const revealedCookie = `${cookie}; sensitive_devices=${grant.token}`;
     const revealed = await (await get('/certificates', revealedCookie)).json(); assert.equal(revealed.certificates[0].serial, 'SECRET-SERIAL');
