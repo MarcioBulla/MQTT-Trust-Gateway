@@ -12,6 +12,11 @@ const ca = (name) => path.join(env.caDir, name);
 const broker = (name) => path.join(env.brokerDir, name);
 const pendingPrivateKeys = new Map();
 const deliveredPrivateKeys = new Set();
+export function hasPendingProvisioningDelivery() {
+  for (const [id, pending] of pendingPrivateKeys)
+    if (pending.expires <= Date.now()) pendingPrivateKeys.delete(id);
+  return pendingPrivateKeys.size > 0 || deliveredPrivateKeys.size > 0;
+}
 const pendingKeyCleanup = setInterval(() => {
   for (const [id, pending] of pendingPrivateKeys) {
     if (pending.expires <= Date.now()) pendingPrivateKeys.delete(id);
@@ -381,10 +386,10 @@ export async function certificateIsInCrl(serial) {
     return [...stdout.matchAll(/Serial Number:\s*([0-9A-F]+)/gi)].some((match) => normalize(match[1]) === normalize(serial));
   } catch { return false; }
 }
-function servicePaths(server) {
+function servicePaths(server, purpose = 'admin') {
   return {
-    certFile: server ? broker('server.crt') : path.join(env.dataDir, 'mqtt-client.crt'),
-    keyFile: server ? broker('server.key') : path.join(env.dataDir, 'mqtt-client.key'),
+    certFile: server ? broker('server.crt') : path.join(env.dataDir, purpose === 'health' ? 'update-health-client.crt' : 'mqtt-client.crt'),
+    keyFile: server ? broker('server.key') : path.join(env.dataDir, purpose === 'health' ? 'update-health-client.key' : 'mqtt-client.key'),
   };
 }
 function brokerHosts() {
@@ -406,8 +411,8 @@ function brokerHosts() {
     throw new Error('Invalid broker hostname/address');
   return hosts;
 }
-async function serviceCertificateCurrent(server, matchSans = false) {
-  const { certFile, keyFile } = servicePaths(server);
+async function serviceCertificateCurrent(server, matchSans = false, purpose = 'admin') {
+  const { certFile, keyFile } = servicePaths(server, purpose);
   if (!(await exists(certFile)) || !(await exists(keyFile))) return false;
   const current = new crypto.X509Certificate(await fs.readFile(certFile));
   const key = crypto.createPrivateKey(await fs.readFile(keyFile));
@@ -432,11 +437,11 @@ async function serviceCertificateCurrent(server, matchSans = false) {
     Date.parse(current.validTo) - Date.now() > 30 * 86400000
   );
 }
-async function serviceCertificate(name, server = false, matchSans = false) {
-  const { certFile, keyFile } = servicePaths(server);
+async function serviceCertificate(name, server = false, matchSans = false, purpose = 'admin') {
+  const { certFile, keyFile } = servicePaths(server, purpose);
   const hosts = brokerHosts();
   // Configuration edits alone never replace a healthy certificate during maintenance.
-  if (await serviceCertificateCurrent(server, matchSans)) return false;
+  if (await serviceCertificateCurrent(server, matchSans, purpose)) return false;
   await work(async (dir) => {
     const csr = path.join(dir, 'request.csr'),
       ext = path.join(dir, 'extensions.cnf');
@@ -521,6 +526,9 @@ async function submitBrokerRevision(revision) {
 export async function syncBroker(force = false, { defer = false } = {}) {
   const db = loadDb();
   let acl = `user ${env.adminMqttClientId}\ntopic readwrite #\ntopic read $SYS/#\n`;
+  // Infrastructure probe identity contains ':' and cannot be registered as a device.
+  if (await exists(path.join(env.dataDir, 'update-health-client.crt')))
+    acl += '\nuser mqtt-trust:health\ntopic readwrite gateway:update:health/#\n';
   const now = Date.now();
   for (const device of db.devices) {
     if (
@@ -569,11 +577,13 @@ export async function prepareGateway() {
   await initializeCa();
   await serviceCertificate('mqtt-broker', true);
   await serviceCertificate(env.adminMqttClientId);
+  await serviceCertificate('mqtt-trust:health', false, false, 'health');
   await syncBroker(true);
 }
 export async function refreshPki() {
   await initializeCa();
   await serviceCertificate('mqtt-broker', true);
   await serviceCertificate(env.adminMqttClientId);
+  await serviceCertificate('mqtt-trust:health', false, false, 'health');
   await syncBroker(true);
 }

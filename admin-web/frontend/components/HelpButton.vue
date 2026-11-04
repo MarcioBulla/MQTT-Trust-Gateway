@@ -16,6 +16,7 @@ const articleHref = computed(() => topic.value ? router.resolve({ name: 'help-to
         v-bind="menuProps"
         type="button"
         icon="mdi-help-circle-outline"
+        color="primary"
         variant="text"
         size="small"
         :aria-label="`Help: ${topic.title}`"

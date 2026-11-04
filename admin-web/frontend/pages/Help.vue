@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { helpTopics, helpTopicById } from '../help/help-topics';
+import MermaidDiagram from '../components/MermaidDiagram.vue';
 
 const props = defineProps({ topicId: { type: String, default: '' } });
 const router = useRouter();
@@ -22,7 +23,7 @@ function goBack() {
         <div>
           <div class="text-overline text-primary">MQTT TRUST GATEWAY</div>
           <h1 class="text-h4 font-weight-bold">Help</h1>
-          <p class="text-body-1 text-medium-emphasis mt-2">Guides for device identities and certificate provisioning.</p>
+          <p class="text-body-1 text-medium-emphasis mt-2">Guides for managing the Gateway, device identities, and certificates.</p>
         </div>
       </div>
       <v-text-field v-model="search" label="Search Help" prepend-inner-icon="mdi-magnify" clearable class="mb-5" />
@@ -56,22 +57,42 @@ function goBack() {
         <section class="mb-7"><h2 class="text-h5 mb-2">Workflow</h2><ol><li v-for="item in topic.steps" :key="item">{{ item }}</li></ol></section>
 
         <section class="mb-7">
-          <h2 class="text-h5 mb-2">Sequence</h2>
-          <p class="text-body-2 text-medium-emphasis">Text description of the exchange:</p>
+          <h2 class="text-h5 mb-2">Workflow map</h2>
+          <p class="text-body-2 text-medium-emphasis">Follow the steps and decision points for this operation.</p>
+          <MermaidDiagram v-if="topic.workflowMermaid" :source="topic.workflowMermaid" :title="`${topic.title} workflow`" class="mt-3" />
+          <details v-if="topic.workflowMermaid" class="mt-3">
+            <summary class="text-primary">Workflow diagram source</summary>
+            <pre class="code-block mt-2" tabindex="0" :aria-label="`${topic.title} workflow diagram source`">{{ topic.workflowMermaid }}</pre>
+          </details>
+        </section>
+
+        <section class="mb-7">
+          <h2 class="text-h5 mb-2">{{ topic.sequenceTitle || 'File exchange and trust' }}</h2>
+          <p class="text-body-2 text-medium-emphasis">Text description:</p>
           <ol class="sequence-list"><li v-for="(item, index) in topic.sequence" :key="item"><span class="sequence-index">{{ index + 1 }}</span>{{ item }}</li></ol>
+          <MermaidDiagram :source="topic.mermaid" :title="topic.title" class="mt-4" />
           <details class="mt-3">
-            <summary class="text-primary">Mermaid sequence diagram source</summary>
+            <summary class="text-primary">Mermaid diagram source</summary>
             <pre class="code-block mt-2" tabindex="0" :aria-label="`${topic.title} Mermaid diagram source`">{{ topic.mermaid }}</pre>
           </details>
         </section>
 
-        <section class="mb-7"><h2 class="text-h5 mb-2">Files and key ownership</h2><ul><li v-for="item in topic.artifacts" :key="item">{{ item }}</li></ul></section>
-        <section v-if="topic.lifecycle" class="mb-7"><h2 class="text-h5 mb-2">Validity, renewal, and revocation</h2><p>{{ topic.lifecycle }}</p></section>
+        <section v-if="topic.artifacts?.length" class="mb-7"><h2 class="text-h5 mb-2">{{ topic.artifactsTitle || 'Files and key ownership' }}</h2><ul><li v-for="item in topic.artifacts" :key="item">{{ item }}</li></ul></section>
+        <section v-if="topic.lifecycle" class="mb-7"><h2 class="text-h5 mb-2">{{ topic.lifecycleTitle || 'Validity, renewal, and revocation' }}</h2><p>{{ topic.lifecycle }}</p></section>
 
         <section v-if="topic.linux?.length" class="mb-7">
           <h2 class="text-h5 mb-2">Linux host (OpenSSL)</h2>
           <p class="text-body-2 text-medium-emphasis mb-3">These commands are host-side examples, not Gateway commands. Run them in a private working directory. Generated private keys are secrets: keep restrictive permissions and do not commit them.</p>
           <v-card v-for="example in topic.linux" :key="example.label" class="pa-4 mb-3">
+            <h3 class="text-subtitle-2 font-weight-bold mb-2">{{ example.label }}</h3>
+            <pre class="code-block" tabindex="0"><code>{{ example.code }}</code></pre>
+          </v-card>
+        </section>
+
+        <section v-if="topic.hostCommands?.length" class="mb-7">
+          <h2 class="text-h5 mb-2">Rootless host updater CLI</h2>
+          <p class="text-body-2 text-medium-emphasis mb-3">Run these commands from the Gateway checkout as the same non-root account that owns the rootless services. Replace the version, operation ID, and previous version placeholders with actual values.</p>
+          <v-card v-for="example in topic.hostCommands" :key="example.label" class="pa-4 mb-3">
             <h3 class="text-subtitle-2 font-weight-bold mb-2">{{ example.label }}</h3>
             <pre class="code-block" tabindex="0"><code>{{ example.code }}</code></pre>
           </v-card>

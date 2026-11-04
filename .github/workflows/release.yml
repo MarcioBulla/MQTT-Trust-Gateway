@@ -1,0 +1,134 @@
+name: Verify and publish Gateway release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact SemVer matching admin-web/package.json
+        required: true
+        type: string
+      publish:
+        description: Publish only after all acceptance checks pass
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: gateway-release
+  cancel-in-progress: false
+jobs:
+  release:
+    # A dedicated rootless user manager is necessary for real Quadlet tests.
+    # Never expose this runner to pull_request or other untrusted code triggers.
+    runs-on: [self-hosted, linux, mqtt-gateway-release]
+    environment: gateway-releases
+    permissions:
+      contents: write
+      packages: write
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ inputs.version }}
+      PUBLISH: ${{ inputs.publish }}
+      REGISTRY_AUTH_FILE: ${{ runner.temp }}/gateway-registry-auth.json
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Validate source, runner and channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os
+          from scripts.updater.releases import version_key
+          version=os.environ['VERSION'];version_key(version)
+          assert version==json.load(open('admin-web/package.json'))['version'],'Version must match source package'
+          channel='beta' if '-' in version.split('+')[0] else 'stable'
+          assert channel=='beta' or os.environ['GITHUB_REF']=='refs/heads/main','Stable releases require main'
+          with open(os.environ['GITHUB_ENV'],'a') as output: output.write('RELEASE_CHANNEL='+channel+'\n')
+          PY
+          test "$(id -u)" -ne 0
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          printf 'XDG_RUNTIME_DIR=%s\nDBUS_SESSION_BUS_ADDRESS=%s\n' "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
+          umask 077
+          printf '{"auths":{}}' > "$REGISTRY_AUTH_FILE"
+          systemctl --user show-environment >/dev/null
+          test -x /bin/chromium
+          python3 -c 'import sys; assert sys.version_info >= (3,12)'
+          test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+          test "$(bun --version)" = 1.4.4
+          node --version
+          openssl version
+          gpg --version >/dev/null
+      - name: Unit and browser checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest scripts.test_gateway scripts.test_updater scripts.test_snapshots scripts.test_controller scripts.test_mqtt_state scripts.test_release_manifest scripts.test_snapshot_storage
+          cd admin-web
+          bun install --frozen-lockfile
+          bun run test
+          bun run build
+      - name: Build exact release images and run real update acceptance
+        shell: bash
+        env:
+          UPDATE_PUBLIC_KEY: ${{ vars.GATEWAY_RELEASE_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          podman build --no-cache --pull=always -t localhost/mqtt-update-test-admin:base --build-arg GATEWAY_VERSION="$VERSION" --build-arg GATEWAY_COMMIT="$GITHUB_SHA" --build-arg GATEWAY_CHANNEL="$RELEASE_CHANNEL" --build-arg GATEWAY_UPDATE_PUBLIC_KEY_B64="$UPDATE_PUBLIC_KEY" -f admin-web/Containerfile admin-web
+          podman build --no-cache --pull=always -t localhost/mqtt-update-test-broker:base --build-arg GATEWAY_VERSION="$VERSION" -f Containerfile.broker .
+          RUN_GATEWAY_UPDATE_INTEGRATION=1 python3 -m unittest scripts.test_updater_integration
+      - name: Sign immutable image references
+        shell: bash
+        env:
+          GATEWAY_RELEASE_PRIVATE_KEY: ${{ secrets.GATEWAY_RELEASE_PRIVATE_KEY }}
+          GATEWAY_RELEASE_PUBLIC_KEY_B64: ${{ vars.GATEWAY_RELEASE_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          admin_digest=$(podman image inspect localhost/mqtt-update-test-admin:base --format '{{.Digest}}')
+          broker_digest=$(podman image inspect localhost/mqtt-update-test-broker:base --format '{{.Digest}}')
+          test_args=()
+          if [ "$PUBLISH" != true ]; then test_args+=(--ephemeral-test-key); fi
+          python3 -m scripts.release_manifest --version "$VERSION" --admin "ghcr.io/marciobulla/mqtt-trust-admin@$admin_digest" --broker "ghcr.io/marciobulla/mqtt-trust-broker@$broker_digest" --output release-artifacts "${test_args[@]}"
+      - name: Publish the tested images and release
+        if: inputs.publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATEWAY_RELEASE_PRIVATE_KEY: ${{ secrets.GATEWAY_RELEASE_PRIVATE_KEY }}
+          GATEWAY_RELEASE_PUBLIC_KEY_B64: ${{ vars.GATEWAY_RELEASE_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          test ! -e release-artifacts/TEST-ONLY-NOT-INSTALLABLE
+          test -f "docs/releases/$VERSION.md"
+          printf '%s' "$GH_TOKEN" | podman login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
+          trap 'podman logout ghcr.io >/dev/null 2>&1 || true; rm -f "$REGISTRY_AUTH_FILE"' EXIT
+          for component in admin broker; do
+            image="ghcr.io/marciobulla/mqtt-trust-$component"
+            podman tag "localhost/mqtt-update-test-$component:base" "$image:$VERSION"
+            podman push --digestfile "$RUNNER_TEMP/gateway-$component.digest" "$image:$VERSION"
+          done
+          printf '{"auths":{}}' > "$RUNNER_TEMP/gateway-anonymous-auth.json"
+          for component in admin broker; do
+            digest=$(cat "$RUNNER_TEMP/gateway-$component.digest")
+            reference="ghcr.io/marciobulla/mqtt-trust-$component@$digest"
+            public=false
+            for attempt in $(seq 1 30); do
+              if podman pull --authfile "$RUNNER_TEMP/gateway-anonymous-auth.json" --policy=always "$reference"; then public=true; break; fi
+              echo "Waiting for anonymous access to $image. The package owner must make newly created GHCR packages public."
+              sleep 10
+            done
+            test "$public" = true
+            test "$(podman image inspect "$reference" --format '{{.Id}}')" = "$(podman image inspect "localhost/mqtt-update-test-$component:base" --format '{{.Id}}')"
+          done
+          python3 -m scripts.release_manifest --version "$VERSION" --admin "ghcr.io/marciobulla/mqtt-trust-admin@$(cat "$RUNNER_TEMP/gateway-admin.digest")" --broker "ghcr.io/marciobulla/mqtt-trust-broker@$(cat "$RUNNER_TEMP/gateway-broker.digest")" --output release-artifacts
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' tag -a "v$VERSION" -m "MQTT Trust Gateway $VERSION" "$GITHUB_SHA"
+          git push origin "refs/tags/v$VERSION"
+          release_args=()
+          if [ "$RELEASE_CHANNEL" = beta ]; then release_args+=(--prerelease --latest=false); else release_args+=(--latest); fi
+          gh release create "v$VERSION" --verify-tag --title "MQTT Trust Gateway $VERSION" --notes-file "docs/releases/$VERSION.md" "${release_args[@]}" release-artifacts/update-manifest.json release-artifacts/update-manifest.sig release-artifacts/update-public-key.der
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gateway-release-validation
+          path: release-artifacts/
+          if-no-files-found: ignore

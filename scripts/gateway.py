@@ -4,18 +4,42 @@
 import argparse
 import fcntl
 import ipaddress
+import json
 import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
+import tarfile
+import tempfile
+from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 def run(*args, **kwargs):
     return subprocess.run([str(a) for a in args], check=True, **kwargs)
+
+
+def source_commit():
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0 or result.stdout.strip():
+        return "uncommitted"
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--short=12", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    value = result.stdout.strip()
+    return value if result.returncode == 0 and re.fullmatch(r"[0-9a-f]{7,40}", value) else "unknown"
 
 
 def read_env(file):
@@ -33,6 +57,85 @@ def read_env(file):
     return values
 
 
+def validate_backup_archive(archive_path):
+    """Extract a newly-created backup into a private temp dir and check SQLite."""
+    has_env = False
+    with tempfile.TemporaryDirectory(prefix="mqtt-gateway-backup-check-") as temporary:
+        with tarfile.open(archive_path, "r:gz") as archive:
+            for member in archive.getmembers():
+                allowed = (
+                    member.name == "runtime"
+                    or member.name.startswith("runtime/")
+                    or member.name == "gateway.env"
+                    or member.name.startswith("quadlets/")
+                    or member.name == "release-images.json"
+                )
+                if not allowed or not (member.isfile() or member.isdir()):
+                    raise ValueError("Backup contains an unexpected entry")
+                if member.name == "gateway.env":
+                    has_env = True
+            archive.extractall(temporary, filter="data")
+        if not has_env:
+            raise ValueError("Backup does not contain gateway.env")
+        database = Path(temporary) / "runtime/admin/gateway.sqlite"
+        if not database.is_file():
+            raise ValueError("Backup does not contain the Gateway SQLite database")
+        connection = sqlite3.connect(database)
+        try:
+            integrity = connection.execute("PRAGMA integrity_check").fetchone()
+            if not integrity or integrity[0] != "ok":
+                raise ValueError("Backup SQLite integrity check failed")
+            connection.execute("PRAGMA user_version").fetchone()
+        finally:
+            connection.close()
+
+
+def create_backup_archive(data, env_file, archive_path, unit_dir, image_ids):
+    """Archive a stopped installation, preserving SQLite WAL and recovery inputs."""
+    fd = os.open(archive_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as stream, tarfile.open(fileobj=stream, mode="w:gz") as archive:
+            archive.add(data, arcname="runtime")
+            archive.add(env_file, arcname="gateway.env")
+            for name in ["mqtt-admin.container", "mqtt-broker.container", "mqtt-gateway.network"]:
+                unit = unit_dir / name
+                if unit.is_file():
+                    archive.add(unit, arcname=f"quadlets/{name}")
+            metadata = {
+                "capturedAt": datetime.now(timezone.utc).isoformat(),
+                "images": image_ids,
+            }
+            info = tarfile.TarInfo("release-images.json")
+            payload = (json.dumps(metadata, sort_keys=True) + "\n").encode()
+            info.size = len(payload)
+            info.mode = 0o600
+            import io
+
+            archive.addfile(info, io.BytesIO(payload))
+        os.chmod(archive_path, 0o600)
+        validate_backup_archive(archive_path)
+    except Exception:
+        Path(archive_path).unlink(missing_ok=True)
+        raise
+
+
+def local_image_ids():
+    images = {}
+    for name in ["localhost/mqtt-trust-admin:latest", "localhost/mqtt-trust-broker:latest"]:
+        result = subprocess.run(
+            ["podman", "image", "inspect", "--format", "{{.Id}}", name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        identity=result.stdout.strip()
+        if re.fullmatch(r'[a-f0-9]{64}',identity): identity='sha256:'+identity
+        if result.returncode != 0 or not re.fullmatch(r"sha256:[0-9a-f]{64}", identity):
+            raise ValueError(f"Cannot identify the installed image {name}; backup was not created")
+        images[name] = identity
+    return images
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -48,6 +151,11 @@ def main():
             "uninstall",
             "backup",
             "restore",
+            "updater-enable",
+            "updater-status",
+            "updater-recover",
+            "release-install",
+            "release-rollback",
         ],
     )
     parser.add_argument("--env", type=Path, default=ROOT / "gateway.env")
@@ -59,7 +167,17 @@ def main():
     parser.add_argument(
         "--unit-dir", type=Path, default=Path.home() / ".config/containers/systemd"
     )
+    parser.add_argument('--version', help='Exact signed release version to install')
+    parser.add_argument('--operation-id', help='Completed update operation to roll back')
+    parser.add_argument('--confirm', help='Exact rollback confirmation text')
     args = parser.parse_args()
+    updater_commands = {'updater-enable':'enable', 'updater-status':'status', 'updater-recover':'recover', 'release-install':'install', 'release-rollback':'rollback'}
+    if args.command in updater_commands:
+        command = [sys.executable, ROOT/'scripts/updater/cli.py', updater_commands[args.command], '--env', args.env, '--unit-dir', args.unit_dir]
+        for name, value in [('--version',args.version),('--operation-id',args.operation_id),('--confirm',args.confirm)]:
+            if value is not None: command.extend([name,value])
+        run(*command)
+        return
     if os.getuid() == 0:
         sys.exit("Run as your regular user. Rootful operation is unsupported.")
     if not shutil.which("podman"):
@@ -82,6 +200,8 @@ def main():
         args.env.chmod(0o600)
     args.env = args.env.resolve()
     env = read_env(args.env)
+    if env.get("GATEWAY_CHANNEL", "stable") not in {"stable", "beta"}:
+        sys.exit("GATEWAY_CHANNEL must be stable or beta.")
     if "BASE_DIR" in env or any(k.startswith("STEP_CA_") for k in env):
         sys.exit(
             "Legacy configuration detected. Back up and follow docs/migration.md; trust is never replaced automatically."
@@ -121,6 +241,20 @@ def main():
                 raise ValueError
         except ValueError:
             sys.exit("ADMIN_CONTAINER_IP must be a valid IPv4 address.")
+    updater_lock = None
+    updater_config = Path.home()/'.config/mqtt-trust-gateway/updater.json'
+    if args.command in {'install','update','broker-certificate','restart','stop','uninstall','backup','restore'} and updater_config.exists():
+        configured = json.loads(updater_config.read_text())
+        if Path(configured['data']).resolve() == data:
+            updater_lock = open(Path(configured['state'])/'operation.lock','a')
+            try: fcntl.flock(updater_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except BlockingIOError: sys.exit('An update or recovery is running; lifecycle changes are blocked.')
+            operation_file = Path(configured['state'])/'operation.json'
+            operation = json.loads(operation_file.read_text()) if operation_file.exists() else None
+            if operation and operation['state'] not in {'COMPLETED','ROLLED_BACK','FAILED'}:
+                sys.exit('Recover the interrupted update before changing this installation.')
+            if args.command in {'install','update'}:
+                sys.exit('The signed updater is enabled. Use release-install --version, or explicitly disable its service/configuration before a source rebuild.')
     units = ["mqtt-broker.service", "mqtt-admin.service"]
     if args.command in ["install", "update", "uninstall"]:
         for name in [
@@ -142,6 +276,16 @@ def main():
             "build",
             "-t",
             "localhost/mqtt-trust-admin:latest",
+            "--build-arg",
+            f"GATEWAY_COMMIT={source_commit()}",
+            "--build-arg",
+            f"GATEWAY_VERSION={json.loads((ROOT / 'admin-web/package.json').read_text())['version']}",
+            "--build-arg",
+            f"GATEWAY_CHANNEL={env.get('GATEWAY_CHANNEL', 'stable')}",
+            "--build-arg",
+            f"GATEWAY_UPDATE_PUBLIC_KEY_B64={env.get('GATEWAY_UPDATE_PUBLIC_KEY_B64', '')}",
+            "--build-arg",
+            "GATEWAY_SCHEMA_VERSION=1",
             "-f",
             ROOT / "admin-web/Containerfile",
             ROOT / "admin-web",
@@ -151,6 +295,8 @@ def main():
             "build",
             "-t",
             "localhost/mqtt-trust-broker:latest",
+            "--build-arg",
+            f"GATEWAY_VERSION={json.loads((ROOT / 'admin-web/package.json').read_text())['version']}",
             "-f",
             ROOT / "Containerfile.broker",
             ROOT,
@@ -299,35 +445,34 @@ def main():
         run("systemctl", "--user", "daemon-reload")
         print(f"Data preserved at {data}. Images and shared network preserved.")
     elif args.command in ["backup", "restore"]:
-        import tarfile
-
         if not args.file:
             sys.exit("--file is required")
-        run("systemctl", "--user", "stop", *reversed(units))
-        if args.command == "backup":
-            if args.file.exists():
-                sys.exit("Refusing to overwrite an existing backup")
-            fd = os.open(args.file, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            with (
-                os.fdopen(fd, "wb") as stream,
-                tarfile.open(fileobj=stream, mode="w:gz") as archive,
-            ):
-                archive.add(data, arcname="runtime")
-                archive.add(args.env, arcname="gateway.env")
-            print("Backup contains private keys. Store it encrypted and offline.")
-        else:
+        if args.command == "backup" and args.file.exists():
+            sys.exit("Refusing to overwrite an existing backup")
+        if args.command == "restore":
             if data.exists() and any(data.iterdir()):
                 sys.exit(
-                    "Restore requires an empty DATA_DIR. Existing data was preserved. Services remain stopped."
+                    "Restore requires an empty DATA_DIR. Existing data was preserved; services were not stopped."
                 )
+            validate_backup_archive(args.file)
+        run("systemctl", "--user", "stop", *reversed(units))
+        if args.command == "backup":
+            try:
+                create_backup_archive(data, args.env, args.file, args.unit_dir, local_image_ids())
+                print("Backup integrity verified. It contains private keys; store it encrypted and offline.")
+            finally:
+                run("systemctl", "--user", "start", *units)
+        else:
             data.parent.mkdir(parents=True, exist_ok=True)
             with tarfile.open(args.file, "r:gz") as archive:
                 # Extraction filter rejects links, traversal and special files.
                 for member in archive.getmembers():
-                    if (
-                        not member.name.startswith("runtime/")
-                        and member.name != "runtime"
-                        and member.name != "gateway.env"
+                    if not (
+                        member.name == "runtime"
+                        or member.name.startswith("runtime/")
+                        or member.name == "gateway.env"
+                        or member.name.startswith("quadlets/")
+                        or member.name == "release-images.json"
                     ):
                         sys.exit("Unexpected archive entry")
                     if not (member.isfile() or member.isdir()):
@@ -345,12 +490,10 @@ def main():
             print(
                 f"Restored data. Review {saved} and run install. Services remain stopped."
             )
-        if args.command == "backup":
-            run("systemctl", "--user", "start", *units)
 
 
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, subprocess.CalledProcessError, OSError) as error:
+    except (ValueError, subprocess.CalledProcessError, OSError, sqlite3.DatabaseError, tarfile.TarError) as error:
         sys.exit(str(error))

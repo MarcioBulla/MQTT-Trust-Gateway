@@ -13,6 +13,8 @@ import { verifyTotp } from './totp.js';
 
 export function authenticationOperation(action, target = '') {
   if (action === 'reveal' && sensitiveScopes.includes(target)) return `reveal:${target}`;
+  if (action === 'install-update' && typeof target === 'string' && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(target) && target.length <= 80) return `install-update:${target}`;
+  if (action === 'rollback-update' && typeof target === 'string' && /^[a-f0-9-]{36}$/.test(target)) return `rollback-update:${target}`;
   if (['disable-totp', 'change-password', 'add-passkey', 'enable-totp', 'sensitive-settings'].includes(action) && target === '') return action;
   if (
     action === 'remove-passkey' &&

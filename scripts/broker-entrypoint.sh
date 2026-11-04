@@ -6,6 +6,16 @@ mkdir -p /broker/logs
 chmod 700 /broker/logs
 touch /broker/logs/mosquitto.log
 chmod 600 /broker/logs/mosquitto.log
+gate_mode() {
+  if [ -n "${GATEWAY_UPDATER_DIR:-}" ] && [ -f "$GATEWAY_UPDATER_DIR/maintenance.json" ]; then printf maintenance; else printf open; fi
+}
+record_gate() {
+  printf '%s' "$1" > /broker/update-gate.tmp
+  mv /broker/update-gate.tmp /broker/update-gate
+}
+write_config() {
+  listener_address=''
+  [ "$1" != maintenance ] || listener_address='127.0.0.1'
 cat > "$config" <<CONF
 persistence true
 persistence_location /mosquitto/data/
@@ -23,7 +33,7 @@ max_packet_size 131072
 message_size_limit 16384
 max_queued_messages 1000
 max_inflight_messages 20
-listener 8883
+listener 8883 ${listener_address}
 protocol mqtt
 cafile /broker/ca.crt
 certfile /broker/server.crt
@@ -32,7 +42,7 @@ crlfile /broker/ca.crl
 require_certificate true
 use_identity_as_username true
 tls_version tlsv1.2
-listener 8443
+listener 8443 ${listener_address}
 protocol websockets
 cafile /broker/ca.crt
 certfile /broker/server.crt
@@ -42,19 +52,24 @@ require_certificate true
 use_identity_as_username true
 tls_version tlsv1.2
 CONF
+}
 pid=''
 stop() { if [ -n "$pid" ]; then kill -TERM "$pid" 2>/dev/null || true; wait "$pid" || true; fi; exit 0; }
 trap stop TERM INT
 while :; do
   revision=$(cat /broker/revision)
+  gate=$(gate_mode)
+  write_config "$gate"
   mosquitto -c "$config" &
   pid=$!
   sleep 1
   kill -0 "$pid" 2>/dev/null || { wait "$pid"; exit 1; }
   printf '%s' "$revision" > /broker/applied-revision.tmp
   mv /broker/applied-revision.tmp /broker/applied-revision
+  record_gate "$gate"
   while kill -0 "$pid" 2>/dev/null; do
     sleep 1
+    [ "$(gate_mode)" = "$gate" ] || break
     if [ "$(wc -c < /broker/logs/mosquitto.log)" -gt 1048576 ]; then
       tail -c 524288 /broker/logs/mosquitto.log > /broker/logs/mosquitto.trim
       cat /broker/logs/mosquitto.trim > /broker/logs/mosquitto.log

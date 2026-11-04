@@ -30,11 +30,9 @@ const { loadDb, saveDb, sqlite, exclusive } = await import('../src/db.js');
 const { registerAdminRoutes } = await import('../src/routes/admin-routes.js');
 const { startMqtt, stopMqtt, publishMessage, mqttConnectionStatus } = await import('../src/services/mqtt-service.js');
 const { defaultPresentation } = await import('../shared/presentation-preferences.js');
-const { themePresets } = await import('../shared/theme-presets.js');
 const password = crypto.randomBytes(24).toString('base64url');
 const presentation = defaultPresentation();
-presentation.preset = 'catppuccin';
-presentation.themes = structuredClone(themePresets.find(preset => preset.id === 'catppuccin').themes);
+presentation.preset = 'default';
 const db = loadDb(), now = Date.now();
 db.users.push({ id: crypto.randomBytes(16).toString('base64url'), username: 'DemoAdmin', passwordHash: await argon2.hash(password), credentials: [], timeZone: 'UTC', presentation });
 for (const [id, name, label, color, days, enabled] of [
@@ -67,7 +65,7 @@ try {
  const context=await browser.newContext({viewport:{width:1600,height:1100},deviceScaleFactor:1,colorScheme:'dark'});
  await context.addInitScript(()=>localStorage.setItem('theme','dark'));
  const page=await context.newPage();const errors=[];page.on('pageerror',error=>errors.push(error.message));
- const screenshot=async name=>{await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:path.join(output,name+'.png'),fullPage:true,animations:'disabled'});};
+ const screenshot=async (name, fullPage=true)=>{await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:path.join(output,name+'.png'),fullPage,animations:'disabled'});};
  await page.goto(origin);await page.getByRole('heading',{name:'Welcome back'}).waitFor();
  await screenshot('login');
  await page.getByLabel('Username',{exact:true}).fill('DemoAdmin');
@@ -86,8 +84,21 @@ try {
  await page.getByText('Theme colors',{exact:true}).waitFor();await screenshot('settings-general');
  await page.getByRole('tab',{name:'Account security',exact:true}).click();
  await page.getByText('Sensitive information visibility',{exact:true}).waitFor();await screenshot('settings-security');
+ await page.getByRole('link',{name:'Help',exact:true}).click();
+ await page.getByRole('heading',{name:'Help',exact:true}).waitFor();await screenshot('help');
+ await page.goto(origin+'/#/help/generate-complete-certificate');
+ await page.waitForFunction(()=>document.querySelectorAll('.diagram-scroll svg').length===2);
+ await page.locator('.diagram-widget').nth(1).getByRole('button',{name:/Enlarge/}).click();
+ await page.getByRole('region',{name:/Enlarged .* diagram/}).waitFor();
+ await page.waitForFunction(()=>{
+   const card=document.querySelector('.diagram-dialog-card');
+   const box=card?.getBoundingClientRect();
+   return box&&Math.abs(box.x)<2&&Math.abs(box.y)<2&&box.width>=innerWidth-2&&box.height>=innerHeight-2;
+ });
+ await page.locator('.diagram-dialog-card').getByRole('button',{name:'Fit diagram to view'}).click();
+ await screenshot('help-diagrams',false);
  if(errors.length)throw new Error(errors.join('\n'));
- console.log('Captured six real Chromium screenshots using isolated demo data. Sensitive values remain masked.');
+ console.log('Captured eight real Chromium screenshots with the Gateway default palette and isolated demo data. Sensitive values remain masked.');
 } finally {
  await browser?.close();await stopMqtt();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));sqlite.close();await fs.rm(directory,{recursive:true,force:true});
 }

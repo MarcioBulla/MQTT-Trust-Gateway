@@ -1,3 +1,4 @@
+import { updatePreferences } from './services/update-preferences.js';
 import express from 'express';
 import helmet from 'helmet';
 import fs from 'node:fs';
@@ -5,12 +6,14 @@ import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env } from './config.js';
-import { exclusive, audit } from './db.js';
+import { exclusive, audit, loadDb } from './db.js';
 import { registerAdminRoutes } from './routes/admin-routes.js';
 import { startMqtt, stopMqtt } from './services/mqtt-service.js';
-import { refreshPki, syncBroker } from './services/certificate-service.js';
+import { refreshPki, syncBroker, hasPendingProvisioningDelivery } from './services/certificate-service.js';
 import { purgeExpiredArchives } from './services/identity-service.js';
 import { captureAdminLogs } from './services/runtime-logs.js';
+import { checkForGatewayUpdates } from './services/system-updates.js';
+import { updateMaintenance } from './services/updater-client.js';
 captureAdminLogs();
 const app = express();
 app.disable('x-powered-by');
@@ -31,7 +34,10 @@ app.use(
     strictTransportSecurity: false,
   }),
 );
-app.get('/healthz', (_req, res) => res.json({ ok: true }));
+app.get('/healthz', async (_req, res, next) => {
+  try { res.json(await exclusive(() => ({ ok: true, updateReady: !hasPendingProvisioningDelivery() }))); }
+  catch (error) { next(error); }
+});
 app.use((req, res, next) => {
   res.set('Cache-Control', 'no-store');
   if (req.secure) res.set('Strict-Transport-Security', 'max-age=31536000');
@@ -56,13 +62,20 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '128kb' }));
 app.use('/api', (req, res, next) => {
-  if (req.path === '/mqtt/events' || req.path === '/logs/events') return next();
+  if (updateMaintenance() && !['GET', 'HEAD', 'OPTIONS'].includes(req.method))
+    return res.status(503).json({ error: 'Gateway update maintenance is active', maintenance: true });
+  next();
+});
+app.use('/api', (req, res, next) => {
+  if (req.path === '/mqtt/events' || req.path === '/logs/events' || req.path === '/system-updates/status' || req.path === '/system-updates/check') return next();
   exclusive(
     () =>
       new Promise((resolve) => {
         res.once('finish', resolve);
         res.once('close', resolve);
-        next();
+        if (updateMaintenance() && !['GET', 'HEAD', 'OPTIONS'].includes(req.method))
+          res.status(503).json({ error: 'Gateway update maintenance is active', maintenance: true });
+        else next();
       }),
   ).catch(next);
 });
@@ -81,17 +94,18 @@ app.use((error, req, res, _next) => {
   });
 });
 await exclusive(async () => {
-  const purged = await purgeExpiredArchives();
+  const purged = updateMaintenance() ? [] : await purgeExpiredArchives();
   if (purged.length) await syncBroker(true);
 });
 startMqtt();
 const aclTimer = setInterval(
-  () => exclusive(() => syncBroker()).catch((e) => console.error(e.message)),
+  () => exclusive(() => updateMaintenance() ? undefined : syncBroker()).catch((e) => console.error(e.message)),
   30000,
 );
 const pkiTimer = setInterval(
   () =>
     exclusive(async () => {
+      if (updateMaintenance()) return;
       await refreshPki();
       await stopMqtt();
       startMqtt();
@@ -99,9 +113,18 @@ const pkiTimer = setInterval(
   86400000,
 );
 const archiveTimer = setInterval(
-  () => exclusive(purgeExpiredArchives).catch((e) => console.error(e.message)),
+  () => exclusive(() => updateMaintenance() ? [] : purgeExpiredArchives()).catch((e) => console.error(e.message)),
   60000,
 );
+let lastAutomaticUpdateCheck = 0;
+const refreshReleaseInfo = () => {
+  const preferences = updatePreferences(loadDb().settings);
+  if (!preferences.automaticChecks || Date.now() - lastAutomaticUpdateCheck < preferences.checkIntervalHours * 3600000) return;
+  lastAutomaticUpdateCheck = Date.now();
+  checkForGatewayUpdates({ channel: preferences.channel }).catch(() => {});
+};
+refreshReleaseInfo();
+const updateTimer = setInterval(refreshReleaseInfo, 60 * 1000);
 const server =
   env.tlsCert && env.tlsKey
     ? https.createServer(
@@ -124,6 +147,7 @@ for (const signal of ['SIGTERM', 'SIGINT'])
     clearInterval(aclTimer);
     clearInterval(pkiTimer);
     clearInterval(archiveTimer);
+    clearInterval(updateTimer);
     listener.close();
     await exclusive(stopMqtt);
     process.exit(0);

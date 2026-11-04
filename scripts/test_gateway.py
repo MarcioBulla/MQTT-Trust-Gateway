@@ -4,6 +4,9 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import json
+import sqlite3
+import tarfile
 import unittest
 from unittest.mock import patch
 
@@ -64,6 +67,55 @@ class BrokerCertificateCommandTests(unittest.TestCase):
     def test_signing_failure_still_starts_admin(self):
         calls = self.exercise(10, failure=True)
         self.assertEqual(calls[-1], ("systemctl", "--user", "start", "mqtt-admin.service"))
+
+
+class ReleaseBuildMetadataTests(unittest.TestCase):
+    def test_dirty_checkout_is_not_mislabeled_with_a_commit_hash(self):
+        with patch.object(gateway.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=" M README.md\n")):
+            self.assertEqual(gateway.source_commit(), "uncommitted")
+
+
+class BackupArchiveTests(unittest.TestCase):
+    def fixture(self, temporary):
+        root = Path(temporary)
+        data = root / "runtime"
+        admin = data / "admin"
+        broker = data / "broker"
+        units = root / "units"
+        admin.mkdir(parents=True)
+        broker.mkdir()
+        units.mkdir()
+        database = sqlite3.connect(admin / "gateway.sqlite")
+        database.executescript("CREATE TABLE state(id INTEGER PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE audit(id INTEGER PRIMARY KEY, at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL); INSERT INTO state VALUES(1, '{\"devices\":[],\"certificates\":[]}'); PRAGMA user_version=1;")
+        database.close()
+        (admin / "ca.key").write_text("test-private-key-placeholder")
+        env_file = root / "gateway.env"
+        env_file.write_text("DATA_DIR=/test/runtime\n")
+        (units / "mqtt-admin.container").write_text("[Container]\n")
+        return root, data, units, env_file
+
+    def test_backup_is_private_and_contains_validated_sqlite_quadlets_and_image_ids(self):
+        with tempfile.TemporaryDirectory(prefix="gateway-backup-test-") as temporary:
+            root, data, units, env_file = self.fixture(temporary)
+            archive_path = root / "backup.tar.gz"
+            image_ids = {"admin": "sha256:" + "a" * 64, "broker": "sha256:" + "b" * 64}
+            gateway.create_backup_archive(data, env_file, archive_path, units, image_ids)
+            self.assertEqual(archive_path.stat().st_mode & 0o777, 0o600)
+            with tarfile.open(archive_path, "r:gz") as archive:
+                names = archive.getnames()
+                self.assertIn("runtime/admin/gateway.sqlite", names)
+                self.assertIn("quadlets/mqtt-admin.container", names)
+                metadata = json.load(archive.extractfile("release-images.json"))
+                self.assertEqual(metadata["images"], image_ids)
+
+    def test_corrupt_sqlite_prevents_backup_and_removes_partial_archive(self):
+        with tempfile.TemporaryDirectory(prefix="gateway-backup-test-") as temporary:
+            root, data, units, env_file = self.fixture(temporary)
+            (data / "admin/gateway.sqlite").write_bytes(b"not sqlite")
+            archive_path = root / "backup.tar.gz"
+            with self.assertRaises(sqlite3.DatabaseError):
+                gateway.create_backup_archive(data, env_file, archive_path, units, {})
+            self.assertFalse(archive_path.exists())
 
 
 if __name__ == "__main__":

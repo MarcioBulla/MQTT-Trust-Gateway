@@ -15,6 +15,8 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 
 ## ✨ Features
 
+- 🔄 System Updates: discover and verify signed releases, then install or roll back Gateway/container updates through the independently running host updater. Includes verified snapshots, functional health checks, interruption recovery, guarded rollback, progress history, configurable checks and snapshot retention (2–100, default 5), plus optional GnuPG-encrypted snapshot export. Automatic installation remains disabled. See the [operations guide](docs/system-updates-operations.md) and [architecture](docs/system-updates-architecture.md).
+- ❔ Contextual Help: certificate and release-discovery guides with interactive Mermaid diagrams and workflow flowcharts.
 - 🪪 Four certificate enrollment methods: sign a device CSR, create a CSR for an external CA, generate a complete device credential bundle, or import an existing certificate.
 - 🧰 Central device and certificate lifecycle: renew, revoke, trust external CAs, archive, restore, and permanently delete identities.
 - 🛡️ Admin security: Argon2id passwords, TOTP, WebAuthn passkeys, expiring sessions, rate limiting, and step-up verification for sensitive data.
@@ -26,14 +28,16 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 
 ## 🚧 Work in progress
 
-1. 🔄 **Gateway updates:** update Gateway releases and container packages, with rollback support.
-2. ❔ **Contextual help:** explain certificate operations, trust, and downloadable files.
-3. 🔐 **MCU certificate renewal:** improve the renewal workflow for MCU devices.
-4. 🧩 **Per-device rules:** configure MQTT access policies for each device.
-5. ✉️ **SMTP settings:** initially email administrators when licenses are near expiry.
-6. 🩺 **Health checks:** report device heartbeat and online status.
-7. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
-8. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
+1. 🔄 **Offline release import:** install verified releases without an internet connection.
+2. 🔐 **MCU certificate renewal:** improve the renewal workflow for MCU devices.
+3. 🧩 **Per-device rules:** configure MQTT access policies for each device.
+4. ✉️ **SMTP settings:** initially email administrators when licenses are near expiry.
+5. 🩺 **Health checks:** report device heartbeat and online status.
+6. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
+7. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
+
+> [!NOTE]
+> System Updates installation requires enabling the host updater and configuring its pinned Ed25519 release key. Automatic installation is disabled; see the [operations guide](docs/system-updates-operations.md) for prerequisites and recovery-data handling.
 
 ## 🏗️ Architecture
 
@@ -67,7 +71,7 @@ flowchart LR
 
 ## 📸 Screenshots
 
-Captured with Chromium from the real admin UI. Device names are illustrative; infrastructure values, certificate identifiers, topics, and payloads are masked. No production account or private key is shown.
+Captured with Chromium from the real admin UI using the **Gateway default** dark palette. Device names are illustrative; infrastructure values, certificate identifiers, topics, and payloads are masked. No production account or private key is shown.
 
 | Login | Overview |
 | --- | --- |
@@ -76,6 +80,8 @@ Captured with Chromium from the real admin UI. Device names are illustrative; in
 | ![Device identities and certificate management](docs/screenshots/devices-certificates.png) | ![MQTT live metadata and publication controls](docs/screenshots/mqtt-manager.png) |
 | **General settings** | **Account security** |
 | ![Chart settings, theme presets and OLED](docs/screenshots/settings-general.png) | ![Password, passkey, TOTP and visibility settings](docs/screenshots/settings-security.png) |
+| **Help library** | **Interactive certificate guide** |
+| ![Contextual Help library for devices, certificates and release discovery](docs/screenshots/help.png) | ![Interactive Mermaid diagram explaining certificate files and key ownership](docs/screenshots/help-diagrams.png) |
 
 ## 🚀 Install (rootless Podman)
 

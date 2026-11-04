@@ -4,6 +4,7 @@ import { formatDateTime } from './date-time';
 import { useRoute } from 'vue-router';
 import SensitiveValue from './components/SensitiveValue.vue';
 import StepUpAuthDialog from './components/StepUpAuthDialog.vue';
+import UpdateIndicator from './components/UpdateIndicator.vue';
 import { hideSensitive, requestReveal, isRevealed, revealScopes } from './sensitive';
 import { effectiveThemeColors } from '../shared/theme-presets.js';
 import { defaultPresentation } from '../shared/presentation-preferences.js';
@@ -35,9 +36,9 @@ const links = [
   ['/', 'Overview', 'mdi-view-dashboard-outline'],
   ['/devices', 'Devices & certificates', 'mdi-chip'],
   ['/licenses', 'Licenses', 'mdi-certificate-outline'],
-  ['/settings', 'Settings', 'mdi-cog-outline'],
-  ['/help', 'Help', 'mdi-help-circle-outline'],
   ['/mqtt', 'MQTT Manager', 'mdi-message-processing-outline'],
+  ['/help', 'Help', 'mdi-help-circle-outline'],
+  ['/settings', 'Settings', 'mdi-cog-outline'],
 ];
 const required = (v) => !!v || 'Required';
 function toggleTheme() {
@@ -171,8 +172,8 @@ onUnmounted(() => clearInterval(brokerPoll));
             class="flex-shrink-0"
             :class="{ 'd-lg-none': state.user }"
           /><span class="text-truncate">MQTT Trust Gateway</span></span
-        ></v-app-bar-title
-      ><v-tooltip v-if="state.user && (state.brokerChanges?.pendingChanges || state.brokerChanges?.applying)" location="bottom" interactive max-width="460" :open-delay="250">
+      ></v-app-bar-title><UpdateIndicator />
+      <v-tooltip v-if="state.user && (state.brokerChanges?.pendingChanges || state.brokerChanges?.applying)" location="bottom" interactive max-width="460" :open-delay="250">
         <template #activator="{ props: restartProps }"><v-btn v-bind="restartProps" color="amber" variant="flat" prepend-icon="mdi-restart" size="small" class="mr-2" :loading="state.brokerChanges.applying" :disabled="!!state.busy || state.brokerChanges.applying" @click="action(applyBrokerChanges)">Restart Broker</v-btn></template>
         <div v-if="state.brokerChanges.pendingChanges" class="pending-changes-tooltip">
           <div class="font-weight-bold mb-2">Pending broker changes<span v-if="state.brokerChanges.changes?.length"> ({{ state.brokerChanges.changes.length }})</span></div>

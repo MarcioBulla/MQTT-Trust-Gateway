@@ -8,10 +8,45 @@ import { browserTimeZone, formatDateTime } from '../date-time';
 import { normalizeTimeZone } from '../../shared/time-zone.js';
 import DataList from '../components/DataList.vue';
 import { ref, computed, watch, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import { api, action, state, refreshUser } from '../api';
 import RuntimeLogs from '../components/RuntimeLogs.vue';
+import HelpButton from '../components/HelpButton.vue';
+import UpdateOperations from '../components/UpdateOperations.vue';
 const accountTab = ref('general'), auditSearch = ref('');
+const route = useRoute();
+watch(() => route.query.tab, tab => { if (tab === 'updates') accountTab.value = 'updates'; }, { immediate: true });
+const updatePreferences = ref({ automaticChecks: true, notifications: true, checkIntervalHours: 6, snapshotRetention: 5 });
+const updateStatus = ref(null), updateChannel = ref('stable'), updateLoading = ref(false);
+async function loadUpdateSettings() {
+  await action(async () => {
+    const [config, status] = await Promise.all([
+      api('/system-updates/config'),
+      api('/system-updates/status?channel=' + encodeURIComponent(updateChannel.value)),
+    ]);
+    updateChannel.value = config.channel;
+    updatePreferences.value = config;
+    updateStatus.value = status;
+    if (config.channel !== status.channel) updateStatus.value = await api('/system-updates/status?channel=' + encodeURIComponent(config.channel));
+  });
+}
+async function checkUpdates() {
+  if (updateLoading.value) return;
+  updateLoading.value = true;
+  await action(async () => { updateStatus.value = await api('/system-updates/check', 'POST', { channel: updateChannel.value }); }, 'Release information refreshed');
+  updateLoading.value = false;
+}
+async function saveUpdateChannel() {
+  await action(async () => {
+    const config = await api('/system-updates/config', 'PATCH', { ...updatePreferences.value, channel: updateChannel.value });
+    updateChannel.value = config.channel;
+    updatePreferences.value = config;
+    updateStatus.value = await api('/system-updates/status?channel=' + encodeURIComponent(updateChannel.value));
+  }, 'Update preferences saved');
+  state.updatesRevision = (state.updatesRevision || 0) + 1;
+}
+watch(accountTab, (tab) => { if (tab === 'updates') loadUpdateSettings(); });
 const presentation = ref(JSON.parse(JSON.stringify(state.user?.presentation || defaultPresentation())));
 const colorFields = [{ key: 'primary', title: 'Accent' }, { key: 'background', title: 'Background' }, { key: 'surface', title: 'Cards' }, { key: 'received', title: 'Received chart' }, { key: 'sent', title: 'Sent chart' }];
 const theme = useTheme();
@@ -225,10 +260,47 @@ watch([() => revealScopes.audit, accountTab], () => {
   if (accountTab.value === 'audit' && isRevealed('audit')) loadAudit();
 }, { flush: 'sync' });
 </script>
+<style scoped>
+.update-changelog { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 30rem; overflow: auto; }
+</style>
 <template>
   <div class="text-overline text-primary">ADMINISTRATION</div>
   <h1 class="text-h4 font-weight-bold mb-6">Settings</h1>
-  <v-tabs v-model="accountTab" class="mb-5"><v-tab value="general">General</v-tab><v-tab value="security">Account security</v-tab><v-tab value="audit">Recent audit events</v-tab><v-tab value="logs">Logs</v-tab></v-tabs>
+  <v-tabs v-model="accountTab" class="mb-5"><v-tab value="general">General</v-tab><v-tab value="updates">System Updates</v-tab><v-tab value="security">Account security</v-tab><v-tab value="audit">Recent audit events</v-tab><v-tab value="logs">Logs</v-tab></v-tabs>
+  <div v-if="accountTab === 'updates'" class="d-flex flex-column ga-4">
+    <v-card class="pa-6">
+      <div class="d-flex flex-wrap align-start justify-space-between ga-4">
+        <div><div class="text-overline text-primary">SYSTEM UPDATES</div><div class="d-flex align-center ga-2"><h2 class="text-h5 font-weight-bold">Gateway release</h2><HelpButton topic-id="system-updates" /></div><p class="text-body-2 text-medium-emphasis mt-2">Review signed releases and compatibility, then use the host updater to coordinate installation and recovery.</p></div>
+        <v-btn prepend-icon="mdi-refresh" :loading="updateLoading" :disabled="!!state.busy" @click="checkUpdates">Check for updates</v-btn>
+      </div>
+      <v-divider class="my-5" />
+      <v-row v-if="updateStatus" dense>
+        <v-col cols="12" md="4"><div class="text-caption text-medium-emphasis">Installed version</div><div class="text-h6">{{ updateStatus.installed.version }}</div><div class="text-caption">{{ updateStatus.installed.commit }} · schema {{ updateStatus.installed.schemaVersion }}</div></v-col>
+        <v-col cols="12" md="4"><div class="text-caption text-medium-emphasis">Latest {{ updateChannel }} release</div><div class="text-h6">{{ updateStatus.latest?.version || 'No newer release found' }}</div><div class="text-caption">Checked {{ updateStatus.checkedAt ? formatDateTime(updateStatus.checkedAt) : 'not yet' }}</div></v-col>
+        <v-col cols="12" md="4"><v-chip :color="updateStatus.error ? 'error' : updateStatus.latest?.installable ? 'success' : 'warning'" variant="tonal">{{ updateStatus.error ? 'Check unavailable' : updateStatus.latest?.installable ? 'Verified and installable' : updateStatus.latest ? 'Not ready to install' : 'Up to date' }}</v-chip></v-col>
+      </v-row>
+      <v-alert v-if="updateStatus?.error" type="warning" variant="tonal" class="mt-4">{{ updateStatus.error }} Release lookup does not affect normal Gateway operation.</v-alert>
+      <v-alert v-if="updateStatus?.latest && !updateStatus.latest.installable" type="warning" variant="tonal" class="mt-4">This release is visible for review, but cannot be installed. {{ updateStatus.latest.installability }}</v-alert>
+    </v-card>
+    <v-alert v-if="route.query.version && route.query.version !== updateStatus?.latest?.version" type="info" variant="tonal">Requested release: {{ route.query.version }}. The current installation and operation details are shown below.</v-alert>
+    <v-card v-if="updateStatus?.latest" class="pa-6">
+      <h3 class="text-h6 mb-2">{{ updateStatus.latest.name }}</h3>
+      <div class="text-caption text-medium-emphasis mb-4">{{ updateStatus.latest.publishedAt ? formatDateTime(updateStatus.latest.publishedAt) : 'Publication date unavailable' }}<a v-if="updateStatus.latest.url" class="ml-3" :href="updateStatus.latest.url" target="_blank" rel="noopener noreferrer">View release notes</a></div>
+      <pre class="update-changelog">{{ updateStatus.latest.changelog || 'No release notes provided.' }}</pre>
+    </v-card>
+    <v-card class="pa-6" max-width="720">
+      <h3 class="text-h6 mb-2">Configuration</h3>
+      <p class="text-body-2 text-medium-emphasis">Choose which releases to show. Installation requires explicit confirmation and fresh authentication.</p>
+      <v-select v-model="updateChannel" label="Release channel" :items="[{ title: 'Stable', value: 'stable' }, { title: 'Beta (includes stable releases)', value: 'beta' }]" />
+      <v-switch v-model="updatePreferences.automaticChecks" color="primary" label="Check for updates automatically" />
+      <v-select v-model="updatePreferences.checkIntervalHours" :items="[1, 6, 12, 24].map(value => ({ title: `${value} hours`, value }))" label="Automatic check interval" :disabled="!updatePreferences.automaticChecks" />
+      <v-switch v-model="updatePreferences.notifications" color="primary" label="Show new release notifications" />
+      <v-text-field v-model.number="updatePreferences.snapshotRetention" type="number" min="2" max="100" label="Recovery snapshots to retain" hint="2–100. Current and interrupted recovery points are always protected; displaced runtime is retained separately." persistent-hint />
+      <p class="text-caption mb-3">Installation always requires confirmation. Private snapshots contain keys. Use encrypted storage and the host encrypted-export command for offline copies.</p>
+      <div class="d-flex ga-3"><v-btn color="primary" :disabled="!!state.busy" @click="saveUpdateChannel">Save update preferences</v-btn></div>
+    </v-card>
+    <UpdateOperations :release="updateStatus?.latest" @changed="loadUpdateSettings" />
+  </div>
   <v-card v-if="accountTab === 'general'" class="pa-6" max-width="720">
     <h2 class="text-h6 mb-2">Date and time</h2>
     <p class="text-body-2 text-medium-emphasis mb-5">Choose the time zone used for messages, certificates and audit events. Your preference is saved to your account; stored timestamps and certificate validity remain in UTC.</p>

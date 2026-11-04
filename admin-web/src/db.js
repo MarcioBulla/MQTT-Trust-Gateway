@@ -3,10 +3,16 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { env } from './config.js';
+import { CURRENT_SCHEMA_VERSION, migrateDatabase } from './migrations/index.js';
+export { CURRENT_SCHEMA_VERSION } from './migrations/index.js';
 fs.mkdirSync(env.dataDir, { recursive: true, mode: 0o700 });
 const file = path.join(env.dataDir, 'gateway.sqlite');
 export const sqlite = new DatabaseSync(file);
 fs.chmodSync(file, 0o600);
+
+const storedSchemaVersion = sqlite.prepare('PRAGMA user_version').get().user_version;
+if (storedSchemaVersion > CURRENT_SCHEMA_VERSION)
+  throw new Error(`Database schema ${storedSchemaVersion} is newer than this Gateway supports (${CURRENT_SCHEMA_VERSION}).`);
 sqlite.exec(
   'PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL);',
 );
@@ -52,6 +58,7 @@ if (!sqlite.prepare('SELECT id FROM state WHERE id=1').get()) {
   }
   sqlite.prepare('INSERT INTO state VALUES(1,?)').run(JSON.stringify(db));
 }
+migrateDatabase(sqlite);
 export function loadDb() {
   const db = JSON.parse(sqlite.prepare('SELECT value FROM state WHERE id=1').get().value);
   db.trustedCas ||= [];
