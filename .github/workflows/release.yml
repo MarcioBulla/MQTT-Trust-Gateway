@@ -28,7 +28,6 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
       PUBLISH: ${{ inputs.publish }}
-      REGISTRY_AUTH_FILE: ${{ runner.temp }}/gateway-registry-auth.json
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Validate source, runner and channel
@@ -48,6 +47,8 @@ jobs:
           export XDG_RUNTIME_DIR="/run/user/$(id -u)"
           export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
           printf 'XDG_RUNTIME_DIR=%s\nDBUS_SESSION_BUS_ADDRESS=%s\n' "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
+          export REGISTRY_AUTH_FILE="$RUNNER_TEMP/gateway-registry-auth.json"
+          printf 'REGISTRY_AUTH_FILE=%s\n' "$REGISTRY_AUTH_FILE" >> "$GITHUB_ENV"
           umask 077
           printf '{"auths":{}}' > "$REGISTRY_AUTH_FILE"
           systemctl --user show-environment >/dev/null
