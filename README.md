@@ -1,6 +1,6 @@
 # MQTT Trust Gateway
 
-**Version 1.0.2** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.0.2.md)
+**Version 1.1.1** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.1.1.md)
 
 A lightweight, self-hosted MQTT gateway for trusted device identities. It combines Eclipse Mosquitto with a Vue 3 / Vuetify 3 admin console and a local certificate authority.
 

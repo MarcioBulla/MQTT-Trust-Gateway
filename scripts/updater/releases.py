@@ -23,8 +23,8 @@ def version_key(value):
     return tuple(map(int, match.group(1, 2, 3))) + (not parts, tuple((0, int(p)) if p.isdigit() else (1, p) for p in parts))
 
 
-def fetch(url, limit=256_000):
-    request = Request(url, headers={'User-Agent': 'MQTT-Trust-Gateway-Updater', 'Accept': 'application/octet-stream'})
+def fetch(url, limit=256_000, accept="application/octet-stream"):
+    request = Request(url, headers={'User-Agent': 'MQTT-Trust-Gateway-Updater', 'Accept': accept})
     with urlopen(request, timeout=20) as response:
         result = response.read(limit + 1)
     if len(result) > limit:
@@ -34,7 +34,7 @@ def fetch(url, limit=256_000):
 
 def discover(version):
     version_key(version)
-    payload = json.loads(fetch(f'https://api.github.com/repos/{REPOSITORY}/releases/tags/v{version}'))
+    payload = json.loads(fetch(f'https://api.github.com/repos/{REPOSITORY}/releases/tags/v{version}', accept='application/vnd.github+json'))
     if payload.get('draft') or payload.get('tag_name') != 'v' + version:
         raise ValueError('Release is not published for the requested tag')
     assets = {item['name']: item for item in payload.get('assets', [])}

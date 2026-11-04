@@ -37,7 +37,7 @@ included in the stopped-broker snapshot.
 A host owner can also request a specific verified release:
 
 ```sh
-./gateway release-install --version 1.1.0
+./gateway release-install --version 1.1.1
 ```
 
 ## Recovery and rollback

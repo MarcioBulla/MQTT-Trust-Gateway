@@ -74,3 +74,23 @@ class ReleaseTests(unittest.TestCase):
                 compatible(manifest,'1.0.2',1,'4.9.0')
             self.assertLess(version_key('1.1.0-beta.2'),version_key('1.1.0-beta.10'))
             self.assertLess(version_key('1.1.0-beta.10'),version_key('1.1.0'))
+
+class GitHubTransportTests(unittest.TestCase):
+    def test_metadata_and_asset_requests_negotiate_the_correct_media_types(self):
+        from unittest.mock import patch
+        from scripts.updater.releases import discover
+        seen=[]
+        payloads=[json.dumps({'tag_name':'v1.1.1','draft':False,'assets':[
+            {'name':'update-manifest.json','url':'https://api.github.com/repos/MarcioBulla/MQTT-Trust-Gateway/releases/assets/1'},
+            {'name':'update-manifest.sig','url':'https://api.github.com/repos/MarcioBulla/MQTT-Trust-Gateway/releases/assets/2'}]}).encode(),b'manifest',b'signature']
+        class Response:
+            def __init__(self,payload):self.payload=payload
+            def __enter__(self):return self
+            def __exit__(self,*_):pass
+            def read(self,limit):return self.payload[:limit]
+        def open_request(request,timeout):
+            seen.append(request.get_header('Accept'))
+            return Response(payloads.pop(0))
+        with patch('scripts.updater.releases.urlopen',side_effect=open_request):
+            self.assertEqual(discover('1.1.1'),(b'manifest',b'signature'))
+        self.assertEqual(seen,['application/vnd.github+json','application/octet-stream','application/octet-stream'])

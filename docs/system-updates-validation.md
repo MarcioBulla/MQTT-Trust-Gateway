@@ -5,7 +5,7 @@ Local release-candidate validation, 2026-11-04:
 - Node/Admin suite: **65 tests passed**, zero failures/skips. Includes migrations,
   signed release discovery/cache, authorization, preferences, installation review
   in Chromium, and all Help diagrams across light/dark/OLED/mobile layouts.
-- Python suite: **28 tests passed**. Includes snapshot/WAL integrity, interrupted
+- Python suite: **29 tests passed**. Includes snapshot/WAL integrity, interrupted
   restore boundaries, controller failure injection, locking, explicit recovery,
   post-commit safety, immutable signatures, retention and isolated real GPG
   encryption/decryption of exported snapshots.
@@ -29,3 +29,12 @@ The publication workflow repeats unit/browser, build and real integration
 checks on the exact images before signing and publishing their immutable
 references. Local success alone does not authorize an installable release when
 pipeline verification, anonymous registry access or signing fails.
+
+## Live-discovery correction
+
+The initial 1.1.0 release was withdrawn after a final live GitHub check returned
+HTTP 415: the host client requested binary content for release JSON metadata.
+Patch 1.1.1 negotiates GitHub JSON for metadata and binary content for assets.
+A request-header regression test and a live public JSON probe were added; the
+release pipeline executes that probe before build/publication. The original
+tag and image digests are preserved rather than overwritten.

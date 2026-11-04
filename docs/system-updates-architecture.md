@@ -130,7 +130,7 @@ output and credentials are never copied into public operation history.
   separately pinned signing public key and protected signing secret. None is
   inferred from the broker/device CA. The pinned release key and protected
   environment are configured separately; an ephemeral runner executes publication
-  acceptance. v1.1.0 must not be published until that pipeline passes.
+  acceptance. An installable release must not be published until that pipeline passes.
 
 ## Validation evidence
 
