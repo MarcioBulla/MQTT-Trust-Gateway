@@ -1,6 +1,6 @@
 # MQTT Trust Gateway
 
-**Version 1.0.2** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.0.2.md)
+**Version 1.1.1** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.1.1.md)
 
 A lightweight, self-hosted MQTT gateway for trusted device identities. It combines Eclipse Mosquitto with a Vue 3 / Vuetify 3 admin console and a local certificate authority.
 
@@ -28,13 +28,13 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 
 ## 🚧 Work in progress
 
-1. 🔄 **Offline release import:** install verified releases without an internet connection.
-2. 🔐 **MCU certificate renewal:** improve the renewal workflow for MCU devices.
-3. 🧩 **Per-device rules:** configure MQTT access policies for each device.
-4. ✉️ **SMTP settings:** initially email administrators when licenses are near expiry.
-5. 🩺 **Health checks:** report device heartbeat and online status.
-6. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
-7. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
+1. 🔐 **MCU certificate renewal:** improve the renewal workflow for MCU devices.
+2. 🧩 **Per-device rules:** configure MQTT access policies for each device.
+3. ✉️ **SMTP settings:** initially email administrators when licenses are near expiry.
+4. 🩺 **Health checks:** report device heartbeat and online status.
+5. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
+6. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
+7. 🔄 **Offline release import:** install verified releases without an internet connection.
 
 > [!NOTE]
 > System Updates installation requires enabling the host updater and configuring its pinned Ed25519 release key. Automatic installation is disabled; see the [operations guide](docs/system-updates-operations.md) for prerequisites and recovery-data handling.

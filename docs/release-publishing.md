@@ -33,7 +33,7 @@ compatibility requirements. A checksum/key downloaded alongside an artifact is
 not an independent trust anchor. Signing-key compromise requires an explicit
 operator trust-key rotation; automatic trust-on-first-use is not implemented.
 
-Do not publish v1.1.0 until both the local acceptance suite and this protected
+Do not publish an installable release until both the local acceptance suite and this protected
 publication workflow pass. A branch push or tag alone is not an installable
 release and must not be presented as one.
 
