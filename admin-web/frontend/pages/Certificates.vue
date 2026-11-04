@@ -9,6 +9,7 @@ import { computed, watch, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, action, state, markBrokerMutation, downloadApiFile } from '../api';
 import FileDrop from '../components/FileDrop.vue';
+import HelpButton from '../components/HelpButton.vue';
 import { certificateMethods } from '../certificate-methods';
 
 const props = defineProps({ embedded: Boolean, deviceId: { type: String, default: '' } });
@@ -205,7 +206,7 @@ defineExpose({ open });
   </DataList></v-card>
   <v-card v-if="!props.deviceId" class="pa-5"><h2 class="text-h6 mb-2">Trusted external CAs</h2><p class="text-body-2 text-medium-emphasis">Only approved CA certificates are added to the Mosquitto client trust bundle. Trust changes take effect after applying pending broker changes.</p><v-list v-if="trustedCas.length"><v-list-item v-for="ca in trustedCas" :key="ca.id" :title="ca.subject" ><template #subtitle><SensitiveValue scope="devices" :value="ca.fingerprint" label="CA fingerprint" /> · expires {{ formatDateTime(ca.validTo) }}</template><template #append><v-btn color="error" variant="tonal" prepend-icon="mdi-shield-remove-outline" @click="removeCa(ca)">Remove trust</v-btn></template></v-list-item></v-list><v-alert v-else type="info" variant="tonal" class="my-3">No external CAs are trusted.</v-alert><v-textarea v-model="caPem" label="External CA certificate (PEM)" rows="5" /><v-text-field v-model="caConfirmation" label="Type TRUST THIS CA to approve" /><v-btn color="primary" variant="flat" prepend-icon="mdi-shield-check-outline" :disabled="caConfirmation !== 'TRUST THIS CA' || !caPem" :loading="!!state.busy" @click="trustCa">Approve CA trust</v-btn></v-card>
 
-  <v-dialog v-model="dialog" max-width="820" scrollable><v-card class="pa-6"><h2 class="text-h5 mb-4">{{ certificateMethods.find((item) => item.value === method)?.title }}</h2>
+  <v-dialog v-model="dialog" max-width="820" scrollable><v-card class="pa-6"><div class="d-flex align-center justify-space-between mb-4"><h2 class="text-h5">{{ certificateMethods.find((item) => item.value === method)?.title }}</h2><HelpButton :topic-id="({ generate: 'generate-complete-certificate', sign: 'sign-existing-csr', external: 'generate-csr-external-signing', import: 'import-certificate' })[method]" /></div>
     <template v-if="!generatedPending">
       <v-combobox v-model="form.deviceId" :items="deviceOptions" item-title="title" item-value="value" :return-object="false" label="MQTT device identity" hint="Search by name or ID, or enter a new device ID. The ID must match the certificate CN." :disabled="!!props.deviceId" :loading="devicesLoading" required>
         <template #append><v-tooltip text="Refresh devices" location="top" :open-delay="500"><template #activator="{ props: refreshProps }"><v-btn v-bind="refreshProps" icon="mdi-refresh" variant="text" size="small" aria-label="Refresh device identities" :loading="devicesLoading" :disabled="devicesLoading" @click="refreshDeviceOptions" /></template></v-tooltip></template>

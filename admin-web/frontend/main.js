@@ -12,6 +12,7 @@ import Identities from './pages/Identities.vue';
 import Certificates from './pages/Certificates.vue';
 import Mqtt from './pages/Mqtt.vue';
 import Account from './pages/Account.vue';
+import Help from './pages/Help.vue';
 const routes = [
   { path: '/', component: Dashboard },
   { path: '/devices', component: Identities },
@@ -20,6 +21,8 @@ const routes = [
   { path: '/licenses', component: Devices, props: { licenses: true } },
   { path: '/mqtt', component: Mqtt },
   { path: '/settings', component: Account },
+  { path: '/help', name: 'help-index', component: Help },
+  { path: '/help/:topicId', name: 'help-topic', component: Help, props: (route) => ({ topicId: String(route.params.topicId) }) },
   { path: '/account', redirect: '/settings' },
 ];
 createApp(App)

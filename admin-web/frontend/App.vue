@@ -35,8 +35,9 @@ const links = [
   ['/', 'Overview', 'mdi-view-dashboard-outline'],
   ['/devices', 'Devices & certificates', 'mdi-chip'],
   ['/licenses', 'Licenses', 'mdi-certificate-outline'],
-  ['/mqtt', 'MQTT Manager', 'mdi-message-processing-outline'],
   ['/settings', 'Settings', 'mdi-cog-outline'],
+  ['/help', 'Help', 'mdi-help-circle-outline'],
+  ['/mqtt', 'MQTT Manager', 'mdi-message-processing-outline'],
 ];
 const required = (v) => !!v || 'Required';
 function toggleTheme() {

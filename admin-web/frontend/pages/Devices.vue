@@ -5,6 +5,7 @@ import DateTime from '../components/DateTime.vue';
 import { formatDateTime } from '../date-time';
 import RowActions from '../components/RowActions.vue';
 import DataList from '../components/DataList.vue';
+import HelpButton from '../components/HelpButton.vue';
 import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, action, state, copy, downloadApiFile } from '../api';
@@ -328,7 +329,7 @@ const licenseCounts = (status) =>
   >
   <v-dialog v-model="dialog" max-width="550"
     ><v-card class="pa-6"
-      ><h2 class="text-h5 mb-5">Register device</h2>
+      ><div class="d-flex align-center justify-space-between mb-5"><h2 class="text-h5">Register device</h2><HelpButton topic-id="register-device" /></div>
       <v-form @submit.prevent="create"
         ><v-text-field
           v-model="form.id"
