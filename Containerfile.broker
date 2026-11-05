@@ -1,5 +1,5 @@
 FROM docker.io/eclipse-mosquitto:2.1.2-alpine
-ARG GATEWAY_VERSION=1.1.1
+ARG GATEWAY_VERSION=1.2.0
 LABEL org.opencontainers.image.version=$GATEWAY_VERSION
 LABEL org.opencontainers.image.source="https://github.com/MarcioBulla/MQTT-Trust-Gateway"
 LABEL io.mqtt-gateway.update-gate="1"
