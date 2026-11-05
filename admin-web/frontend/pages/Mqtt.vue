@@ -5,6 +5,7 @@ import DateTime from '../components/DateTime.vue';
 import { formatDateTime } from '../date-time';
 import RowActions from '../components/RowActions.vue';
 import DataList from '../components/DataList.vue';
+import HelpButton from '../components/HelpButton.vue';
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { api, action, state, copy } from '../api';
 const messages = ref([]),
@@ -103,7 +104,7 @@ function removeRetained() {
 </script>
 <template>
   <div class="text-overline text-primary">OBSERVE & PUBLISH</div>
-  <h1 class="text-h4 font-weight-bold mb-2">MQTT Manager</h1>
+  <div class="d-flex align-center ga-2 mb-2"><h1 class="text-h4 font-weight-bold">MQTT Manager</h1><HelpButton topic-id="mqtt-manager" /></div>
   <p class="text-medium-emphasis mb-6">
     Authenticated backend bridge. Broker credentials stay on the server.
   </p>

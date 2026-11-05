@@ -16,7 +16,7 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 ## ✨ Features
 
 - 🔄 System Updates: discover and verify signed releases, then install or roll back Gateway/container updates through the independently running host updater. Includes verified snapshots, functional health checks, interruption recovery, guarded rollback, progress history, configurable checks and snapshot retention (2–100, default 5), plus optional GnuPG-encrypted snapshot export. Automatic installation remains disabled. See the [operations guide](docs/system-updates-operations.md) and [architecture](docs/system-updates-architecture.md).
-- ❔ Contextual Help: certificate and release-discovery guides with interactive Mermaid diagrams and workflow flowcharts.
+- ❔ Contextual Help: searchable guides for certificate workflows, release discovery, and MQTT Manager, with contextual previews, interactive Mermaid diagrams, and theme-matched visual guides.
 - 🪪 Four certificate enrollment methods: sign a device CSR, create a CSR for an external CA, generate a complete device credential bundle, or import an existing certificate.
 - 🧰 Central device and certificate lifecycle: renew, revoke, trust external CAs, archive, restore, and permanently delete identities.
 - 🛡️ Admin security: Argon2id passwords, TOTP, WebAuthn passkeys, expiring sessions, rate limiting, and step-up verification for sensitive data.
@@ -82,6 +82,8 @@ Captured with Chromium from the real admin UI using the **Gateway default** dark
 | ![Chart settings, theme presets and OLED](docs/screenshots/settings-general.png) | ![Password, passkey, TOTP and visibility settings](docs/screenshots/settings-security.png) |
 | **Help library** | **Interactive certificate guide** |
 | ![Contextual Help library for devices, certificates and release discovery](docs/screenshots/help.png) | ![Interactive Mermaid diagram explaining certificate files and key ownership](docs/screenshots/help-diagrams.png) |
+| **MQTT Manager guide · Light** | **MQTT Manager guide · Dark** |
+| ![Numbered MQTT Manager controls and columns in the Gateway default Light palette; synthetic example traffic](admin-web/frontend/public/screenshots/mqtt-manager-help-light.png) | ![Numbered MQTT Manager controls and columns in the Gateway default Dark palette; synthetic example traffic](admin-web/frontend/public/screenshots/mqtt-manager-help-dark.png) |
 
 ## 🚀 Install (rootless Podman)
 

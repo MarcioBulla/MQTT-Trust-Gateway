@@ -1,5 +1,67 @@
 export const helpTopics = [
   {
+    id: 'mqtt-manager', category: 'MQTT Manager', title: 'Observe, subscribe, publish, and inspect retained MQTT messages',
+    shortSummary: 'Use MQTT Manager to watch broker messages, subscribe to topic filters, publish test messages, and inspect retained data. Topics and payloads are hidden until you reveal MQTT information.',
+    caution: 'Publishing and removing retained messages affect the live broker. Verify the topic and payload before publishing, and confirm the exact topic before removing a retained message.',
+    overview: 'MQTT Manager is an authenticated server-side bridge to the configured broker. It provides a bounded live message view, a subscription filter, a publisher, a message-history limit, and a retained-message snapshot. Broker credentials remain on the Gateway server. Topic and payload values are protected by the MQTT sensitive-information reveal control; ordinary metadata such as receipt time, QoS, and retain status remains available. Publication QoS describes MQTT protocol delivery and acknowledgement behavior, not proof that every subscriber application consumed the message.',
+    when: 'Use the page to troubleshoot or demonstrate MQTT traffic, test a topic publication, subscribe to an additional filter, or inspect the broker’s retained snapshot. It is an administrative tool and publishes through the Gateway’s broker connection.',
+    prerequisites: ['Sign in to the Gateway administration interface.', 'Reveal MQTT information if you need to read topic names or payloads. The default view masks those values.', 'Use a test topic and synthetic payload when validating behavior; publishing and retained-message removal act on the connected broker.'],
+    steps: [
+      'Open MQTT Manager. The live table starts with the Gateway’s default # subscription at QoS 2. The bounded message buffer is cleared when the Admin service restarts.',
+      'Use Pause to stop adding incoming events to the displayed list, or Resume to continue. Clear history removes the current Gateway-side observed message history.',
+      'Filter observed topic narrows the live table by topic after MQTT information is revealed. Without a reveal grant, the API omits topic values, so this filter cannot match them. Payload format changes how visible payloads are displayed: Text, formatted JSON when valid, or Base64.',
+      'Read the live table columns: Received uses the configured display time zone; Topic and Payload are masked until MQTT information is revealed; QoS and Retain show delivery metadata.',
+      'Enter another subscription filter and choose Subscribe. MQTT single-level + and terminal multi-level # wildcards are supported. Added subscriptions use QoS 2; the publisher’s QoS selector is a separate setting.',
+      'In Publish a message, enter a topic and payload, choose text or base64 encoding, select QoS 0, 1, or 2, and optionally enable Retain message. QoS 0 is at most once, QoS 1 is at least once and may duplicate, and QoS 2 completes the MQTT exactly-once exchange. These acknowledgements do not prove that every subscriber application processed the message. Choose Publish to send through the Gateway broker connection. Retain stores the latest retained payload for that topic.',
+      'Under History retention, set Maximum messages from 10 to 2000 and choose Save limit to change the server-side observed-message buffer limit.',
+      'Observed retained messages shows the retained snapshot available to the Gateway. Refresh reloads it; search matches retained topics or payload text. For a row, the actions menu offers Details, Copy topic, and Remove retained. Removal requires typing the exact topic and publishes the MQTT retained-message deletion (an empty retained payload).',
+      'The retained table columns are Topic, Payload, QoS, Size in bytes, Received, and row actions. Use its footer to change page size or move between pages.'
+    ],
+    artifacts: [
+      'Live message history and retained snapshot are held by the Gateway MQTT service; the observed message buffer is bounded and cleared when the Admin service restarts.',
+      'Publish and subscribe requests are sent to the authenticated Gateway API. The browser does not receive broker credentials or connect directly to Mosquitto.',
+      'Topic and payload are treated as sensitive information and are returned only under MQTT reveal authorization. The static Help screenshots use synthetic example traffic.'
+    ],
+    sequenceTitle: 'Message path and data handling',
+    sequence: [
+      'Administrator → MQTT Manager: enter a subscription filter or publication details',
+      'Browser → authenticated Gateway API: send the requested administrative MQTT action',
+      'Gateway MQTT service ↔ Broker: subscribe, receive, or publish using server-held broker credentials',
+      'Broker → Gateway MQTT service: deliver message metadata and payload to the bounded observer',
+      'Gateway API → Browser: return ordinary metadata; protect topic and payload behind MQTT reveal authorization'
+    ],
+    workflowMermaid: 'flowchart LR\n  A[Open MQTT Manager] --> B[Observe live messages]\n  B --> C[Filter or pause view]\n  B --> D[Add subscription]\n  B --> E[Publish message]\n  B --> F[Inspect retained snapshot]\n  E --> G{Retain enabled?}\n  G -- Yes --> H[Broker stores latest topic value]\n  F --> I{Remove retained?}\n  I -- Yes --> J[Confirm exact topic and clear retained value]',
+    mermaid: 'sequenceDiagram\n  actor Admin as Administrator\n  participant UI as MQTT Manager\n  participant API as Gateway API\n  participant Gateway as MQTT service\n  participant Broker as Configured broker\n  Admin->>UI: Choose Subscribe, Publish, or retained-message action\n  UI->>API: Send authenticated request (no broker credentials in browser)\n  API->>Gateway: Validate and forward requested MQTT action\n  Gateway->>Broker: Subscribe at QoS 2 or publish at selected QoS\n  Broker-->>Gateway: Deliver matching messages and retained updates\n  Gateway->>Gateway: Keep bounded observed history and retained snapshot\n  Gateway-->>API: Return metadata and reveal-authorized message content\n  API-->>UI: Mask Topic and Payload unless MQTT reveal is active',
+    visualGuideTitle: 'MQTT Manager controls and columns',
+    visualGuideIntro: 'The screenshots use synthetic demo values and the Gateway default palette. MQTT information is revealed for this illustration, so the eye control is in its visible state. In normal use, topics and payloads stay hidden until you reveal them. Light and Dark images are selected automatically; OLED follows the Dark image.',
+    themeScreenshots: {
+      light: { src: '/screenshots/mqtt-manager-help-light.png', theme: 'Light', alt: 'MQTT Manager in the Gateway default Light palette with MQTT information revealed and 19 numbered callouts for live messages, subscription, publishing, history retention, and retained-message controls.', caption: 'Gateway default Light palette; synthetic demo content with MQTT reveal active.' },
+      dark: { src: '/screenshots/mqtt-manager-help-dark.png', theme: 'Dark', alt: 'MQTT Manager in the Gateway default Dark palette with MQTT information revealed and 19 numbered callouts for live messages, subscription, publishing, history retention, and retained-message controls.', caption: 'Gateway default Dark palette; synthetic demo content with MQTT reveal active.' }
+    },
+    visualGuide: [
+      { title: 'Live status and controls', description: 'The Live/Paused chip shows the view state. Pause or Resume controls display updates; Clear history clears the observed history.' },
+      { title: 'Filter observed topic', description: 'Searches the live list by topic when MQTT information is revealed. Without a reveal grant, the API omits topic values. This filter does not create or change a broker subscription.' },
+      { title: 'Payload format', description: 'Display payload as Text, pretty-printed JSON when valid, or Base64.' },
+      { title: 'Live message columns', description: 'Received is localized time; Topic and Payload are protected values; QoS and Retain show broker message metadata.' },
+      { title: 'Live table pagination', description: 'Select rows per page and move through the bounded live-history view.' },
+      { title: 'Subscription filter', description: 'Enter a topic filter; + matches one level and # matches the remaining levels when used as the terminal wildcard.' },
+      { title: 'Subscribe', description: 'Adds the filter through the Gateway at QoS 2. It does not change the separate publisher QoS.' },
+      { title: 'Publish topic', description: 'Enter one topic name; publish topics cannot contain subscription wildcards.' },
+      { title: 'Publish payload', description: 'Enter the message body. The payload limit and validation are enforced by the Gateway.' },
+      { title: 'Encoding', description: 'Choose text or base64 decoding for the entered payload.' },
+      { title: 'Publish QoS', description: 'Choose QoS 0 (at most once), QoS 1 (at least once, possible duplicates), or QoS 2 (exactly once for the MQTT protocol exchange). An acknowledgement is not proof that each subscriber application consumed the message.' },
+      { title: 'Retain message', description: 'When enabled, asks the broker to retain this publication as the latest value for the topic.' },
+      { title: 'Publish', description: 'Sends the entered publication via the Gateway’s server-side broker connection.' },
+      { title: 'Maximum messages', description: 'Set the Gateway’s observed-history limit from 10 to 2000 messages.' },
+      { title: 'Save limit', description: 'Save the new maximum to the Gateway.' },
+      { title: 'Retained snapshot controls', description: 'Refresh the observed snapshot, search topic or payload text, and view the retained-topic count.' },
+      { title: 'Retained message columns', description: 'Topic, Payload, QoS, Size in bytes, and Received time describe each retained value.' },
+      { title: 'Retained row actions', description: 'Details opens the value, Copy topic copies its topic, and Remove retained opens exact-topic confirmation before clearing it at the broker.' },
+      { title: 'Retained table pagination', description: 'Change page size and navigate the retained snapshot rows.' }
+    ],
+    relatedTopicIds: []
+  },
+  {
     id: 'system-updates', category: 'System Updates', title: 'Install and recover Gateway releases',
     shortSummary: 'Review signed releases, install coordinated Admin and broker updates, and recover safely. Installation requires a rootless host updater and fresh administrator verification.',
     caution: 'Updates disconnect MQTT clients. During maintenance the broker binds its MQTT/TLS and WSS listeners to loopback, so devices cannot reconnect or publish before validation finishes. Persistent MQTT session queues and retained state are preserved. Pre-commit failures trigger automatic rollback; after a successful commit, automatic recovery moves forward rather than restoring an old snapshot over newer data.',

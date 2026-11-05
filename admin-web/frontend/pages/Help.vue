@@ -1,15 +1,18 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { useTheme } from 'vuetify';
 import { helpTopics, helpTopicById } from '../help/help-topics';
 import MermaidDiagram from '../components/MermaidDiagram.vue';
 
 const props = defineProps({ topicId: { type: String, default: '' } });
 const router = useRouter();
+const theme = useTheme();
 const search = ref('');
 const topic = computed(() => helpTopicById[props.topicId]);
 const categories = computed(() => [...new Set(helpTopics.map((item) => item.category))]);
 const visibleTopics = computed(() => helpTopics.filter((item) => `${item.title} ${item.shortSummary} ${item.category}`.toLowerCase().includes(search.value.trim().toLowerCase())));
+const guideScreenshot = computed(() => topic.value?.themeScreenshots?.[theme.global.current.value.dark ? 'dark' : 'light']);
 function goBack() {
   if (window.history.length > 1 && document.referrer && new URL(document.referrer).origin === window.location.origin) router.back();
   else router.push('/help');
@@ -55,6 +58,23 @@ function goBack() {
         <section class="mb-7"><h2 class="text-h5 mb-2">When to use this</h2><p>{{ topic.when }}</p></section>
         <section class="mb-7"><h2 class="text-h5 mb-2">Before you begin</h2><ul><li v-for="item in topic.prerequisites" :key="item">{{ item }}</li></ul></section>
         <section class="mb-7"><h2 class="text-h5 mb-2">Workflow</h2><ol><li v-for="item in topic.steps" :key="item">{{ item }}</li></ol></section>
+
+        <section v-if="guideScreenshot && topic.visualGuide?.length" class="mb-7" aria-labelledby="visual-guide-title">
+          <h2 id="visual-guide-title" class="text-h5 mb-2">{{ topic.visualGuideTitle || 'Visual guide' }}</h2>
+          <p v-if="topic.visualGuideIntro" class="text-body-2 text-medium-emphasis">{{ topic.visualGuideIntro }}</p>
+          <figure class="help-guide-figure">
+            <a :href="guideScreenshot.src" target="_blank" rel="noopener noreferrer" :aria-label="`Open full-size ${guideScreenshot.theme} MQTT Manager screenshot in a new tab`">
+              <img class="help-guide-image" :src="guideScreenshot.src" :alt="guideScreenshot.alt" loading="lazy" />
+            </a>
+            <figcaption class="text-caption text-medium-emphasis mt-2">{{ guideScreenshot.caption }} Select the image to open it at full size.</figcaption>
+          </figure>
+          <ol class="help-visual-guide" aria-label="Numbered MQTT Manager controls and table guide">
+            <li v-for="(item, index) in topic.visualGuide" :key="item.title" class="mb-3">
+              <span class="sequence-index">{{ index + 1 }}</span>
+              <div><strong>{{ item.title }}</strong><span v-if="item.description"> — {{ item.description }}</span></div>
+            </li>
+          </ol>
+        </section>
 
         <section class="mb-7">
           <h2 class="text-h5 mb-2">Workflow map</h2>
@@ -122,5 +142,9 @@ function goBack() {
 .sequence-list { list-style: none; padding: 0 !important; }
 .sequence-list li { display: flex; align-items: flex-start; gap: .75rem; margin-block: .65rem; }
 .sequence-index { display: inline-flex; flex: 0 0 1.65rem; height: 1.65rem; align-items: center; justify-content: center; border-radius: 50%; background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); font-size: .8rem; font-weight: 700; }
+.help-guide-figure { margin: 1rem 0 1.5rem; }
+.help-guide-image { display: block; width: 100%; height: auto; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: .75rem; }
+.help-visual-guide { list-style: none; padding: 0 !important; }
+.help-visual-guide li { display: flex; align-items: flex-start; gap: .75rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 </style>
