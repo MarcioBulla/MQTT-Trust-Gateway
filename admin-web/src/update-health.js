@@ -21,15 +21,66 @@ const topic = `gateway:update:health/${crypto.randomUUID()}`;
 const denied = `gateway:update:denied/${crypto.randomUUID()}`;
 const baseOptions = { ca, rejectUnauthorized: true, reconnectPeriod: 0, connectTimeout: timeout, protocolVersion: 5, clean: true };
 const authorized = { ...baseOptions, cert: file('update-health-client.crt'), key: file('update-health-client.key') };
-function connect(options, transport = 'mqtts') {
+function connect(options, transport = 'mqtts', tlsVersion = null) {
   return new Promise((resolve, reject) => {
-    const client = mqtt.connect(`${transport}://${env.mqttHost}:${transport === 'wss' ? '8443/mqtt' : '8883'}`, options);
+    const versionOptions = tlsVersion
+      ? transport === 'wss'
+        ? { wsOptions: { ...options.wsOptions, minVersion: tlsVersion, maxVersion: tlsVersion } }
+        : { minVersion: tlsVersion, maxVersion: tlsVersion }
+      : {};
+    const client = mqtt.connect(
+      `${transport}://${env.mqttHost}:${transport === 'wss' ? '8443/mqtt' : '8883'}`,
+      { ...options, ...versionOptions },
+    );
     clients.push(client);
     const timer = setTimeout(() => reject(new Error('MQTT timeout')), timeout);
     client.once('error', (error) => { clearTimeout(timer); reject(error); });
     client.once('close', () => { clearTimeout(timer); reject(new Error('MQTT closed before acceptance')); });
     client.once('connect', () => { clearTimeout(timer); resolve(client); });
   });
+}
+async function verifyTlsDelivery(transport, version) {
+  stage = `${version === 'TLSv1.2' ? 'TLS12' : 'TLS13'}_${transport === 'wss' ? 'WSS' : 'MQTT'}_DELIVERY`;
+  const client = await connect(authorized, transport, version);
+  const probeTopic = `${topic}/${transport}/${version}`;
+  const payload = crypto.randomBytes(24);
+  let receiveTimer;
+  let listener;
+  let rejectReceived;
+  try {
+    await new Promise((resolve, reject) =>
+      client.subscribe(probeTopic, { qos: 1 }, (error, grants) =>
+        error || grants?.[0]?.qos !== 1
+          ? reject(error || new Error('Version probe subscription refused'))
+          : resolve(),
+      ),
+    );
+    const received = new Promise((resolve, reject) => {
+      rejectReceived = reject;
+      receiveTimer = setTimeout(() => reject(new Error('Version probe delivery timeout')), timeout);
+      listener = (receivedTopic, receivedPayload) => {
+        if (receivedTopic !== probeTopic || !receivedPayload.equals(payload)) return;
+        clearTimeout(receiveTimer);
+        client.off('message', listener);
+        listener = null;
+        resolve();
+      };
+      client.on('message', listener);
+    });
+    const published = new Promise((resolve, reject) =>
+      client.publish(probeTopic, payload, { qos: 1, retain: false }, (error) =>
+        error ? reject(error) : resolve(),
+      ),
+    );
+    await Promise.all([published, received]);
+  } finally {
+    clearTimeout(receiveTimer);
+    if (listener) {
+      client.off('message', listener);
+      rejectReceived(new Error('MQTT client closed during TLS probe'));
+    }
+    await client.endAsync(false);
+  }
 }
 async function rejected(options) {
   try { await connect(options); } catch (error) {
@@ -108,6 +159,12 @@ try {
     });
     websocket.publish(websocketTopic, payload, { qos: 1, retain: false }, error => { if (error) { clearTimeout(timer); reject(error); } });
   });
+  // Keep the MQTT and WSS listeners compatible with both protocol versions.
+  // Force exact TLS versions so default negotiation cannot mask a regression.
+  for (const version of ['TLSv1.2', 'TLSv1.3']) {
+    await verifyTlsDelivery('mqtts', version);
+    await verifyTlsDelivery('wss', version);
+  }
   stage = 'ACL_SUBSCRIBE';
   const observer = await connect({ ...baseOptions, cert: file('mqtt-client.crt'), key: file('mqtt-client.key') });
   const publishControl = (payload, retain) => new Promise((resolve, reject) => observer.publish(denied, payload, { qos: 1, retain }, (error) => error ? reject(error) : resolve()));
@@ -143,7 +200,7 @@ try {
   // A serverAuth-only certificate is signed by the trusted CA but must not be
   // accepted as a device client credential. No synthetic private key is stored.
   await rejected({ ...baseOptions, cert: fs.readFileSync(path.join(env.brokerDir, 'server.crt')), key: fs.readFileSync(path.join(env.brokerDir, 'server.key')) });
-  console.log(JSON.stringify({ ok: true, admin: true, database: true, brokerTls: true, mqttMtls: true, wss: true, delivery: true, acl: true, invalidCredentialsRejected: true }));
+  console.log(JSON.stringify({ ok: true, admin: true, database: true, brokerTls: true, mqttMtls: true, wss: true, delivery: true, tls12: true, tls13: true, acl: true, invalidCredentialsRejected: true }));
 } catch {
   console.error('UPDATE_FUNCTIONAL_HEALTH_FAILED:' + stage);
   process.exitCode = 1;

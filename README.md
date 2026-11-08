@@ -1,10 +1,10 @@
 # MQTT Trust Gateway
 
-**Version 1.2.0** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.2.0.md)
+**Version 1.2.1** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.2.1.md)
 
 A lightweight, self-hosted MQTT gateway for trusted device identities. It combines Eclipse Mosquitto with a Vue 3 / Vuetify 3 admin console and a local certificate authority.
 
-- 🔒 **Secure device access:** individual X.509 certificates and mandatory MQTT mTLS.
+- 🔒 **Secure device access:** individual X.509 certificates and mandatory MQTT mTLS. Native MQTT/TLS and MQTT over WSS support TLS 1.2 and 1.3; older TLS versions are disabled.
 - 🧭 **Simple operations:** two rootless Podman Quadlets; no step-ca, integrated proxy, Certbot, Docker Compose, Redis, or external database.
 - 🖥️ **One admin container:** Node/Express API serves the compiled Vue interface.
 - 💾 **Persistent state:** SQLite stores identities, certificate history, settings, and audit records.

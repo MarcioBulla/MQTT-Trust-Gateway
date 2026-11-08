@@ -164,6 +164,9 @@ const steps = computed(() => [
               </tr></tbody></v-table></v-card></v-col
     ></v-row>
     <h2 class="text-h5 font-weight-bold mt-8 mb-4">From first device to first message</h2>
+    <p class="text-body-2 text-medium-emphasis mb-4">
+      MQTT/TLS and secure WebSocket connections support TLS 1.2 and TLS 1.3. Older TLS versions are disabled.
+    </p>
     <v-expansion-panels variant="accordion"
       ><v-expansion-panel v-for="[title, text] in steps" :key="title" :title="title"
         ><v-expansion-panel-text>

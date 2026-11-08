@@ -41,6 +41,7 @@ keyfile /broker/server.key
 crlfile /broker/ca.crl
 require_certificate true
 use_identity_as_username true
+# On Mosquitto 2.x this is the minimum: TLS 1.2 and TLS 1.3 remain available.
 tls_version tlsv1.2
 listener 8443 ${listener_address}
 protocol websockets
@@ -50,6 +51,7 @@ keyfile /broker/server.key
 crlfile /broker/ca.crl
 require_certificate true
 use_identity_as_username true
+# Keep WSS on the same TLS 1.2 minimum as the native MQTT listener.
 tls_version tlsv1.2
 CONF
 }
