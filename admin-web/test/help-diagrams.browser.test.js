@@ -13,7 +13,9 @@ const chromiumPath = '/bin/chromium';
 
 test('all Help workflow and exchange diagrams render interactively in Chromium across themes and mobile', {
   skip: !existsSync(chromiumPath),
-  timeout: 30_000,
+  // Hosted release runners are slower than the development workstation when
+  // Mermaid lays out every workflow/exchange diagram across the full library.
+  timeout: 90_000,
 }, async () => {
   const frontend = path.resolve('frontend');
   const expectedDiagrams = helpTopics.length * 2;
