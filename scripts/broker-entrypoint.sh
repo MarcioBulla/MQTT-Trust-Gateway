@@ -58,6 +58,7 @@ use_identity_as_username true
 # Keep WSS on the same TLS 1.2 minimum as the native MQTT listener.
 tls_version tlsv1.2
 CONF
+chmod 0644 "$config"
 }
 pid=''
 stop() { if [ -n "$pid" ]; then kill -TERM "$pid" 2>/dev/null || true; wait "$pid" || true; fi; exit 0; }
