@@ -59,6 +59,12 @@ use_identity_as_username true
 tls_version tlsv1.2
 CONF
 chmod 0644 "$config"
+if [ ! -r "$config" ]; then
+  echo "Generated Mosquitto config is unreadable; broker mount state follows:" >&2
+  id >&2
+  ls -ldn /broker "$config" >&2 2>/dev/null || true
+  exit 1
+fi
 }
 pid=''
 stop() { if [ -n "$pid" ]; then kill -TERM "$pid" 2>/dev/null || true; wait "$pid" || true; fi; exit 0; }
