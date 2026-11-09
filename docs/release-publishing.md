@@ -1,10 +1,13 @@
 # Publishing signed Gateway releases
 
-The manual **Verify and publish Gateway release** workflow requires a dedicated
-self-hosted runner with labels `linux,mqtt-gateway-release`, running as a
-non-root user with a live systemd user manager. Do not register an untrusted or
-production Gateway as this runner. Required tools: rootless Podman 5+, Python
-3.12+, Node 24+, Bun 1.4.4, OpenSSL, GnuPG (encrypted-export acceptance) and `/bin/chromium`.
+The manual **Verify and publish Gateway release** workflow runs on a fresh,
+GitHub-hosted `ubuntu-26.04` VM. It does not use ColdLab or require a
+self-hosted runner. The selected image provides systemd, rootless-capable
+Podman 5.x, Python 3.12+, Node 24+, OpenSSL, GnuPG, and Chromium; the workflow
+pins Bun 1.4.4 and verifies the required tools before testing. It enables a
+temporary user systemd manager for the job's rootless Quadlet acceptance tests.
+The VM is discarded after the job; release tests use synthetic data and do not
+access any deployed Gateway.
 
 Configure the protected `gateway-releases` environment and:
 
@@ -25,6 +28,8 @@ A publishing run builds/tests again, verifies the configured signing identity,
 pushes both versioned GHCR images, checks anonymous digest-addressed pulls and
 compares them to the tested image identities. It signs the final immutable
 manifest, creates the version tag and publishes GitHub release notes/assets.
+All build, signing, and publishing steps run inside the protected
+`gateway-releases` GitHub environment on the disposable hosted VM.
 Private packages must be made publicly pullable before publication can pass.
 No personal GitHub credential is required on a Gateway to consume public releases.
 
