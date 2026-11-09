@@ -58,7 +58,7 @@ export function publicUser(user) {
     timeZone: user.timeZone || 'auto',
     hasPassword: Boolean(user.passwordHash),
     totpEnabled: Boolean(user.totp),
-    sensitivePreferences: { timeoutSeconds: user.sensitivePreferences?.timeoutSeconds || 60, requireAuthentication: user.sensitivePreferences?.requireAuthentication !== false },
+    sensitivePreferences: { timeoutSeconds: user.sensitivePreferences?.timeoutSeconds ?? 60, requireAuthentication: user.sensitivePreferences?.requireAuthentication !== false },
     passkeys: userCredentials(user).map((credential) => ({
       id: credential.id,
       name: credential.name || 'Passkey',

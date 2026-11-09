@@ -82,7 +82,7 @@ function savePreferences() {
   }, 'Display preferences saved');
 }
 
-const visibilitySeconds = ref(state.user?.sensitivePreferences?.timeoutSeconds || 60);
+const visibilitySeconds = ref(state.user?.sensitivePreferences?.timeoutSeconds ?? 60);
 const visibilityRequireAuth = ref(state.user?.sensitivePreferences?.requireAuthentication !== false);
 const visibilityMethod = ref(state.user?.passkeys?.length ? 'passkey' : 'password');
 const visibilityPassword = ref(''), visibilityTotp = ref('');
@@ -322,12 +322,12 @@ watch([() => revealScopes.audit, accountTab], () => {
   <v-card v-if="accountTab === 'general'" class="pa-6 mt-4" max-width="720"><v-chip color="warning" size="small" class="mb-3">WIP</v-chip><h2 class="text-h6">SMTP email settings</h2><p class="text-medium-emphasis mt-2">SMTP configuration and device offline email alerts are planned. Email delivery is not available yet.</p></v-card>
   <div v-show="accountTab === 'security'">
     <v-card class="pa-6 mb-5">
-      <h2 class="text-h6 mb-3">Sensitive information visibility</h2>
-      <p class="text-body-2 mb-4">Information starts hidden. After verification, you can reveal other sections without another prompt until the verification timeout ends. Each revealed section is hidden automatically after the selected timeout.</p>
+      <div class="d-flex align-center ga-2 mb-3"><h2 class="text-h6">Sensitive information visibility</h2><HelpButton topic-id="sensitive-information-visibility" /></div>
+      <p class="text-body-2 mb-4">Information starts hidden. After verification, you can reveal other sections without another prompt until the verification timeout ends. Choose any whole-number timeout in seconds. Set it to 0 to keep information visible until you hide it, leave the page, or your session expires.</p>
       <v-form @submit.prevent="saveVisibilityPreferences">
-        <v-text-field v-model.number="visibilitySeconds" label="Visibility and verification timeout (seconds)" type="number" min="1" max="300" required />
+        <v-text-field v-model.number="visibilitySeconds" label="Visibility and verification timeout (seconds; 0 = no timeout)" type="number" min="0" step="1" required />
         <v-switch v-model="visibilityRequireAuth" color="error" label="Require additional authentication to reveal sensitive information" />
-        <v-alert v-if="!visibilityRequireAuth" type="error" variant="tonal" class="mb-4">Additional verification is disabled. Anyone using your signed-in session can reveal operational information. Automatic hiding remains enabled.</v-alert>
+        <v-alert v-if="!visibilityRequireAuth" type="error" variant="tonal" class="mb-4">Additional verification is disabled. Anyone using your signed-in session can reveal operational information. Values still hide when you hide them, leave the page, or the session expires.</v-alert>
         <v-select v-model="visibilityMethod" :items="removalMethods" label="Authorize this policy change with" />
         <template v-if="visibilityMethod === 'password'">
           <v-text-field v-model="visibilityPassword" label="Current password" type="password" autocomplete="current-password" required />

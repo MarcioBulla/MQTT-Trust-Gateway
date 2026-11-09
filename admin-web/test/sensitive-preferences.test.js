@@ -29,7 +29,7 @@ test('visibility preferences require authentication and control server-side reve
     assert.equal((await request('/sensitive/reveal', { scope: 'devices' })).status, 403);
     assert.equal((await request('/me/sensitive-preferences', { timeoutSeconds: 20, requireAuthentication: false }, 'PATCH')).status, 403);
     const reauth = { method: 'password', password: 'Isolated test password' };
-    assert.equal((await request('/me/sensitive-preferences', { timeoutSeconds: 0, requireAuthentication: false, reauth }, 'PATCH')).status, 400);
+    assert.equal((await request('/me/sensitive-preferences', { timeoutSeconds: 0, requireAuthentication: false, reauth }, 'PATCH')).status, 200);
     assert.equal((await request('/me/sensitive-preferences', { timeoutSeconds: 20, requireAuthentication: false, reauth }, 'PATCH')).status, 200);
     const revealed = await request('/sensitive/reveal', { scope: 'devices' });
     assert.equal(revealed.status, 200); assert.equal(revealed.headers.get('cache-control'), 'no-store');

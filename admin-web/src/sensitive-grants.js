@@ -11,12 +11,13 @@ export function createSensitiveGrants({ ttlMs = 60000, now = Date.now } = {}) {
   }
   return {
     issue({ userId, sessionId, scope, sessionExpiresAt = Infinity, lifetimeMs = ttlMs }) {
-      if (!Number.isInteger(lifetimeMs) || lifetimeMs < 1000 || lifetimeMs > 300000) throw new Error('Invalid reveal lifetime');
+      if (!Number.isSafeInteger(lifetimeMs) || lifetimeMs < 0) throw new Error('Invalid reveal lifetime');
+      if (lifetimeMs === 0 && !Number.isFinite(sessionExpiresAt)) throw new Error('Unlimited reveal lifetime requires a session expiry');
       prune();
       if (!userId || !sessionId || !scope) throw new Error('Grant identity and scope required');
       if (grants.size >= 10000) throw new Error('Too many active reveal grants');
       const token = crypto.randomBytes(32).toString('base64url');
-      const expiresAt = Math.min(now() + lifetimeMs, sessionExpiresAt);
+      const expiresAt = lifetimeMs === 0 ? sessionExpiresAt : Math.min(now() + lifetimeMs, sessionExpiresAt);
       if (expiresAt <= now()) throw new Error('Session expired');
       grants.set(crypto.createHash('sha256').update(token).digest('hex'), { userId, sessionId, scope, expiresAt });
       return { token, expiresAt };

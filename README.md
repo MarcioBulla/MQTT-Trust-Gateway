@@ -1,6 +1,6 @@
 # MQTT Trust Gateway
 
-**Version 1.2.1** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.2.1.md)
+**Version 1.2.2** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.2.2.md)
 
 A lightweight, self-hosted MQTT gateway for trusted device identities. It combines Eclipse Mosquitto with a Vue 3 / Vuetify 3 admin console and a local certificate authority.
 
@@ -166,7 +166,7 @@ Copy `gateway.env.example` to `gateway.env` and protect it with `chmod 600 gatew
 ### 🙈 Sensitive information
 
 - Certificate serials, fingerprints, SANs, public-key metadata, and infrastructure values are omitted from ordinary API responses.
-- Reveal protected information using the header eye button and short-lived, session-bound step-up authorization.
+- Reveal protected information with session-bound step-up authorization. The timeout accepts any non-negative whole number of seconds; `0` disables the reveal timer, while manual hide, leaving the page, logout, or session expiry still ends visibility.
 - Configure the reveal timeout and optional additional-verification policy in **Settings → Account security**.
 - Device names, labels, status, algorithms, and validity dates remain visible without step-up.
 - Secret keys, TOTP seeds, password hashes, and previously delivered private keys are never revealable.

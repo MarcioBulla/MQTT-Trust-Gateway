@@ -96,6 +96,11 @@ export async function subscribe(filter) {
   )
     throw Object.assign(new Error('Invalid subscription filter'), { status: 400 });
   if (!client?.connected) throw Object.assign(new Error('Broker is unavailable'), { status: 503 });
+  // The default `#` subscription already observes every non-$ topic. Adding a
+  // narrower filter as a second broker subscription makes Mosquitto deliver
+  // matching publishes more than once to this client.
+  if (subscriptions.has(filter)) return;
+  if (subscriptions.has('#') && !filter.startsWith('$')) return;
   if (subscriptions.size >= 20 && !subscriptions.has(filter))
     throw Object.assign(new Error('Subscription limit reached'), { status: 400 });
   await new Promise((resolve, reject) =>

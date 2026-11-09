@@ -126,6 +126,37 @@ export const helpTopics = [
     relatedTopicIds: [],
   },
   {
+    id: 'sensitive-information-visibility', category: 'Account security', title: 'Control sensitive information visibility',
+    shortSummary: 'Sensitive values stay hidden by default. Choose how long a verified reveal remains available; set the timeout to 0 to keep it available until you hide it, leave the page, or your session ends.',
+    caution: 'With a timeout of 0, revealed information remains available for the rest of the active session unless you hide it or leave the page. Use this only when you can protect the signed-in session.',
+    overview: 'Account security controls how long sensitive operational values remain revealed and whether each reveal requires additional authentication. A positive whole number sets the requested timeout in seconds. A value of 0 disables the reveal timeout; the authorization remains tied to the active administrator session and ends when that session expires. Browser-side visibility handling also hides values when you hide them manually, leave or blur the page, or the page becomes hidden. Sensitive values are not saved in browser storage.',
+    when: 'Use this setting to choose a shorter reveal window for shared or exposed workstations, or set 0 when you need values to remain visible during a trusted session. You can still hide the values manually at any time.',
+    prerequisites: ['Sign in to the Gateway administration interface.', 'Authorize this security-policy change using a registered passkey or the configured password and TOTP method.'],
+    steps: [
+      'Open Settings → Account security and locate Sensitive information visibility.',
+      'Enter a whole number of seconds. Any non-negative whole number is accepted; 0 means no automatic reveal timeout.',
+      'Choose whether additional authentication is required to reveal sensitive information. Disabling this requirement is a separate security choice and does not disable automatic hiding on logout or when leaving the page.',
+      'Authorize the policy change using one of the available methods and save it. Existing reveal grants are revoked when the policy is changed.',
+      'When a sensitive value is revealed, use its eye control to hide it immediately. Logout, session expiry, page blur, and page visibility loss also end access.'
+    ],
+    artifacts: [
+      'The preference is stored with the administrator account in the Gateway database.',
+      'Reveal grants are held in server memory, bound to the user and current session, and delivered through HttpOnly cookies. They do not survive a Gateway restart.',
+      'The browser keeps reveal state in memory only; it does not write revealed values to localStorage, sessionStorage, or IndexedDB.'
+    ],
+    sequence: [
+      'Administrator → Account security: choose a timeout in seconds; enter 0 for no reveal timeout',
+      'Browser → Gateway API: save the preference with fresh authentication',
+      'Gateway API: store the preference and revoke existing reveal grants',
+      'Administrator → Sensitive value: request reveal and complete step-up authentication when required',
+      'Gateway API → Browser: issue a session-bound reveal grant; positive timeouts are capped by session expiry',
+      'Browser: keep the value in memory, then hide on manual request, timeout, page blur or visibility loss, logout, or session expiry'
+    ],
+    workflowMermaid: 'flowchart LR\n  A[Choose reveal timeout] --> B{Timeout value}\n  B -- Positive seconds --> C[Hide when timeout expires]\n  B -- 0 --> D[Keep revealed for active session]\n  C --> E[Hide manually or when page loses visibility]\n  D --> E\n  E --> F[Logout or session expiry revokes access]',
+    mermaid: 'sequenceDiagram\n  actor Admin as Administrator\n  participant UI as Browser UI\n  participant API as Gateway API\n  participant Grants as Session-bound grants\n  Admin->>UI: Choose timeout seconds. Zero means no reveal timeout\n  UI->>API: Save preference with fresh authentication\n  API->>API: Store preference and revoke existing grants\n  Admin->>UI: Request reveal and complete step-up authentication if required\n  UI->>API: Request authorized reveal for one scope\n  API->>Grants: Issue grant bound to user and session\n  Note over API,Grants: Positive timeout is capped by administrator session expiry\n  API-->>UI: Return reveal authorization and expiry\n  UI->>UI: Keep revealed values in memory\n  opt Manual hide, timeout, page blur, visibility loss, logout, or session expiry\n    UI->>API: Revoke reveal authorization\n    UI->>UI: Clear revealed values from memory\n  end',
+    relatedTopicIds: [],
+  },
+  {
     id: 'register-device', category: 'Devices', title: 'Register a device',
     shortSummary: 'Create an MQTT identity before adding credentials. Registration alone does not grant broker access.',
     caution: 'A new identity is not authorized until it has a usable trusted certificate and you explicitly enable it.',

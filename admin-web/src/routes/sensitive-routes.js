@@ -13,8 +13,8 @@ export function registerSensitiveRoutes(app) {
   app.patch('/api/me/sensitive-preferences', rateLimit, requireAuth(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const { timeoutSeconds, requireAuthentication } = req.body;
-    if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 300 || typeof requireAuthentication !== 'boolean')
-      return res.status(400).json({ error: 'Choose a timeout between 1 and 300 seconds and an authentication policy' });
+    if (!Number.isSafeInteger(timeoutSeconds) || timeoutSeconds < 0 || typeof requireAuthentication !== 'boolean')
+      return res.status(400).json({ error: 'Choose a non-negative whole number of seconds (0 means no timeout) and an authentication policy' });
     const db = loadDb(), user = db.users.find(item => item.id === req.user.id);
     await verifyReauthentication(req, db, user, 'sensitive-settings');
     user.sensitivePreferences = { timeoutSeconds, requireAuthentication };
@@ -37,8 +37,12 @@ export function registerSensitiveRoutes(app) {
       return res.status(403).json({ error: 'Additional authentication failed' });
     }
     saveDb(db); // Persist TOTP replay protection and WebAuthn counters.
-    const lifetimeMs = (user.sensitivePreferences?.timeoutSeconds || env.sensitiveRevealSeconds) * 1000;
     const sessionExpiresAt = db.sessions[sessionKey(req)].expiresAt;
+    const timeoutSeconds = user.sensitivePreferences?.timeoutSeconds ?? env.sensitiveRevealSeconds;
+    const sessionRemainingMs = Math.max(0, sessionExpiresAt - Date.now());
+    const lifetimeMs = timeoutSeconds === 0 || timeoutSeconds >= Math.ceil(sessionRemainingMs / 1000)
+      ? 0
+      : timeoutSeconds * 1000;
     const cookies = [];
     if (user.sensitivePreferences?.requireAuthentication !== false && !previouslyVerified) {
       const verified = sensitiveGrants.issue({ ...identity, sessionExpiresAt, lifetimeMs });
