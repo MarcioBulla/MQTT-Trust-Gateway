@@ -158,8 +158,7 @@ class RealUpdateTests(unittest.TestCase):
                     if state.stdout.strip(): print('Synthetic '+name+' unit state: '+state.stdout.strip().replace('\n',' | '))
                     journal=subprocess.run(['journalctl','--user','--unit',unit,'--no-pager','--output=cat','--lines=30'],capture_output=True,text=True)
                     journal_lines=(journal.stdout+'\n'+journal.stderr).splitlines()
-                    relevant=[line for line in journal_lines if any(token in line.lower() for token in ('error','failed','denied','cannot','unable','not found'))]
-                    if relevant: print('Synthetic '+name+' unit diagnostics: '+' | '.join(relevant[-12:]))
+                    if journal_lines: print('Synthetic '+name+' unit diagnostics: '+' | '.join(journal_lines[-30:]))
                     result=subprocess.run(['podman','logs','--tail','40',cls.names[name]],capture_output=True,text=True)
                     lines=(result.stdout+'\n'+result.stderr).splitlines()
                     relevant=[line for line in lines if any(token in line.lower() for token in ('error','failed','denied','cannot','unable'))]
