@@ -239,8 +239,21 @@ class Host:
         for attempt in range(5):
             try:
                 for name in ('admin','broker'):
-                    if self._run('systemctl','--user','is-active',self.names[name]+'.service')!='active':
-                        raise RuntimeError('Service is not active')
+                    unit=self.names[name]+'.service'
+                    try:
+                        active=self._run('systemctl','--user','is-active',unit)
+                    except RuntimeError:
+                        # Report only bounded systemd state fields; never dump
+                        # unit environment, command lines, or journal contents.
+                        try:
+                            state=self._run('systemctl','--user','show',unit,
+                                '--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus',
+                                '--value')
+                        except RuntimeError:
+                            state='unit state unavailable'
+                        raise RuntimeError(name+' service is not active ('+state.replace('\n',', ')+')') from None
+                    if active!='active':
+                        raise RuntimeError(name+' service is not active')
                 operation_file=self.state/'operation.json'
                 if operation_file.exists():
                     operation=json.loads(operation_file.read_text())
