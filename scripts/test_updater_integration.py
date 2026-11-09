@@ -143,7 +143,19 @@ class RealUpdateTests(unittest.TestCase):
             command('systemctl','--user','daemon-reload')
             command('systemctl','--user','start',cls.names['broker']+'.service',cls.names['admin']+'.service')
             cls.host=FixtureHost(cls.config,cls.artifacts)
-            cls.host.health({'version':'1.0.2','schemaVersion':1})
+            try:
+                cls.host.health({'version':'1.0.2','schemaVersion':1})
+            except Exception:
+                # This integration fixture contains only generated identities
+                # and synthetic data. Surface broker startup diagnostics so
+                # CI runner differences are actionable without dumping the
+                # gateway environment or credential files.
+                for name in ('broker','admin'):
+                    result=subprocess.run(['podman','logs','--tail','40',cls.names[name]],capture_output=True,text=True)
+                    lines=(result.stdout+'\n'+result.stderr).splitlines()
+                    relevant=[line for line in lines if any(token in line.lower() for token in ('error','failed','denied','cannot','unable'))]
+                    if relevant: print('Synthetic '+name+' startup diagnostics: '+' | '.join(relevant[-12:]))
+                raise
             cls.mqtt_fixture('retain-write','retained-state')
             from scripts.updater.journal import atomic_json
             atomic_json(cls.state/'installed.json',cls.host.installed())
