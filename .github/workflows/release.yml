@@ -49,6 +49,25 @@ jobs:
           test "$(id -u)" -ne 0
           sudo loginctl enable-linger "$USER"
           sudo systemctl start "user@$(id -u).service"
+          # Ubuntu's host profiles also attach to rootless container processes.
+          # Permit only the paths and shutdown signals used by this disposable
+          # integration runner; keep the profiles enforced.
+          sudo mkdir -p /etc/apparmor.d/local
+          if [ -f /etc/apparmor.d/mosquitto ]; then
+            sudo tee -a /etc/apparmor.d/local/mosquitto >/dev/null <<'APPARMOR'
+          /tmp/gateway-mosquitto.conf r,
+          /broker/ r,
+          /broker/** rwk,
+          /mosquitto/data/ rw,
+          /mosquitto/data/** rwk,
+          signal (receive) set=(term, kill) peer=crun,
+          APPARMOR
+            sudo apparmor_parser -r /etc/apparmor.d/mosquitto
+          fi
+          if [ -f /etc/apparmor.d/usr.bin.pasta ]; then
+            printf '%s\n' 'signal (receive) set=(term) peer=podman,' | sudo tee -a /etc/apparmor.d/local/usr.bin.pasta >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/usr.bin.pasta
+          fi
           export XDG_RUNTIME_DIR="/run/user/$(id -u)"
           export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
           printf 'XDG_RUNTIME_DIR=%s\nDBUS_SESSION_BUS_ADDRESS=%s\n' "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
