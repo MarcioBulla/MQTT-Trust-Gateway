@@ -30,7 +30,7 @@ test('Mosquitto enforces independent publish and subscribe filters across restar
     await fs.rm(root, { recursive: true, force: true });
   });
   async function start() {
-    broker = spawn('mosquitto', ['-c', config]);
+    broker = spawn(process.env.MOSQUITTO_BIN || 'mosquitto', ['-c', config]);
     let error = '';
     broker.stderr.on('data', (chunk) => { error += chunk; });
     for (let i = 0; i < 50; i++) {

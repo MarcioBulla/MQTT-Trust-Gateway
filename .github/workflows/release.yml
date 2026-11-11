@@ -81,7 +81,7 @@ jobs:
           bun install --frozen-lockfile
           bun run test
           bun run build
-          node --test test/integration/topic-rules-broker.test.js
+          TMPDIR="$GITHUB_WORKSPACE" MOSQUITTO_BIN=/usr/sbin/mosquitto node --test test/integration/topic-rules-broker.test.js
           node test/ui/topic-rules.mjs
       - name: Build exact release images and run real update acceptance
         shell: bash
