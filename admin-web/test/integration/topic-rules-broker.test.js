@@ -10,6 +10,9 @@ import { deviceAcl } from '../../src/services/topic-rules.js';
 
 test('Mosquitto enforces independent publish and subscribe filters across restart', { timeout: 20000 }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gateway-acl-broker-'));
+  // Some packaged Mosquitto builds drop privileges before reading config.
+  // This temporary directory contains only synthetic ACLs and no credentials.
+  await fs.chmod(root, 0o755);
   const probe = net.createServer();
   await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
   const port = probe.address().port;
@@ -17,6 +20,8 @@ test('Mosquitto enforces independent publish and subscribe filters across restar
   const acl = path.join(root, 'acl'), config = path.join(root, 'mosquitto.conf');
   await fs.writeFile(acl, `user admin\ntopic readwrite #\n${deviceAcl({ id: 'AutoBootWeb', topicRules: { mode: 'custom', publish: ['AutoBoot/command/+'], subscribe: ['AutoBoot/state', 'AutoBoot/availability', 'AutoBoot/result'] } })}`);
   await fs.writeFile(config, `listener ${port} 127.0.0.1\nallow_anonymous true\npersistence false\nacl_file ${acl}\n`);
+  await fs.chmod(acl, 0o644);
+  await fs.chmod(config, 0o644);
   let broker;
   const clients = [];
   t.after(async () => {
