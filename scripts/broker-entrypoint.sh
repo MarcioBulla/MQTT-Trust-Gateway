@@ -1,11 +1,9 @@
 #!/bin/sh
 set -eu
 umask 077
-# Keep the generated config on the broker's writable data mount. Some rootless
-# systemd/Podman hosts expose the container /tmp tmpfs with permissions that
-# Mosquitto cannot read after startup; /broker is already the private runtime
-# mount used for the broker's generated files and has restrictive ownership.
-config=/broker/mosquitto-runtime.conf
+# The broker may drop privileges before opening its config, so keep the file
+# in the world-searchable tmpfs and make this non-secret config world-readable.
+config=/tmp/gateway-mosquitto.conf
 mkdir -p /broker/logs
 chmod 700 /broker/logs
 touch /broker/logs/mosquitto.log
