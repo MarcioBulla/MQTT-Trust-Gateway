@@ -74,11 +74,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mosquitto
           python3 -m unittest scripts.test_gateway scripts.test_updater scripts.test_snapshots scripts.test_controller scripts.test_mqtt_state scripts.test_release_manifest scripts.test_snapshot_storage
           cd admin-web
           bun install --frozen-lockfile
           bun run test
           bun run build
+          node --test test/integration/topic-rules-broker.test.js
+          node test/ui/topic-rules.mjs
       - name: Build exact release images and run real update acceptance
         shell: bash
         env:

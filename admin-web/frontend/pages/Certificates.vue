@@ -11,6 +11,7 @@ import { api, action, state, markBrokerMutation, downloadApiFile } from '../api'
 import FileDrop from '../components/FileDrop.vue';
 import HelpButton from '../components/HelpButton.vue';
 import { certificateMethods } from '../certificate-methods';
+import DeviceRules from '../components/DeviceRules.vue';
 
 const props = defineProps({ embedded: Boolean, deviceId: { type: String, default: '' } });
 const emit = defineEmits(['updated']);
@@ -182,8 +183,9 @@ defineExpose({ open });
     <div><div class="text-overline text-primary">IDENTITY & CRYPTOGRAPHIC CREDENTIALS</div><h1 class="text-h4 font-weight-bold">Certificates and identities</h1><p class="text-medium-emphasis mt-2">Four enrollment methods share one device registry. Private keys are never recoverable after delivery.</p></div>
     <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" color="primary" prepend-icon="mdi-plus">Add certificate</v-btn></template><v-list><v-list-item v-for="method in certificateMethods" :key="method.value" :title="method.title" @click="open(method.value)" /></v-list></v-menu>
   </div>
-  <v-tabs v-if="props.deviceId" v-model="editTab" class="mb-5"><v-tab value="licenses">Licenses</v-tab><v-tab value="rules">Rules · WIP</v-tab><v-tab value="health">Health Check · WIP</v-tab></v-tabs>
-  <v-card v-if="props.deviceId && editTab !== 'licenses'" class="pa-6"><v-chip color="warning" size="small" class="mb-3">WIP</v-chip><h2 class="text-h6">{{ editTab === 'rules' ? 'Rules' : 'Health Check' }}</h2><p class="text-medium-emphasis mt-2">{{ editTab === 'rules' ? 'Device-specific MQTT authorization rule management is planned.' : 'Device heartbeat monitoring and health checks are planned.' }}</p></v-card>
+  <v-tabs v-if="props.deviceId" v-model="editTab" class="mb-5"><v-tab value="licenses">Licenses</v-tab><v-tab value="rules">Rules</v-tab><v-tab value="health">Health Check · WIP</v-tab></v-tabs>
+  <DeviceRules v-if="props.deviceId && editTab === 'rules'" :device-id="props.deviceId" />
+  <v-card v-if="props.deviceId && editTab === 'health'" class="pa-6"><v-chip color="warning" size="small" class="mb-3">WIP</v-chip><h2 class="text-h6">Health Check</h2><p class="text-medium-emphasis mt-2">Device heartbeat monitoring and health checks are planned.</p></v-card>
   <v-alert v-if="!props.embedded && (!props.deviceId || editTab === 'licenses')" type="info" variant="tonal" class="mb-5">Importing a certificate does not automatically trust its issuer. External CAs must be added and explicitly approved below. Apply pending broker changes to enforce access and trust changes.</v-alert>
   <div v-if="props.embedded" class="d-flex flex-wrap align-center justify-space-between ga-3 mb-4">
     <div><h2 class="text-h6">Certificate provisioning</h2><p class="text-body-2 text-medium-emphasis mb-0">Manage credentials from the same device registry. Use Add certificate above to choose a method.</p></div>

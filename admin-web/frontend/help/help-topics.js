@@ -171,6 +171,43 @@ export const helpTopics = [
     relatedTopicIds: ['generate-complete-certificate', 'sign-existing-csr'],
   },
   {
+    id: 'device-topic-rules', category: 'Devices', title: 'Configure device topic rules',
+    shortSummary: 'Choose whether an identity can use all MQTT topics or limit its publish and subscribe access to separate topic filters.',
+    caution: 'All topics (#) grants broad read and write access. Select custom rules and apply the broker changes to enforce least privilege.',
+    overview: 'Rules control the MQTT topic authorization for one registered identity. The default All topics (#) policy allows both publishing and receiving on ordinary topics. Custom mode lists publish filters and subscribe filters separately; a filter in one list does not grant the other direction. Rules are saved with the device record in the Gateway SQLite state and included whenever the broker ACL is regenerated. A pending broker revision is created only when the effective ACL or certificate policy changes. Disabled identities and identities without a valid, trusted certificate are omitted from the generated ACL, so saving their rules may not create a pending revision; the saved rules are used when the identity is later authorized and has a usable certificate. Opening the protected topic rules requires the Devices and certificates sensitive-information reveal. MQTT topic names and filters use the standard case-sensitive hierarchy separated by /; + matches one complete level and # matches the remaining levels when used as the final level. A # subscription does not match the reserved $SYS hierarchy. Filters containing whitespace are rejected.',
+    when: 'Use All topics for a device that is intentionally unrestricted. Use custom rules when a device should only publish commands or receive a known set of status and result topics. For example, AutoBoot/command/+ is a publish filter; the device publishes to a concrete topic such as AutoBoot/command/open, without + or # in the published topic. It can receive AutoBoot/state, AutoBoot/availability, and AutoBoot/result.',
+    prerequisites: ['Register the device identity and add a usable, trusted, unexpired certificate.', 'Authorize the identity before expecting it to connect to the broker.', 'Complete the Devices and certificates reveal step-up when prompted to view or edit protected topic filters.'],
+    steps: [
+      'Open Devices & certificates and select the identity to edit.',
+      'Open the Rules tab. If required, reveal Devices and certificates information to load the saved filters.',
+      'Choose All topics (#) to allow publishing and receiving on all ordinary MQTT topics, or choose Only configured topic filters to restrict access.',
+      'In custom mode, enter one publish filter per line and one subscribe filter per line. An empty list denies that direction. Filters containing spaces or other whitespace are rejected.',
+      'Use a complete topic name or MQTT wildcard level in a filter: + matches exactly one level, while # matches subsequent levels and must be the last level. When publishing, the device must replace any + level with an actual topic value; published topic names cannot contain subscription wildcards.',
+      'Select Save rules. The Gateway persists the policy. A pending broker revision appears only when the generated ACL or certificate policy changes.',
+      'If the identity is disabled or has no valid, trusted certificate, it is omitted from the generated ACL and saving its rules may not create a pending revision. The saved policy is included when the identity later becomes authorized with a usable certificate.',
+      'When a pending broker revision is shown, use Restart Broker to apply it. Until the broker acknowledges the new revision, the prior ACL remains active.',
+      'Test with a device certificate: publish to an allowed and a denied topic, then subscribe to allowed and denied filters. A successful subscription request alone does not prove that every topic in a wildcard filter is readable.'
+    ],
+    artifacts: [
+      'Device topic rules: stored with the device identity in the Gateway SQLite state.',
+      'Generated broker ACL: written to the broker configuration directory and regenerated from saved identity and certificate state.',
+      'Broker revision: records the staged and applied ACL revision; apply pending changes to move it forward.'
+    ],
+    sequenceTitle: 'How a saved rule reaches the broker',
+    sequence: [
+      'Administrator → Edit Device → Rules: choose All topics or define separate publish and subscribe filters',
+      'Browser → Gateway API: submit the rule set after Devices and certificates reveal authorization',
+      'Gateway → SQLite: persist the rules on the matching identity and write an audit event',
+      'Gateway → broker ACL: regenerate effective rules only for enabled identities with a usable certificate',
+      'Gateway: create a pending broker revision only when the effective ACL or certificate policy differs',
+      'Administrator → Restart Broker: apply the staged ACL revision when one is pending',
+      'Device ↔ Mosquitto: enforce publish and receive permissions for its authenticated MQTT username'
+    ],
+    workflowMermaid: 'flowchart LR\n  A[Open device Rules] --> B{Access policy}\n  B -- All topics --> C[Allow read and write on #]\n  B -- Custom --> D[Enter publish filters]\n  D --> E[Enter subscribe filters]\n  E --> F[Save rules]\n  C --> F\n  F --> G[Gateway persists identity policy]\n  G --> H{Effective ACL changed?}\n  H -- Yes --> I[Stage broker ACL revision]\n  I --> J[Restart Broker]\n  J --> K[Broker enforces saved policy]\n  H -- No --> L[Use saved rules when ACL next changes]',
+    mermaid: 'sequenceDiagram\n  actor Admin as Administrator\n  participant UI as Edit Device Rules\n  participant API as Gateway API\n  participant DB as SQLite device registry\n  participant ACL as Generated broker ACL\n  participant Broker as Mosquitto\n  Admin->>UI: Choose All topics or custom publish and subscribe filters\n  UI->>API: Save rules after sensitive-information reveal\n  API->>API: Validate MQTT filter syntax and authorization\n  API->>DB: Persist topic rules on the device identity\n  API->>ACL: Regenerate the effective ACL\n  alt Effective ACL or certificate policy changed\n    API->>ACL: Stage a pending broker revision\n    Admin->>Broker: Apply pending broker changes\n    Broker-->>API: Confirm applied revision\n  else No effective ACL change (for example, disabled identity)\n    Note over DB,ACL: Rules remain saved and are included the next time this identity is authorized with a usable certificate\n  end\n  Device->>Broker: Publish to a concrete topic or subscribe with a topic filter\n  Broker->>Broker: Enforce that identity\'s read and write ACL filters',
+    relatedTopicIds: ['register-device', 'generate-complete-certificate', 'import-certificate'],
+  },
+  {
     id: 'generate-complete-certificate', category: 'Certificates', title: 'Generate a complete certificate',
     shortSummary: 'The Gateway generates the device key, signs a client certificate with its internal CA, and returns a credential ZIP.',
     caution: 'The ZIP contains a private key delivered once. Store it in protected device storage immediately; the Gateway does not retain it in persistent data. Issuance uses a mode-restricted temporary work directory on the Gateway host, so protect host temporary storage and crash dumps.',

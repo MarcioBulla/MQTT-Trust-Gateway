@@ -16,6 +16,7 @@ const descriptions = {
   'device.updated': 'Device settings updated', // Legacy authorization audit entries.
   'device.authorization_enabled': 'Device authorization enabled',
   'device.authorization_disabled': 'Device authorization disabled',
+  'device.rules_updated': 'Device topic rules updated',
   'device.approved': 'Device authorization approved',
   'device.archived': 'Device archived',
   'device.restored_pending_approval': 'Device restored; approval required',

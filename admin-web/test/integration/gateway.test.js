@@ -218,7 +218,7 @@ await test('installed rootless gateway lifecycle', { timeout: 120000 }, async (t
     await assert.rejects(connection('tcp', externalCert, clientKeyPath));
   });
   for (const transport of ['tcp', 'websocket'])
-    await t.test(`mTLS ${transport}: publish/subscribe QoS 0, 1, 2 and ACL isolation`, async () => {
+    await t.test(`mTLS ${transport}: publish/subscribe QoS 0, 1, 2 and default topic access`, async () => {
       const client = await connection(transport);
       try {
         const topic = `devices/${device}/roundtrip`;
@@ -236,10 +236,7 @@ await test('installed rootless gateway lifecycle', { timeout: 120000 }, async (t
           assert.equal(m.p, 'hello-' + qos);
           assert.equal(m.qos, qos);
         }
-        await assert.rejects(
-          client.publishAsync('devices/unrelated/forbidden', 'no', { qos: 1 }),
-          (e) => e.code === 135,
-        );
+        await client.publishAsync('devices/unrelated/default-access', 'allowed', { qos: 1 });
       } finally {
         await client.endAsync(true);
       }

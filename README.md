@@ -18,6 +18,7 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 - 🔄 System Updates: discover and verify signed releases, then install or roll back Gateway/container updates through the independently running host updater. Includes verified snapshots, functional health checks, interruption recovery, guarded rollback, progress history, configurable checks and snapshot retention (2–100, default 5), plus optional GnuPG-encrypted snapshot export. Automatic installation remains disabled. See the [operations guide](docs/system-updates-operations.md) and [architecture](docs/system-updates-architecture.md).
 - ❔ Contextual Help: searchable guides for certificate workflows, release discovery, and MQTT Manager, with contextual previews, interactive Mermaid diagrams, and theme-matched visual guides.
 - 🪪 Four certificate enrollment methods: sign a device CSR, create a CSR for an external CA, generate a complete device credential bundle, or import an existing certificate.
+- 🧩 **Per-device MQTT rules:** use the default `#` access or configure separate publish and subscribe topic filters for each identity; apply saved changes through the broker controls. The default grants broad access to ordinary topics.
 - 🧰 Central device and certificate lifecycle: renew, revoke, trust external CAs, archive, restore, and permanently delete identities.
 - 🛡️ Admin security: Argon2id passwords, TOTP, WebAuthn passkeys, expiring sessions, rate limiting, and step-up verification for sensitive data.
 - 📡 MQTT tools: live subscriptions, wildcard filters, pause/resume, retained-message management, and publishing at QoS 0/1/2.
@@ -29,12 +30,11 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 ## 🚧 Work in progress
 
 1. 🔐 **MCU certificate renewal:** improve the renewal workflow for MCU devices.
-2. 🧩 **Per-device rules:** configure MQTT access policies for each device.
-3. ✉️ **SMTP settings:** initially email administrators when licenses are near expiry.
-4. 🩺 **Health checks:** report device heartbeat and online status.
-5. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
-6. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
-7. 🔄 **Offline release import:** install verified releases without an internet connection.
+2. ✉️ **SMTP settings:** initially email administrators when licenses are near expiry.
+3. 🩺 **Health checks:** report device heartbeat and online status.
+4. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
+5. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
+6. 🔄 **Offline release import:** install verified releases without an internet connection.
 
 > [!NOTE]
 > System Updates installation requires enabling the host updater and configuring its pinned Ed25519 release key. Automatic installation is disabled; see the [operations guide](docs/system-updates-operations.md) for prerequisites and recovery-data handling.
@@ -241,7 +241,7 @@ sequenceDiagram
 
 ```
 
-- ACLs allow only `<device-id>/#` and `<MQTT_TOPIC_PREFIX>/<device-id>/#` for registered, enabled devices with valid certificates.
+- Authorized device identities have read/write access to ordinary topics (`#`) by default. In **Edit Device → Rules**, switch to custom rules to restrict publish and subscribe topics separately; saved ACL changes take effect after **Restart Broker**. ACLs are generated only for active, authorized identities with a valid, trusted certificate.
 - The backend MQTT identity can manage all topics; its private credentials never reach the browser.
 - CSR signatures and key strength are checked. Requested CN/extensions are overridden; device certificates cannot gain CA or `serverAuth` capability.
 - Certificate validity is the **license** enforced during TLS authentication; no duplicate license token exists.
@@ -314,7 +314,7 @@ openssl verify -CAfile server-ca.crt -purpose sslserver \
   -verify_hostname mqtt.example.com broker-server.crt
 ```
 
-`broker-server.crt` is a public copy of `runtime/broker/server.crt`. Never copy `server.key` or `ca.key` to a client. Device topic ACLs are unchanged.
+`broker-server.crt` is a public copy of `runtime/broker/server.crt`. Never copy `server.key` or `ca.key` to a client. Device topic ACLs follow the identity's saved Rules policy.
 
 Optional deployed-endpoint test (uses an already-authorized credential package and does not change identities, retained messages, or permissions):
 
@@ -325,7 +325,7 @@ MQTT_TEST_CREDENTIALS=/absolute/path/to/device-credentials \
 MQTT_TEST_TLS_PORT=8883 bun run test:public-tls
 ```
 
-- Tests hostname and CA chain validation, publish/subscribe at QoS 0/1/2, ACL denial outside the device namespace, and rejection without a device certificate on both transports.
+- Tests hostname and CA chain validation, publish/subscribe at QoS 0/1/2, and rejection without a device certificate on both transports. Per-device publish/subscribe restrictions are verified by a separate isolated Mosquitto test.
 
 ## 📡 MQTT Manager
 

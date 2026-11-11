@@ -50,8 +50,10 @@ invalidates the old device fleet.
 
 ## Limits
 
-ACL namespaces remain `<device-id>/#` and `<MQTT_TOPIC_PREFIX>/<device-id>/#`.
-Custom legacy ACLs require explicit review. Device online status is unknown,
+Identities without saved topic rules default to read/write access on ordinary
+topics (`#`), including migrated identities. Configure custom publish and
+subscribe filters under Edit Device → Rules when isolation is required; custom
+legacy ACLs require explicit review. Device online status is unknown,
 not inferred from certificates. Retained MQTT messages live in Mosquitto's
 persistence database; copy/migrate that database only while both brokers are
 stopped and after checking version compatibility. The installer does not move it

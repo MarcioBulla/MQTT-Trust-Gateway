@@ -65,8 +65,12 @@ certificate downloads and the CA trust list omit private material.
 Device identity, certificate state, broker trust and topic authorization are
 separate fields. The broker receives a CA bundle, CRL and generated ACL. An
 identity gets its topic ACL only when it is active, enabled, trusted, and has an
-unexpired active certificate that the broker trusts. Namespaces remain
-`<device-id>/#` and `<MQTT_TOPIC_PREFIX>/<device-id>/#`.
+unexpired active certificate that the broker trusts. By default, an authorized
+identity can publish and receive on all ordinary topics (`#`). In Edit Device →
+Rules, administrators can instead set separate publish and subscribe filters.
+An empty custom list denies that direction. Save and apply pending broker changes
+to enforce the generated ACL. The default also applies to existing identities
+without saved rules, so configure restrictions where isolation is required.
 
 Local-CA revocation marks the serial in the CA index and refreshes the CRL.
 Mosquitto consumes that CRL for both listeners. The broker revision supervisor

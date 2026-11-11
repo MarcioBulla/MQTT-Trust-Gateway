@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { env } from '../config.js';
 import { loadDb, saveDb, sqlite } from '../db.js';
+import { deviceAcl } from './topic-rules.js';
 const run = promisify(execFile);
 const ca = (name) => path.join(env.caDir, name);
 const broker = (name) => path.join(env.brokerDir, name);
@@ -546,7 +547,7 @@ export async function syncBroker(force = false, { defer = false } = {}) {
       )
     )
       continue;
-    acl += `\nuser ${device.id}\ntopic readwrite ${device.id}/#\ntopic readwrite ${env.topicPrefix}/${device.id}/#\n`;
+    acl += deviceAcl(device);
   }
   const policy = JSON.stringify(
     db.certificates

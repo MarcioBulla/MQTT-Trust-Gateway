@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { hasSensitiveGrant } from '../sensitive-access.js';
+import { hasSensitiveGrant, requireSensitive } from '../sensitive-access.js';
 import { env } from '../config.js';
 import { requireAuth } from '../auth.js';
 import { loadDb, saveDb, audit } from '../db.js';
@@ -24,6 +24,7 @@ import {
 } from '../services/certificate-service.js';
 import { zipFiles } from '../zip.js';
 import { archiveDeviceRecord, restoreDeviceRecord, permanentlyDeleteDevice } from '../services/identity-service.js';
+import { normalizeTopicRules, topicRulesForDevice } from '../services/topic-rules.js';
 const find = (db, id) => {
   const c = db.certificates.find((c) => c.id === id);
   if (!c) throw Object.assign(new Error('Certificate not found'), { status: 404 });
@@ -53,6 +54,7 @@ export function publicCertificate(c) {
   return { ...publicData, status: c.status === 'active' && c.brokerTrusted === false ? 'untrusted' : state(c), canDownload: Boolean(certificate) };
 }
 const deviceRecord = (db, id) => db.devices.find((device) => device.id === id);
+const publicDevice = ({ topicRules, ...device }) => device;
 const LABEL_COLORS = new Set(['primary', 'blue', 'teal', 'green', 'amber', 'orange', 'red', 'purple', 'grey']);
 const normalizeLabels = (value) => {
   const labels = Array.isArray(value) ? value : String(value || '').split(',');
@@ -321,7 +323,7 @@ export function registerCertificateRoutes(app) {
       const db = loadDb();
       const archived = _req.query.status === 'archived';
       res.json({
-        devices: db.devices.filter((d) => archived ? d.status === 'archived' : d.status !== 'archived' && d.status !== 'deleted').map((d) => ({
+        devices: db.devices.filter((d) => archived ? d.status === 'archived' : d.status !== 'archived' && d.status !== 'deleted').map(({ topicRules, ...d }) => ({
           ...d,
           connectionStatus: 'unknown',
           lastActivity: null,
@@ -330,6 +332,24 @@ export function registerCertificateRoutes(app) {
       });
     }),
   );
+  app.get('/api/devices/:id/rules', requireAuth((req, res) => {
+    if (!requireSensitive(req, res, 'devices')) return;
+    const device = deviceRecord(loadDb(), req.params.id);
+    if (!device || device.status === 'deleted') return res.status(404).json({ error: 'Device not found' });
+    res.json({ rules: topicRulesForDevice(device) });
+  }));
+  app.put('/api/devices/:id/rules', requireAuth(async (req, res) => {
+    if (!requireSensitive(req, res, 'devices')) return;
+    const db = loadDb(), device = deviceRecord(db, req.params.id);
+    if (!device) return res.status(404).json({ error: 'Device not found' });
+    if (device.status !== 'active') return res.status(409).json({ error: 'Archived devices must be restored before changes' });
+    const rules = normalizeTopicRules(req.body);
+    device.topicRules = rules;
+    saveDb(db);
+    audit(req.user.username, 'device.rules_updated', device.id);
+    await syncBroker();
+    res.json({ rules });
+  }));
   app.post(
     '/api/devices',
     requireAuth((req, res) => {
@@ -396,14 +416,14 @@ export function registerCertificateRoutes(app) {
     }
     await syncBroker(true);
     audit(req.user.username, 'device.archived', device.id);
-    res.json({ device, enforcement: 'Access changes saved; apply pending broker changes to disconnect existing sessions.' });
+    res.json({ device: publicDevice(device), enforcement: 'Access changes saved; apply pending broker changes to disconnect existing sessions.' });
   }));
   app.post('/api/devices/:id/restore', requireAuth(async (req, res) => {
     const db = loadDb(), device = deviceRecord(db, req.params.id);
     if (!device) return res.status(404).json({ error: 'Device not found' });
     try { restoreDeviceRecord(device); } catch (error) { return res.status(409).json({ error: error.message }); }
     saveDb(db); await syncBroker(true); audit(req.user.username, 'device.restored_pending_approval', device.id);
-    res.json({ device, requiresApproval: true, message: 'Device is restored but remains disabled until explicitly approved.' });
+    res.json({ device: publicDevice(device), requiresApproval: true, message: 'Device is restored but remains disabled until explicitly approved.' });
   }));
   app.post('/api/devices/:id/approve', requireAuth(async (req, res) => {
     const db = loadDb(), device = deviceRecord(db, req.params.id);
