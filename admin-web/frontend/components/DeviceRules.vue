@@ -44,8 +44,8 @@ function save() {
       <v-alert v-if="mode === 'all'" type="warning" variant="tonal" class="mb-4">This identity can publish and receive messages on all ordinary topics, including other devices’ topics.</v-alert>
       <template v-else>
         <p class="text-body-2 mb-4">Enter one MQTT topic filter per line. An empty list denies that direction. Use + for one level and # as the final level.</p>
-        <v-textarea v-model="publish" label="Publish topic filters" hint="Example: AutoBoot/command/+" persistent-hint rows="3" class="mb-3" />
-        <v-textarea v-model="subscribe" label="Subscribe topic filters" hint="Example: AutoBoot/state" persistent-hint rows="3" class="mb-4" />
+        <v-textarea v-model="publish" label="Publish topic filters" hint="Example: devices/sensor-01/command/+" persistent-hint rows="3" class="mb-3" />
+        <v-textarea v-model="subscribe" label="Subscribe topic filters" hint="Example: devices/sensor-01/state" persistent-hint rows="3" class="mb-4" />
       </template>
       <v-btn color="primary" :loading="!!state.busy" @click="save">Save rules</v-btn>
     </template>
