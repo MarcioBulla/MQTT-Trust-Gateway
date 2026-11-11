@@ -93,7 +93,11 @@ jobs:
           set -euo pipefail
           podman build --no-cache --pull=always -t localhost/mqtt-update-test-admin:base --build-arg GATEWAY_VERSION="$VERSION" --build-arg GATEWAY_COMMIT="$GITHUB_SHA" --build-arg GATEWAY_CHANNEL="$RELEASE_CHANNEL" --build-arg GATEWAY_UPDATE_PUBLIC_KEY_B64="$UPDATE_PUBLIC_KEY" -f admin-web/Containerfile admin-web
           podman build --no-cache --pull=always -t localhost/mqtt-update-test-broker:base --build-arg GATEWAY_VERSION="$VERSION" -f Containerfile.broker .
-          RUN_GATEWAY_UPDATE_INTEGRATION=1 python3 -m unittest scripts.test_updater_integration
+          if ! RUN_GATEWAY_UPDATE_INTEGRATION=1 python3 -m unittest scripts.test_updater_integration; then
+            echo 'Checking for AppArmor denials from the isolated test containers:'
+            sudo journalctl -k --since '10 minutes ago' --no-pager | grep -i 'apparmor="DENIED"' | tail -20 || true
+            exit 1
+          fi
       - name: Sign immutable image references
         shell: bash
         env:
