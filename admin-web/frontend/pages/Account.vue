@@ -84,6 +84,7 @@ function savePreferences() {
 
 const visibilitySeconds = ref(state.user?.sensitivePreferences?.timeoutSeconds ?? 60);
 const visibilityRequireAuth = ref(state.user?.sensitivePreferences?.requireAuthentication !== false);
+const visibilityHideOnWindowBlur = ref(state.user?.sensitivePreferences?.hideOnWindowBlur !== false);
 const visibilityMethod = ref(state.user?.passkeys?.length ? 'passkey' : 'password');
 const visibilityPassword = ref(''), visibilityTotp = ref('');
 async function saveVisibilityPreferences() {
@@ -94,7 +95,7 @@ async function saveVisibilityPreferences() {
       reauth = { method: 'passkey', credential: await startAuthentication({ optionsJSON: options }) };
     } else reauth = { method: 'password', password: visibilityPassword.value, totp: visibilityTotp.value };
     try {
-      const result = await api('/me/sensitive-preferences', 'PATCH', { timeoutSeconds: Number(visibilitySeconds.value), requireAuthentication: visibilityRequireAuth.value, reauth });
+      const result = await api('/me/sensitive-preferences', 'PATCH', { timeoutSeconds: Number(visibilitySeconds.value), requireAuthentication: visibilityRequireAuth.value, hideOnWindowBlur: visibilityHideOnWindowBlur.value, reauth });
       await hideSensitive();
       state.user = result.user;
     } finally { visibilityPassword.value = ''; visibilityTotp.value = ''; }
@@ -319,23 +320,25 @@ watch([() => revealScopes.audit, accountTab], () => {
     <v-expansion-panels class="mb-5"><v-expansion-panel v-for="mode in ['light', 'dark']" :key="mode" :title="mode === 'light' ? 'Light mode' : 'Dark mode'"><v-expansion-panel-text><v-row dense><v-col v-for="field in colorFields" :key="field.key" cols="12" sm="6"><v-text-field v-model="presentation.themes[mode][field.key]" :label="`${mode === 'light' ? 'Light' : 'Dark'} ${field.title}`" type="color" /></v-col></v-row></v-expansion-panel-text></v-expansion-panel></v-expansion-panels>
     <v-btn type="submit" color="primary" :disabled="!zoneIsValid" :loading="!!state.busy">Save preferences</v-btn></v-form>
   </v-card>
+  <v-card v-if="accountTab === 'general'" class="pa-6 mt-4" max-width="720">
+    <div class="d-flex align-center ga-2 mb-3"><h2 class="text-h6">Sensitive information visibility</h2><HelpButton topic-id="sensitive-information-visibility" /></div>
+    <p class="text-body-2 mb-4">Information starts hidden. After verification, other sections stay available until the timeout ends. Revealed values remain visible while navigating within the Gateway. Set the timeout to 0 to keep them visible until you hide them, log out, or your session expires.</p>
+    <v-form @submit.prevent="saveVisibilityPreferences">
+      <v-text-field v-model.number="visibilitySeconds" label="Visibility and verification timeout (seconds; 0 = no timeout)" type="number" min="0" step="1" required />
+      <v-switch v-model="visibilityHideOnWindowBlur" color="primary" label="Hide when the browser window loses focus" hint="Also hides when this page is moved to the background." persistent-hint />
+      <v-alert v-if="!visibilityHideOnWindowBlur" type="warning" variant="tonal" class="mb-4">Revealed values will remain visible when you switch to another window or browser tab. The visibility timeout, session expiry, and manual Hide control still apply.</v-alert>
+      <v-switch v-model="visibilityRequireAuth" color="error" label="Require additional authentication to reveal sensitive information" />
+      <v-alert v-if="!visibilityRequireAuth" type="error" variant="tonal" class="mb-4">Additional verification is disabled. Anyone using your signed-in session can reveal operational information. Timeout, session expiry, and manual Hide still apply.</v-alert>
+      <v-select v-model="visibilityMethod" :items="removalMethods" label="Authorize this policy change with" />
+      <template v-if="visibilityMethod === 'password'">
+        <v-text-field v-model="visibilityPassword" label="Current password" type="password" autocomplete="current-password" required />
+        <v-text-field v-if="state.user?.totpEnabled" v-model="visibilityTotp" label="Authenticator code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" required />
+      </template>
+      <v-btn type="submit" color="primary" :loading="!!state.busy">Save visibility settings</v-btn>
+    </v-form>
+  </v-card>
   <v-card v-if="accountTab === 'general'" class="pa-6 mt-4" max-width="720"><v-chip color="warning" size="small" class="mb-3">WIP</v-chip><h2 class="text-h6">SMTP email settings</h2><p class="text-medium-emphasis mt-2">SMTP configuration and device offline email alerts are planned. Email delivery is not available yet.</p></v-card>
   <div v-show="accountTab === 'security'">
-    <v-card class="pa-6 mb-5">
-      <div class="d-flex align-center ga-2 mb-3"><h2 class="text-h6">Sensitive information visibility</h2><HelpButton topic-id="sensitive-information-visibility" /></div>
-      <p class="text-body-2 mb-4">Information starts hidden. After verification, you can reveal other sections without another prompt until the verification timeout ends. Choose any whole-number timeout in seconds. Set it to 0 to keep information visible until you hide it, leave the page, or your session expires.</p>
-      <v-form @submit.prevent="saveVisibilityPreferences">
-        <v-text-field v-model.number="visibilitySeconds" label="Visibility and verification timeout (seconds; 0 = no timeout)" type="number" min="0" step="1" required />
-        <v-switch v-model="visibilityRequireAuth" color="error" label="Require additional authentication to reveal sensitive information" />
-        <v-alert v-if="!visibilityRequireAuth" type="error" variant="tonal" class="mb-4">Additional verification is disabled. Anyone using your signed-in session can reveal operational information. Values still hide when you hide them, leave the page, or the session expires.</v-alert>
-        <v-select v-model="visibilityMethod" :items="removalMethods" label="Authorize this policy change with" />
-        <template v-if="visibilityMethod === 'password'">
-          <v-text-field v-model="visibilityPassword" label="Current password" type="password" autocomplete="current-password" required />
-          <v-text-field v-if="state.user?.totpEnabled" v-model="visibilityTotp" label="Authenticator code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" required />
-        </template>
-        <v-btn type="submit" color="primary" :loading="!!state.busy">Save visibility settings</v-btn>
-      </v-form>
-    </v-card>
   <v-row
     ><v-col cols="12" md="6"
       ><v-card class="pa-6 h-100"

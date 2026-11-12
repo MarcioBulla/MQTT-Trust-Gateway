@@ -12,6 +12,7 @@ test('visibility preferences require authentication and control server-side reve
   const { createSession } = await import('../src/auth.js');
   const { registerSensitiveRoutes } = await import('../src/routes/sensitive-routes.js');
   const { sensitiveGrants } = await import('../src/sensitive-grants.js');
+  const { publicUser } = await import('../src/passkeys.js');
   const { sessionKey } = await import('../src/auth.js');
   const user = { id: 'policy-admin', username: 'policy-admin', credentials: [], passwordHash: await argon2.hash('Isolated test password') };
   const db = loadDb(); db.users.push(user);
@@ -29,8 +30,12 @@ test('visibility preferences require authentication and control server-side reve
     assert.equal((await request('/sensitive/reveal', { scope: 'devices' })).status, 403);
     assert.equal((await request('/me/sensitive-preferences', { timeoutSeconds: 20, requireAuthentication: false }, 'PATCH')).status, 403);
     const reauth = { method: 'password', password: 'Isolated test password' };
-    assert.equal((await request('/me/sensitive-preferences', { timeoutSeconds: 0, requireAuthentication: false, reauth }, 'PATCH')).status, 200);
+    assert.equal((await request('/me/sensitive-preferences', { timeoutSeconds: 0, requireAuthentication: false, hideOnWindowBlur: false, reauth }, 'PATCH')).status, 200);
+    assert.equal(loadDb().users[0].sensitivePreferences.hideOnWindowBlur, false);
+    assert.equal(publicUser(loadDb().users[0]).sensitivePreferences.hideOnWindowBlur, false);
+    assert.equal((await request('/me/sensitive-preferences', { timeoutSeconds: 20, requireAuthentication: false, hideOnWindowBlur: 'false', reauth }, 'PATCH')).status, 400);
     assert.equal((await request('/me/sensitive-preferences', { timeoutSeconds: 20, requireAuthentication: false, reauth }, 'PATCH')).status, 200);
+    assert.equal(loadDb().users[0].sensitivePreferences.hideOnWindowBlur, false);
     const revealed = await request('/sensitive/reveal', { scope: 'devices' });
     assert.equal(revealed.status, 200); assert.equal(revealed.headers.get('cache-control'), 'no-store');
     const grant = await revealed.json(); assert.ok(grant.expiresInMs > 19000 && grant.expiresInMs <= 20000);

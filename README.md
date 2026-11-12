@@ -1,6 +1,6 @@
 # MQTT Trust Gateway
 
-**Version 1.2.2** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.2.2.md)
+**Version 1.3.1** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.3.1.md)
 
 A lightweight, self-hosted MQTT gateway for trusted device identities. It combines Eclipse Mosquitto with a Vue 3 / Vuetify 3 admin console and a local certificate authority.
 
@@ -16,10 +16,11 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 ## ✨ Features
 
 - 🔄 System Updates: discover and verify signed releases, then install or roll back Gateway/container updates through the independently running host updater. Includes verified snapshots, functional health checks, interruption recovery, guarded rollback, progress history, configurable checks and snapshot retention (2–100, default 5), plus optional GnuPG-encrypted snapshot export. Automatic installation remains disabled. See the [operations guide](docs/system-updates-operations.md) and [architecture](docs/system-updates-architecture.md).
-- ❔ Contextual Help: searchable guides for certificate workflows, release discovery, and MQTT Manager, with contextual previews, interactive Mermaid diagrams, and theme-matched visual guides.
+- ❔ Contextual Help: searchable guides for certificate workflows, release discovery, MQTT Manager, and the Dashboard first-message walkthrough, with contextual previews, numbered references, interactive Mermaid diagrams, and theme-matched visual guides.
 - 🪪 Four certificate enrollment methods: sign a device CSR, create a CSR for an external CA, generate a complete device credential bundle, or import an existing certificate.
 - 🧩 **Per-device MQTT rules:** use the default `#` access or configure separate publish and subscribe topic filters for each identity; apply saved changes through the broker controls. The default grants broad access to ordinary topics.
-- 🧰 Central device and certificate lifecycle: renew, revoke, trust external CAs, archive, restore, and permanently delete identities.
+- 🧰 Central device and certificate lifecycle: renew a selected certificate using its existing public key, revoke, trust external CAs, archive, restore, or delete identities. Use **Add certificate → Sign an existing CSR** for key rotation.
+- 🗃️ License history: deleted license records remain visible and labeled Deleted; device labels flow to licenses, while license labels stay local to that certificate.
 - 🛡️ Admin security: Argon2id passwords, TOTP, WebAuthn passkeys, expiring sessions, rate limiting, and step-up verification for sensitive data.
 - 📡 MQTT tools: live subscriptions, wildcard filters, pause/resume, retained-message management, and publishing at QoS 0/1/2.
 - 📊 Overview: broker and CA status, certificate counts, and seven days of hourly message traffic.
@@ -166,8 +167,11 @@ Copy `gateway.env.example` to `gateway.env` and protect it with `chmod 600 gatew
 ### 🙈 Sensitive information
 
 - Certificate serials, fingerprints, SANs, public-key metadata, and infrastructure values are omitted from ordinary API responses.
-- Reveal protected information with session-bound step-up authorization. The timeout accepts any non-negative whole number of seconds; `0` disables the reveal timer, while manual hide, leaving the page, logout, or session expiry still ends visibility.
-- Configure the reveal timeout and optional additional-verification policy in **Settings → Account security**.
+- Reveal protected information with session-bound step-up authorization. The timeout accepts any non-negative whole number of seconds; `0` disables the reveal timer.
+- The topbar eye reveals or hides all four protected scopes together: infrastructure, devices and certificates, MQTT messages, and audit data/logs.
+- Configure visibility in **Settings → General**. Browser focus/background auto-hide is enabled by default and can be disabled; when enabled, switching away from the window or tab hides revealed values.
+- Revealed values remain visible across internal Gateway navigation. Manual hide, the configured timeout, logout/session expiry, or a full page leave/reload still hides them.
+- Configure whether each reveal requires additional verification in **Settings → General**.
 - Device names, labels, status, algorithms, and validity dates remain visible without step-up.
 - Secret keys, TOTP seeds, password hashes, and previously delivered private keys are never revealable.
 - See [Sensitive information visibility](docs/sensitive-visibility.md).
@@ -182,6 +186,11 @@ The **Devices & Certificates** page uses one identity and certificate history fo
 - **Import a certificate:** validate an existing client certificate and chain. External issuers remain unauthorized until explicitly approved under Trusted external CAs.
 
 See the [provisioning guide](docs/identity-provisioning.md) for detailed validation rules, trust behavior, and key delivery. Zephyr firmware notes and a C example are in [Zephyr compatibility](docs/zephyr-compatibility.md).
+
+Labels set on a trusted device are inherited by its **Device licenses**. Labels added to an individual license apply only to that certificate and do not change the trusted device.
+
+Deleted license records remain available in the **Deleted licenses** tab for review and are labeled **Deleted**. Deleting a license does not remove its certificate-history record.
+Sensitive certificate actions request step-up authorization before opening confirmations or details. Actions are available on the specific certificate row. **Copy CRT** opens a dialog with the public PEM certificate and a Copy button; device private keys are not included.
 
 ### Quick start: device-generated CSR
 

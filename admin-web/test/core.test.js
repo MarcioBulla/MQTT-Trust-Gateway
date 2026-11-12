@@ -202,7 +202,18 @@ test('manual changes batch into one apply and license removal preserves the devi
   await request('/certificates/generate', 'POST', { id: 'batch-device', algorithm: 'ecdsa-p256', days: 2, bundle: true });
   await request('/devices/batch-device/approve', 'POST', { confirm: 'batch-device' });
   const second = await request('/certificates/generate', 'POST', { id: 'batch-device', algorithm: 'ecdsa-p256', days: 2 });
+  await request(`/certificates/${second.record.id}/labels`, 'PATCH', { labels: [{ name: 'License-only', color: 'purple' }] });
+  assert.deepEqual(loadDb().certificates.find((certificate) => certificate.id === second.record.id).labels, [{ name: 'License-only', color: 'purple' }]);
+  assert.deepEqual(loadDb().devices.find((device) => device.id === 'batch-device').labels, []);
+  await request('/devices/batch-device', 'PATCH', { labels: [{ name: 'Identity', color: 'teal' }] });
+  assert.deepEqual(loadDb().devices.find((device) => device.id === 'batch-device').labels, [{ name: 'Identity', color: 'teal' }]);
+  assert.deepEqual(loadDb().certificates.find((certificate) => certificate.id === second.record.id).labels, [{ name: 'License-only', color: 'purple' }]);
   const first = loadDb().certificates.find((c) => c.deviceId === 'batch-device' && c.id !== second.record.id);
+  await request(`/certificates/${first.id}/labels`, 'PATCH', { labels: [{ name: 'First-license-only', color: 'amber' }] });
+  await request(`/certificates/${first.id}/labels`, 'PATCH', { labels: [] });
+  assert.deepEqual(loadDb().devices.find((device) => device.id === 'batch-device').labels, [{ name: 'Identity', color: 'teal' }]);
+  assert.deepEqual(loadDb().certificates.find((certificate) => certificate.id === second.record.id).labels, [{ name: 'License-only', color: 'purple' }]);
+  assert.deepEqual(loadDb().certificates.find((certificate) => certificate.id === first.id).labels, []);
   const renewed = await request(`/certificates/${second.record.id}/renew`, 'POST', { days: 3 });
   assert.equal(renewed.record.renewedFrom, second.record.id);
   assert.equal(renewed.record.provisioningMethod, 'gateway-generated');

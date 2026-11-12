@@ -1,11 +1,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { formatDateTime } from './date-time';
-import { useRoute } from 'vue-router';
 import SensitiveValue from './components/SensitiveValue.vue';
 import StepUpAuthDialog from './components/StepUpAuthDialog.vue';
 import UpdateIndicator from './components/UpdateIndicator.vue';
-import { hideSensitive, requestReveal, isRevealed, revealScopes } from './sensitive';
+import { hideSensitive, requestRevealAll, isRevealed, revealScopes } from './sensitive';
 import { effectiveThemeColors } from '../shared/theme-presets.js';
 import { defaultPresentation } from '../shared/presentation-preferences.js';
 import { useDisplay, useTheme } from 'vuetify';
@@ -28,10 +27,10 @@ watch(() => state.user?.presentation, value => {
     Object.assign(theme.themes.value[name].colors, effectiveThemeColors(preferences, name));
   }
 }, { immediate: true, deep: true });
-const route = useRoute();
-const routeScope = computed(() => /^\/(devices|licenses)(\/|$)/.test(route.path) ? 'devices' : route.path === '/mqtt' ? 'mqtt' : route.path === '/settings' ? 'audit' : 'infrastructure');
-const currentInformationVisible = computed(() => { void revealScopes[routeScope.value]; return isRevealed(routeScope.value); });
-watch(() => route.fullPath, () => hideSensitive(), { flush: 'sync' });
+const allInformationVisible = computed(() => {
+  void Object.keys(revealScopes).map((scope) => revealScopes[scope]);
+  return ['infrastructure', 'devices', 'mqtt', 'audit'].every(isRevealed);
+});
 const links = [
   ['/', 'Overview', 'mdi-view-dashboard-outline'],
   ['/devices', 'Devices & certificates', 'mdi-chip'],
@@ -184,7 +183,7 @@ onUnmounted(() => clearInterval(brokerPoll));
           <div class="text-caption mt-2">Restart once to apply these changes. Current MQTT sessions will disconnect.</div>
         </div>
         <span v-else>Waiting for broker acknowledgement.</span>
-      </v-tooltip><v-btn v-if="state.user" :icon="currentInformationVisible ? 'mdi-eye' : 'mdi-eye-off'" :aria-label="currentInformationVisible ? 'Hide sensitive information' : 'Show sensitive information'" @click="currentInformationVisible ? hideSensitive() : requestReveal(routeScope)"><v-icon :icon="currentInformationVisible ? 'mdi-eye' : 'mdi-eye-off'" /><v-tooltip activator="parent" location="bottom">{{ currentInformationVisible ? 'Hide sensitive information' : 'Show sensitive information' }}</v-tooltip></v-btn><v-btn icon="mdi-theme-light-dark" aria-label="Toggle theme" @click="toggleTheme" /><v-btn
+      </v-tooltip><v-btn v-if="state.user" :icon="allInformationVisible ? 'mdi-eye' : 'mdi-eye-off'" :aria-label="allInformationVisible ? 'Hide sensitive information' : 'Show sensitive information in all sections'" @click="allInformationVisible ? hideSensitive() : requestRevealAll()"><v-icon :icon="allInformationVisible ? 'mdi-eye' : 'mdi-eye-off'" /><v-tooltip activator="parent" location="bottom">{{ allInformationVisible ? 'Hide sensitive information' : 'Show sensitive information in all sections' }}</v-tooltip></v-btn><v-btn icon="mdi-theme-light-dark" aria-label="Toggle theme" @click="toggleTheme" /><v-btn
         v-if="state.user"
         prepend-icon="mdi-logout"
         @click="

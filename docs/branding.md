@@ -7,7 +7,8 @@ The original monogram file is preserved.
 The palette was sampled from the Mosquitto image on the
 [provided reference page](https://www.woellsdorf-wetter.de/software/mosquitto.html):
 navy `#344364` and orange `#F48F31`. Translucent navy overlays preserve the M's
-folded geometry. The rounded tile has transparent outer corners. This is a
+folded geometry. The artwork has no background tile and is enlarged to use the
+icon canvas while retaining transparent space around the signal mark. This is a
 custom gateway mark and does not claim Eclipse endorsement.
 
 Files served by the admin application:

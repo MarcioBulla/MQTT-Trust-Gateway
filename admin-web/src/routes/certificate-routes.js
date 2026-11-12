@@ -162,6 +162,16 @@ export function registerCertificateRoutes(app) {
   }
   app.post('/api/certificates/:id/archive', requireAuth((req, res) => removeLicense(req, res, false)));
   app.delete('/api/certificates/:id', requireAuth((req, res) => removeLicense(req, res, true)));
+  app.patch('/api/certificates/:id/labels', requireAuth((req, res) => {
+    const db = loadDb(), certificate = find(db, req.params.id);
+    if (!certificate) return res.status(404).json({ error: 'Certificate not found' });
+    if (certificate.licenseArchivedAt || certificate.licenseDeletedAt) return res.status(409).json({ error: 'Archived or deleted licenses cannot be changed' });
+    if (!Array.isArray(req.body.labels) && typeof req.body.labels !== 'string') return res.status(400).json({ error: 'Provide license labels' });
+    certificate.labels = normalizeLabels(req.body.labels);
+    saveDb(db);
+    audit(req.user.username, 'license.labels_updated', `${certificate.deviceId}:${certificate.id}`);
+    res.json({ certificate: publicCertificate(certificate) });
+  }));
   app.get(
     '/api/certificates/ca',
     requireAuth((_req, res) => res.download(path.join(env.caDir, 'ca.crt'), 'gateway-ca.crt')),

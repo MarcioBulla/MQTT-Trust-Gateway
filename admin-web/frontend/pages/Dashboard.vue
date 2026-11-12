@@ -1,6 +1,7 @@
 <script setup>
 import TrafficChart from '../components/TrafficChart.vue';
 import SensitiveValue from '../components/SensitiveValue.vue';
+import HelpButton from '../components/HelpButton.vue';
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { formatDateTime } from '../date-time';
 import { isRevealed, revealScopes, hideSensitive, requestReveal, sensitiveFetch } from '../sensitive';
@@ -35,42 +36,15 @@ onMounted(() => {
 watch(() => chartPreferences.value.refreshSeconds, seconds => { clearInterval(timer); timer = setInterval(load, seconds * 1000); });
 onUnmounted(() => clearInterval(timer));
 const steps = computed(() => [
-  [
-    '1. Register a device',
-    'Open Devices and create an identifier such as sensor-01. The identifier becomes the certificate CN and MQTT ACL identity.',
-  ],
-  [
-    '2. Generate a key and CSR on the device',
-    'openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout sensor-01.key -out sensor-01.csr -subj /CN=sensor-01',
-  ],
-  [
-    '3. Issue a certificate',
-    'Select Issue in Devices, paste the CSR, choose a validity and download the resulting public certificate. Keep the private key on the device.',
-  ],
-  [
-    '4. Download the CA',
-    'Use Download CA below and configure it as the trust anchor on your device.',
-  ],
-  [
-    '5. Connect using mTLS',
-    `mosquitto_pub -h HOST -p PORT --cafile gateway-ca.crt --cert sensor-01.crt --key sensor-01.key -t devices/sensor-01/hello -m hello -q 1`,
-  ],
-  [
-    '6. Renew',
-    'Open Licenses, select Renew and submit a new CSR if the device key has changed. Renewal issues a new serial. Revoke the old serial when no longer needed.',
-  ],
-  [
-    '7. Revoke',
-    'Revoke a certificate in Licenses or disable the device in Devices. Use Restart Broker in the top bar and check broker acknowledgement. Shift-click a final action to apply immediately.',
-  ],
-  [
-    '8. Connect using WebSocket',
-    `Use wss://HOST:PORT/mqtt with a native MQTT client that supplies the device certificate and key. Browser JavaScript cannot select TLS client certificates; install a certificate in the browser/OS if supported. The console uses the authenticated backend bridge.`,
-  ],
-  [
-    '9. Add an external proxy',
-    'See docs/proxy.md. Set PUBLIC_URL and exact TRUSTED_PROXIES addresses, forward HTTP/WebSocket and preserve the public origin. Raw MQTT TLS needs a separate TCP forwarding capability. No proxy is installed by this gateway.',
-  ],
+  { title: 'Register a device', text: 'Open Devices and create an identifier such as sensor-01. The identifier becomes the certificate CN and MQTT ACL identity.', topicId: 'register-device' },
+  { title: 'Generate a key and CSR on the device', text: 'openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout sensor-01.key -out sensor-01.csr -subj /CN=sensor-01', topicId: 'sign-existing-csr' },
+  { title: 'Issue a certificate', text: 'In Add certificate, choose Sign an existing CSR, select the device, paste the CSR and choose a validity. Keep the private key on the device.', topicId: 'sign-existing-csr' },
+  { title: 'Download the CA', text: 'Use Download CA below and configure it as the trust anchor on your device.', topicId: 'generate-complete-certificate' },
+  { title: 'Connect using mTLS', text: 'mosquitto_pub -h HOST -p PORT --cafile gateway-ca.crt --cert sensor-01.crt --key sensor-01.key -t devices/sensor-01/hello -m hello -q 1', topicId: 'mqtt-manager' },
+  { title: 'Renew', text: 'In Licenses, renew the selected certificate using its existing public key. For key rotation, use Add certificate → Sign an existing CSR.', topicId: 'certificate-renewal' },
+  { title: 'Revoke', text: 'Revoke a certificate in Licenses or disable the device in Devices. Use Restart Broker in the top bar and check broker acknowledgement. Shift-click a final action to apply immediately.', topicId: 'certificate-renewal' },
+  { title: 'Connect using WebSocket', text: 'Use wss://HOST:PORT/mqtt with a native MQTT client that supplies the device certificate and key. Browser JavaScript cannot select TLS client certificates; install a certificate in the browser/OS if supported. The console uses the authenticated backend bridge.', topicId: 'mqtt-manager' },
+  { title: 'Add an external proxy', text: 'See docs/proxy.md. Set PUBLIC_URL and exact TRUSTED_PROXIES addresses, forward HTTP/WebSocket and preserve the public origin. Raw MQTT TLS needs a separate TCP forwarding capability. No proxy is installed by this gateway.' },
 ]);
 </script>
 <template>
@@ -163,15 +137,16 @@ const steps = computed(() => [
                 </td>
               </tr></tbody></v-table></v-card></v-col
     ></v-row>
-    <h2 class="text-h5 font-weight-bold mt-8 mb-4">From first device to first message</h2>
+    <div class="d-flex align-center ga-2 mt-8 mb-4"><h2 class="text-h5 font-weight-bold">From first device to first message</h2><HelpButton topic-id="first-device-to-first-message" /></div>
     <p class="text-body-2 text-medium-emphasis mb-4">
       MQTT/TLS and secure WebSocket connections support TLS 1.2 and TLS 1.3. Older TLS versions are disabled.
     </p>
     <v-expansion-panels variant="accordion"
-      ><v-expansion-panel v-for="[title, text] in steps" :key="title" :title="title"
+      ><v-expansion-panel v-for="step in steps" :key="step.title" :title="step.title"
         ><v-expansion-panel-text>
-          <pre>{{ text }}</pre>
-          <v-btn size="small" class="mt-3" prepend-icon="mdi-content-copy" @click="copy(text)"
+          <pre>{{ step.text }}</pre>
+          <router-link v-if="step.topicId" :to="{ name: 'help-topic', params: { topicId: step.topicId } }" class="text-primary font-weight-medium d-inline-block mt-3" target="_blank" rel="noopener noreferrer" :aria-label="`Read more: ${step.title} help (opens in a new tab)`">Read more <v-icon icon="mdi-open-in-new" size="small" aria-hidden="true" /></router-link>
+          <v-btn size="small" class="mt-3 ml-2" prepend-icon="mdi-content-copy" @click="copy(step.text)"
             >Copy</v-btn
           ></v-expansion-panel-text
         ></v-expansion-panel

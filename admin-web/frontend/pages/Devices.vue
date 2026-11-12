@@ -1,11 +1,12 @@
 <script setup>
-import { revealScopes } from '../sensitive';
+import { revealScopes, ensureSensitive } from '../sensitive';
 import SensitiveValue from '../components/SensitiveValue.vue';
 import DateTime from '../components/DateTime.vue';
 import { formatDateTime } from '../date-time';
 import RowActions from '../components/RowActions.vue';
 import DataList from '../components/DataList.vue';
 import HelpButton from '../components/HelpButton.vue';
+import { visibleLicenseRows, licenseStatusLabel, mergeLicenseLabels } from '../license-rows.js';
 import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, action, state, copy, downloadApiFile } from '../api';
@@ -22,18 +23,19 @@ const devices = ref([]),
   issueDialog = ref(false),
   confirm = ref(null),
   details = ref(null),
+  crtDialog = ref(null),
   tab = ref('active'),
   confirmText = ref(''),
   labelSearch = ref(''),
   labelColor = ref('blue'),
-  labelMenuDevice = ref(null);
+  labelMenuDevice = ref(null),
+  labelMenuLicense = ref(null);
 const form = ref({ id: '', name: '', description: '', labels: '' }),
-  issue = ref({ deviceId: '', csr: '', days: 90, previous: null, renewalMode: 'reuse-key' });
+  issue = ref({ deviceId: '', days: 90, previous: null });
 const headers = [
   { title: 'Name', key: 'name', width: '180px', maxWidth: '200px' },
   { title: 'Labels', key: 'labels', width: '170px', maxWidth: '190px' },
   { title: 'Provisioning', key: 'latestCertificate.provisioningMethod', width: '145px', maxWidth: '160px' },
-  { title: 'Algorithm', key: 'latestCertificate.algorithm', width: '145px', maxWidth: '160px' },
   { title: 'Status', key: 'latestCertificate.status', width: '150px', maxWidth: '170px' },
   { title: 'Authorization', key: 'enabled', width: '130px', maxWidth: '145px' },
   { title: '', key: 'actions', width: '145px', maxWidth: '150px', sortable: false },
@@ -58,6 +60,7 @@ const certHeaders = [
   { title: 'Serial', key: 'serial', width: '150px', maxWidth: '170px' },
   { title: 'Issued', key: 'issuedAt', width: '160px', maxWidth: '180px' },
   { title: 'Expires', key: 'validTo', width: '160px', maxWidth: '180px' },
+  { title: 'Algorithm', key: 'algorithm', width: '145px', maxWidth: '160px' },
   { title: 'Status', key: 'status', width: '130px', maxWidth: '150px' },
   { title: '', key: 'actions', width: '145px', maxWidth: '150px', sortable: false },
 ];
@@ -77,7 +80,7 @@ const load = () =>
     issue.value.days = s.defaultDays;
   });
 watch(() => revealScopes.devices, () => {
-  devices.value = []; archived.value = []; certs.value = []; details.value = null; confirm.value = null;
+  devices.value = []; archived.value = []; certs.value = []; details.value = null; crtDialog.value = null; confirm.value = null;
   load();
 }, { immediate: true, flush: 'sync' });
 defineExpose({ reload: load });
@@ -92,13 +95,13 @@ function create() {
 function updateAuthorization(device, enabled) {
   if (enabled) {
     if (!canAuthorize(device)) return;
-    confirm.value = { device, action: 'approve' };
+    prepareConfirm({ device, action: 'approve' });
     return;
   }
-  action(async () => {
+  withDeviceReveal(() => action(async () => {
     await api(`/devices/${device.id}`, 'PATCH', { enabled: false });
     await load();
-  }, 'Authorization change saved. Apply pending broker changes to enforce it.');
+  }, 'Authorization change saved. Apply pending broker changes to enforce it.'));
 }
 const canAuthorize = (device) => {
   const credentials = device.certificates || [];
@@ -114,9 +117,28 @@ const allLabels = computed(() => {
       if (label.name && !labels.has(label.name.toLocaleLowerCase())) labels.set(label.name.toLocaleLowerCase(), label);
     }
   }
+  for (const certificate of certs.value) {
+    for (const rawLabel of certificate.labels || []) {
+      const label = labelValue(rawLabel);
+      if (label.name && !labels.has(label.name.toLocaleLowerCase())) labels.set(label.name.toLocaleLowerCase(), label);
+    }
+  }
   return [...labels.values()].sort((a, b) => a.name.localeCompare(b.name));
 });
 function labelsFor(device) { return (device.labels || []).map(labelValue).filter((label) => label.name); }
+function licenseOwnLabels(certificate) { return (certificate.labels || []).map(labelValue).filter((label) => label.name); }
+function licenseLabels(certificate) {
+  return mergeLicenseLabels(labelsFor(licenseDevice(certificate.deviceId)), licenseOwnLabels(certificate));
+}
+function hasOwnLicenseLabel(certificate, name) { return licenseOwnLabels(certificate).some((label) => label.name === name); }
+function filteredLicenseLabels(certificate) {
+  const attached = new Set(licenseLabels(certificate).map((label) => label.name.toLocaleLowerCase()));
+  return allLabels.value.filter((label) => !attached.has(label.name.toLocaleLowerCase()) && label.name.toLocaleLowerCase().includes(labelSearch.value.trim().toLocaleLowerCase()));
+}
+function openLicenseLabelMenu(certificate, open) {
+  if (open) { labelMenuLicense.value = certificate; labelSearch.value = ''; labelColor.value = 'blue'; }
+  else if (labelMenuLicense.value?.id === certificate.id) labelMenuLicense.value = null;
+}
 function filteredLabels(device) {
   const attached = new Set(labelsFor(device).map((label) => label.name.toLocaleLowerCase()));
   return allLabels.value.filter((label) => !attached.has(label.name.toLocaleLowerCase()) && label.name.toLocaleLowerCase().includes(labelSearch.value.trim().toLocaleLowerCase()));
@@ -136,6 +158,27 @@ async function saveDeviceLabels(device, labels) {
     return 'Device labels updated.';
   });
 }
+function saveLicenseLabels(certificate, labels) {
+  action(async () => {
+    const result = await api(`/certificates/${certificate.id}/labels`, 'PATCH', { labels });
+    certs.value = certs.value.map((item) => item.id === certificate.id ? result.certificate : item);
+    return 'License labels updated.';
+  });
+}
+function attachLicenseLabel(certificate, label) {
+  const current = licenseOwnLabels(certificate);
+  if (licenseLabels(certificate).some((item) => item.name.toLocaleLowerCase() === label.name.toLocaleLowerCase())) return;
+  saveLicenseLabels(certificate, [...current, label]);
+  labelSearch.value = '';
+}
+function createLicenseLabel(certificate) {
+  const name = labelSearch.value.trim().slice(0, 40);
+  if (!name || !canCreateLabel()) return;
+  attachLicenseLabel(certificate, { name, color: labelColor.value });
+}
+function removeLicenseLabel(certificate, name) {
+  saveLicenseLabels(certificate, licenseOwnLabels(certificate).filter((label) => label.name !== name));
+}
 function attachLabel(device, label) {
   const current = labelsFor(device);
   if (current.some((item) => item.name.toLocaleLowerCase() === label.name.toLocaleLowerCase())) return;
@@ -151,33 +194,39 @@ function removeLabel(device, name) {
   saveDeviceLabels(device, labelsFor(device).filter((label) => label.name !== name));
 }
 const connectionColor = (status) => ({ connected: 'success', online: 'success', offline: 'error', disconnected: 'error' })[String(status || '').toLowerCase()] || 'medium-emphasis';
-function openIssue(id, previous = null) {
-  issue.value = { deviceId: id, previous, csr: '', days: issue.value.days, renewalMode: 'reuse-key' };
+function openRenewal(item) {
+  issue.value = { deviceId: item.deviceId, previous: item.id, days: issue.value.days };
   issueDialog.value = true;
 }
-function editCredentials(deviceId) {
-  router.push(`/devices/${encodeURIComponent(deviceId)}/certificates`);
+async function withDeviceReveal(open) {
+  try { await ensureSensitive('devices'); return await open(); } catch { /* Authorization was canceled. */ }
 }
-function sign() {
+function prepareConfirm(value) { return withDeviceReveal(() => { confirm.value = value; }); }
+function viewLicenseDetails(item) { return withDeviceReveal(() => { details.value = item; }); }
+function renewLicense(item) { return withDeviceReveal(() => openRenewal(item)); }
+function downloadCertificate(item) {
+  return withDeviceReveal(() => action(() => downloadApiFile(`/certificates/${item.id}/download`, 'device.crt')));
+}
+function copyCertificate(item) {
+  return withDeviceReveal(() => action(async () => {
+    const response = await fetch(`/api/certificates/${encodeURIComponent(item.id)}/download`, { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) throw new Error('Certificate could not be loaded');
+    crtDialog.value = { item, pem: await response.text() };
+  }));
+}
+function editCredentials(deviceId) {
+  return withDeviceReveal(() => router.push(`/devices/${encodeURIComponent(deviceId)}/certificates`));
+}
+function submitRenewal() {
   action(async () => {
     const i = issue.value;
-    const result = await api(i.previous ? `/certificates/${i.previous}/renew` : '/certificates/sign', 'POST', {
-      deviceId: i.deviceId,
-      csr: i.previous ? (i.renewalMode === 'new-csr' ? i.csr : undefined) : i.csr || undefined,
-      days: Number(i.days),
-    });
-    if (i.previous) {
-      const url = URL.createObjectURL(new Blob([result.certificate], { type: 'application/x-pem-file' }));
-      const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'device.crt'; anchor.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
+    const result = await api(`/certificates/${i.previous}/renew`, 'POST', { days: Number(i.days) });
+    const url = URL.createObjectURL(new Blob([result.certificate], { type: 'application/x-pem-file' }));
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'device.crt'; anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     issueDialog.value = false;
     await load();
-  }, issue.value.previous
-    ? issue.value.renewalMode === 'new-csr'
-      ? 'Certificate renewed. Install the downloaded certificate with the matching private key generated on the device.'
-      : 'Certificate renewed. Install the downloaded certificate and keep using the current private key.'
-    : 'Certificate issued. Download it from the certificate history.');
+  }, 'Certificate renewed with the selected certificate’s existing public key. Install it and keep using the matching private key.');
 }
 function executeConfirm() {
   action(async () => {
@@ -185,6 +234,7 @@ function executeConfirm() {
     if (c.license) {
       const result = await api(`/certificates/${c.license.id}${c.action === 'archive' ? '/archive' : ''}`, c.action === 'archive' ? 'POST' : 'DELETE', { confirm: confirmText.value });
       if (result.identityBlocked) state.notice = result.message;
+      if (props.licenses) tab.value = c.action === 'delete' ? 'deleted' : 'archived';
     }
     else if (c.cert) await api(`/certificates/${c.cert.id}/revoke`, 'POST', {});
     else if (c.action === 'archive') await api(`/devices/${c.device.id}/archive`, 'POST', { confirm: confirmText.value });
@@ -198,7 +248,7 @@ function executeConfirm() {
   }, 'Changes saved. Use Restart Broker in the top bar to apply pending changes.');
 }
 const color = (s) =>
-  ({ active: 'success', expiring: 'warning', revoked: 'error', expired: 'error', untrusted: 'warning', pending_external_signature: 'info' })[s] || 'default';
+  ({ active: 'success', expiring: 'warning', revoked: 'error', expired: 'error', deleted: 'error', untrusted: 'warning', pending_external_signature: 'info' })[s] || 'default';
 const confirmationPhrase = () =>
   confirm.value?.license ? `${confirm.value.action === 'archive' ? 'ARCHIVE' : 'DELETE'} ${confirm.value.license.serial || confirm.value.license.id}` : confirm.value?.action === 'archive'
     ? confirm.value.device.id
@@ -215,8 +265,9 @@ function searchRows(_value, query, item) {
   const certificate = row.latestCertificate || row;
   return [row.name, row.id, row.deviceId, device.name, device.description,
     certificate.serial, certificate.provisioningMethod, certificate.issuerName,
-    certificate.algorithm, certificate.status, certificate.validTo,
+    certificate.algorithm, row.licenseDeletedAt ? 'Deleted' : certificate.status, certificate.validTo,
     ...labelsFor(device).map((label) => label.name),
+    ...(row.deviceId ? licenseOwnLabels(row).map((label) => label.name) : []),
     ...(device.certificates || []).map((entry) => [entry.serial, entry.provisioningMethod, entry.issuerName].filter(Boolean).join(' '))]
     .filter((value) => value != null).join(' ').toLocaleLowerCase().includes(String(query).trim().toLocaleLowerCase());
 }
@@ -224,6 +275,8 @@ const licenseCounts = (status) =>
   certs.value.filter((certificate) => !certificate.licenseArchivedAt && !certificate.licenseDeletedAt).filter((certificate) => status === 'inactive'
     ? ['expired', 'revoked', 'blocked'].includes(certificate.status)
     : certificate.status === status).length;
+const deletedLicenseCount = computed(() => certs.value.filter((certificate) => certificate.licenseDeletedAt).length);
+const licenseRows = computed(() => visibleLicenseRows(certs.value, tab.value, filter.value));
 </script>
 <template>
   <div class="d-flex flex-wrap align-center justify-space-between ga-4 mb-6">
@@ -251,7 +304,7 @@ const licenseCounts = (status) =>
     </v-col>
   </v-row>
   <v-card class="pa-4"
-    ><v-tabs v-if="props.licenses" v-model="tab" class="mb-3"><v-tab value="active">Active licenses</v-tab><v-tab value="archived">Archived licenses</v-tab></v-tabs><v-tabs v-if="!props.licenses" v-model="tab" class="mb-3" @update:model-value="load"><v-tab value="active">Active ({{ devices.length }})</v-tab><v-tab value="archived">Archived ({{ archived.length }})</v-tab></v-tabs>
+    ><v-tabs v-if="props.licenses" v-model="tab" class="mb-3"><v-tab value="active">Active licenses</v-tab><v-tab value="archived">Archived licenses</v-tab><v-tab value="deleted">Deleted licenses ({{ deletedLicenseCount }})</v-tab></v-tabs><v-tabs v-if="!props.licenses" v-model="tab" class="mb-3" @update:model-value="load"><v-tab value="active">Active ({{ devices.length }})</v-tab><v-tab value="archived">Archived ({{ archived.length }})</v-tab></v-tabs>
     <div class="d-flex align-center ga-3 flex-wrap">
       <v-text-field
         v-model="search"
@@ -262,7 +315,7 @@ const licenseCounts = (status) =>
       /><v-select
         v-if="props.licenses"
         v-model="filter"
-        :items="['All', 'active', 'expiring', 'expired', 'revoked']"
+        :items="['All', 'active', 'expiring', 'expired', 'revoked', 'deleted']"
         label="Certificate status"
         hide-details
         max-width="220"
@@ -277,50 +330,47 @@ const licenseCounts = (status) =>
       class="mt-4 identity-table" min-width="1100px"
     >
       <template #item.name="{ item }"><v-tooltip :text="`ID: ${item.id}`" location="top" :open-delay="650" :close-delay="150"><template #activator="{ props: tooltipProps }"><v-btn v-bind="tooltipProps" variant="text" density="compact" :class="['name-copy', 'text-none', 'px-0', `text-${connectionColor(item.connectionStatus)}`]" :aria-label="`Copy device name ${item.name || item.id}`" @click="copy(item.name || item.id)">{{ item.name || item.id }}</v-btn></template></v-tooltip></template>
-      <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="rawLabel in item.labels || []" :key="labelValue(rawLabel).name" size="small" closable :color="labelValue(rawLabel).color" variant="tonal" @click:close="removeLabel(item, labelValue(rawLabel).name)">{{ labelValue(rawLabel).name }}</v-chip><v-menu location="bottom start" :close-on-content-click="false" @update:model-value="openLabelMenu(item, $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to ${item.name || item.id}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLabels(item).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLabels(item)" :key="label.name" :title="label.name" @click="attachLabel(item, label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLabel(item)">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
+      <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="rawLabel in item.labels || []" :key="labelValue(rawLabel).name" size="small" closable :color="labelValue(rawLabel).color" variant="tonal" class="device-label-chip" @click:close="removeLabel(item, labelValue(rawLabel).name)">{{ labelValue(rawLabel).name }}</v-chip><v-menu location="bottom start" :close-on-content-click="false" @update:model-value="openLabelMenu(item, $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to ${item.name || item.id}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLabels(item).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLabels(item)" :key="label.name" :title="label.name" @click="attachLabel(item, label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLabel(item)">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
       <template #item.latestCertificate.provisioningMethod="{ item }"><v-tooltip v-if="item.latestCertificate" :text="`Issuer: ${item.latestCertificate.issuerName || item.latestCertificate.issuer || 'Unknown'}${item.latestCertificate.brokerTrusted === false ? ' (not trusted)' : ''}`" location="top"><template #activator="{ props: tooltipProps }"><span v-bind="tooltipProps">{{ item.latestCertificate.provisioningMethod || '—' }}</span></template></v-tooltip><span v-else class="text-medium-emphasis">—</span></template>
-      <template #item.latestCertificate.algorithm="{ item }">{{ item.latestCertificate?.algorithm || '—' }}</template>
       <template #item.latestCertificate.status="{ item }"><v-tooltip v-if="item.latestCertificate" :text="`Expires ${formatDateTime(item.latestCertificate.validTo)}`" location="top"><template #activator="{ props: tooltipProps }"><v-chip v-bind="tooltipProps" size="small" :color="color(item.latestCertificate.status)">{{ item.latestCertificate.status }}</v-chip></template></v-tooltip><v-chip v-else size="small" color="warning">No certificate</v-chip></template>
       <template #item.enabled="{ item }"><div class="d-flex align-center ga-2"><v-switch :model-value="isAuthorized(item)" :disabled="!canAuthorize(item) && !isAuthorized(item)" color="success" density="compact" hide-details :aria-label="`Authorize ${item.id} for MQTT`" @update:model-value="updateAuthorization(item, $event)" /><span class="text-caption">{{ isAuthorized(item) ? 'Authorized' : canAuthorize(item) ? 'Disabled' : 'No valid credential' }}</span></div></template>
-      <template #item.actions="{ item }"><div class="d-flex align-center justify-end ga-1"><v-btn size="small" variant="tonal" prepend-icon="mdi-pencil-outline" @click="editCredentials(item.id)">Edit</v-btn><RowActions label="Device actions" :disabled="!!state.busy">
-        <v-list-item prepend-icon="mdi-information-outline" title="Details" @click="details = item" />
-        <v-list-item v-if="item.latestCertificate?.canDownload" prepend-icon="mdi-download" title="Download certificate" @click="action(() => downloadApiFile(`/certificates/${item.latestCertificate.id}/download`, 'device.crt'))" />
-        <v-list-item v-if="item.latestCertificate && ['active', 'expiring'].includes(item.latestCertificate.status) && ['local', 'legacy'].includes(item.latestCertificate.issuer)" prepend-icon="mdi-autorenew" title="Renew" @click="openIssue(item.id, item.latestCertificate.id)" />
-        <v-list-item v-if="item.latestCertificate && ['active', 'expiring'].includes(item.latestCertificate.status) && ['local', 'legacy'].includes(item.latestCertificate.issuer)" prepend-icon="mdi-cancel" title="Revoke certificate" @click="confirm = { cert: item.latestCertificate }" />
-        <v-list-item prepend-icon="mdi-certificate-plus" title="Issue certificate" :disabled="item.status !== 'active'" @click="openIssue(item.id)" />
+    <template #item.actions="{ item }"><div class="d-flex align-center justify-end ga-1"><v-btn size="small" variant="tonal" prepend-icon="mdi-pencil-outline" @click="editCredentials(item.id)">Edit</v-btn><RowActions label="Device actions" :disabled="!!state.busy">
+        <v-list-item prepend-icon="mdi-information-outline" title="Details" @click="viewLicenseDetails(item)" />
         <v-list-item prepend-icon="mdi-shield-check-outline" :title="isAuthorized(item) ? 'Disable authorization' : 'Approve & authorize'" :disabled="!isAuthorized(item) && !canAuthorize(item)" @click="isAuthorized(item) ? updateAuthorization(item, false) : updateAuthorization(item, true)" />
-        <v-list-item prepend-icon="mdi-archive-arrow-down-outline" title="Archive device" @click="confirm = { device: item, action: 'archive' }" />
-        <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete device" class="text-error" @click="confirm = { device: item, action: 'delete' }" />
+        <v-list-item prepend-icon="mdi-archive-arrow-down-outline" title="Archive device" @click="prepareConfirm({ device: item, action: 'archive' })" />
+        <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete device" class="text-error" @click="prepareConfirm({ device: item, action: 'delete' })" />
         </RowActions></div></template>
     </DataList>
     <DataList v-if="!props.licenses && tab === 'archived'" :headers="archivedHeaders" :items="archived" :search="search" :custom-filter="searchRows" :loading="!!state.busy" class="mt-4">
       <template #item.archivedAt="{ item }"><DateTime :value="item.archivedAt" /></template>
       <template #item.scheduledDeletionAt="{ item }"><DateTime :value="item.scheduledDeletionAt" /></template>
       <template #item.daysRemaining="{ item }"><v-chip size="small" :color="item.daysRemaining <= 3 ? 'warning' : 'default'">{{ item.daysRemaining }} days</v-chip></template>
-      <template #item.actions="{ item }"><RowActions label="Archived device actions" :disabled="!!state.busy"><v-list-item title="Restore device" prepend-icon="mdi-restore" @click="confirm = { device: item, action: 'restore' }" /><v-list-item title="Delete now" prepend-icon="mdi-delete-forever-outline" class="text-error" @click="confirm = { device: item, action: 'delete' }" /></RowActions></template>
+      <template #item.actions="{ item }"><RowActions label="Archived device actions" :disabled="!!state.busy"><v-list-item title="Restore device" prepend-icon="mdi-restore" @click="prepareConfirm({ device: item, action: 'restore' })" /><v-list-item title="Delete now" prepend-icon="mdi-delete-forever-outline" class="text-error" @click="prepareConfirm({ device: item, action: 'delete' })" /></RowActions></template>
     </DataList>
     <DataList
       v-if="props.licenses"
       :headers="certHeaders"
-      :items="certs.filter((c) => !c.licenseDeletedAt && (tab === 'archived' ? !!c.licenseArchivedAt : !c.licenseArchivedAt) && (filter === 'All' || c.status === filter))"
+      :items="licenseRows"
       :search="search" :custom-filter="searchRows"
       :loading="!!state.busy"
       class="mt-4 identity-table" min-width="1100px"
     >
-      <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="rawLabel in licenseDevice(item.deviceId).labels || []" :key="labelValue(rawLabel).name" size="small" :closable="licenseDevice(item.deviceId).status === 'active'" :color="labelValue(rawLabel).color" variant="tonal" @click:close="removeLabel(licenseDevice(item.deviceId), labelValue(rawLabel).name)">{{ labelValue(rawLabel).name }}</v-chip><v-menu v-if="licenseDevice(item.deviceId).status === 'active'" location="bottom start" :close-on-content-click="false" @update:model-value="openLabelMenu(licenseDevice(item.deviceId), $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to ${licenseDevice(item.deviceId).name || item.deviceId}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLabels(licenseDevice(item.deviceId)).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLabels(licenseDevice(item.deviceId))" :key="label.name" :title="label.name" @click="attachLabel(licenseDevice(item.deviceId), label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLabel(licenseDevice(item.deviceId))">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
+      <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="label in licenseLabels(item)" :key="label.name" size="small" :closable="hasOwnLicenseLabel(item, label.name)" :class="{ 'device-label-chip': !hasOwnLicenseLabel(item, label.name) }" :color="label.color" variant="tonal" @click:close="removeLicenseLabel(item, label.name)">{{ label.name }}</v-chip><v-menu v-if="!item.licenseArchivedAt && !item.licenseDeletedAt" location="bottom start" :close-on-content-click="false" @update:model-value="openLicenseLabelMenu(item, $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to license ${item.deviceId}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLicenseLabels(item).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLicenseLabels(item)" :key="label.name" :title="label.name" @click="attachLicenseLabel(item, label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLicenseLabel(item)">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
       <template #item.issuedAt="{ item }"><DateTime :value="item.issuedAt" /></template>
       <template #item.validTo="{ item }"><DateTime :value="item.validTo" /></template>
+      <template #item.algorithm="{ item }">{{ item.algorithm || '—' }}</template>
       <template #item.serial="{ item }"
         ><span class="mono text-caption"><SensitiveValue scope="devices" :value="item.serial" label="Certificate serial" /></span></template
       ><template #item.status="{ item }"
-        ><v-chip size="small" :color="color(item.status)">{{ item.status }}</v-chip></template
+        ><v-chip size="small" :color="color(item.licenseDeletedAt ? 'deleted' : item.status)">{{ licenseStatusLabel(item) }}</v-chip></template
       >
-      <template #item.actions="{ item }"><div class="d-flex align-center justify-end ga-1"><v-btn size="small" variant="tonal" prepend-icon="mdi-pencil-outline" @click="editCredentials(item.deviceId)">Edit</v-btn><RowActions label="License actions" :disabled="!!state.busy">
-        <v-list-item v-if="item.canDownload" prepend-icon="mdi-download" title="Download certificate" @click="action(() => downloadApiFile(`/certificates/${item.id}/download`, 'device.crt'))" />
-        <v-list-item v-if="['active', 'expiring'].includes(item.status) && ['local', 'legacy'].includes(item.issuer)" prepend-icon="mdi-autorenew" title="Renew" @click="openIssue(item.deviceId, item.id)" />
-        <v-list-item v-if="item.status !== 'revoked'" prepend-icon="mdi-cancel" title="Revoke certificate" class="text-error" @click="confirm = { cert: item }" />
-        <v-list-item v-if="!item.licenseArchivedAt" prepend-icon="mdi-archive-arrow-down-outline" title="Archive license" @click="confirm = { license: item, action: 'archive' }" />
-        <v-list-item prepend-icon="mdi-delete-forever-outline" title="Delete license" class="text-error" @click="confirm = { license: item, action: 'delete' }" />
+      <template #item.actions="{ item }"><div class="d-flex align-center justify-end ga-1"><v-btn icon size="small" density="compact" variant="text" color="primary" aria-label="Edit device license" @click="editCredentials(item.deviceId)"><v-icon icon="mdi-open-in-new" size="small" /><v-tooltip activator="parent" location="top">Edit device licenses</v-tooltip></v-btn><RowActions label="License actions" :disabled="!!state.busy">
+        <v-list-item v-if="item.canDownload" prepend-icon="mdi-content-copy" title="Copy CRT" @click="copyCertificate(item)" />
+        <v-list-item v-if="item.canDownload" prepend-icon="mdi-download" title="Download certificate" @click="downloadCertificate(item)" />
+        <v-list-item v-if="['active', 'expiring'].includes(item.status) && ['local', 'legacy'].includes(item.issuer)" prepend-icon="mdi-autorenew" title="Renew" @click="renewLicense(item)" />
+        <v-list-item v-if="!item.licenseDeletedAt && item.status !== 'revoked'" prepend-icon="mdi-cancel" title="Revoke certificate" class="text-error" @click="prepareConfirm({ cert: item })" />
+        <v-list-item v-if="!item.licenseDeletedAt && !item.licenseArchivedAt" prepend-icon="mdi-archive-arrow-down-outline" title="Archive license" @click="prepareConfirm({ license: item, action: 'archive' })" />
+        <v-list-item v-if="!item.licenseDeletedAt" prepend-icon="mdi-delete-forever-outline" title="Delete license" class="text-error" @click="prepareConfirm({ license: item, action: 'delete' })" />
       </RowActions></div></template>
     </DataList>
   </v-card>
@@ -352,28 +402,9 @@ const licenseCounts = (status) =>
   >
   <v-dialog v-model="issueDialog" max-width="720"
     ><v-card class="pa-6"
-      ><h2 class="text-h5 mb-3">
-        {{ issue.previous ? 'Renew' : 'Issue' }} certificate · {{ issue.deviceId }}
-      </h2>
-      <p v-if="!issue.previous" class="text-body-2 mb-4">
-        Generate a private key and CSR on the device, then submit the CSR for signing. Keep the
-        private key on the device; the Gateway only receives the public request.
-      </p>
-      <p v-else class="text-body-2 mb-3">Choose whether to keep the device key or rotate it. The Gateway never receives or stores a device private key.</p>
-      <p v-if="!issue.previous" class="text-body-2 mb-4">Generate a private key and CSR on the device, then submit the CSR for signing. Keep the private key on the device.</p>
-      <v-form @submit.prevent="sign"
-        ><v-radio-group v-if="issue.previous" v-model="issue.renewalMode" class="mb-2">
-          <v-radio value="reuse-key" label="Keep the current public key" />
-          <v-radio value="new-csr" label="Sign a new CSR generated on the device" />
-        </v-radio-group>
-        <p v-if="issue.previous && issue.renewalMode === 'reuse-key'" class="text-body-2 text-medium-emphasis">The new certificate uses the public key from the current certificate. Install it on the device and keep using its existing private key.</p>
-        <p v-else-if="issue.previous" class="text-body-2 text-medium-emphasis">Generate a new private key and CSR on the device, then paste the CSR below. Keep the private key on the device; install it with the newly signed certificate.</p>
-        <v-textarea v-if="!issue.previous || issue.renewalMode === 'new-csr'"
-          v-model="issue.csr"
-          label="Device CSR (PEM)"
-          rows="9"
-          required
-        /><v-text-field
+      ><h2 class="text-h5 mb-3">Renew certificate · {{ issue.deviceId }}</h2>
+      <p class="text-body-2 mb-4">Renewal uses the selected certificate’s existing public key. Install the new certificate and keep using the matching private key; the Gateway never receives or stores it.</p>
+      <v-form @submit.prevent="submitRenewal"><v-text-field
           v-model="issue.days"
           label="Validity in days"
           type="number"
@@ -382,7 +413,7 @@ const licenseCounts = (status) =>
         />
         <div class="d-flex justify-end ga-2">
           <v-btn @click="issueDialog = false">Cancel</v-btn
-          ><v-btn color="primary" type="submit" :loading="!!state.busy">{{ issue.previous ? 'Renew' : 'Issue certificate' }}</v-btn>
+          ><v-btn color="primary" type="submit" :loading="!!state.busy">Renew</v-btn>
         </div></v-form
       ></v-card
     ></v-dialog
@@ -429,12 +460,14 @@ const licenseCounts = (status) =>
       ><v-btn @click="details = null">Close</v-btn></v-card
     ></v-dialog
   >
+  <v-dialog :model-value="!!crtDialog" max-width="760" @update:model-value="crtDialog = null"><v-card v-if="crtDialog" class="pa-6"><h2 class="text-h5 mb-2">Certificate · {{ crtDialog.item.deviceId }}</h2><p class="text-body-2 text-medium-emphasis">This is the public client certificate. It does not contain the device private key.</p><v-textarea :model-value="crtDialog.pem" label="Certificate (PEM)" rows="12" readonly class="mono" /><div class="d-flex justify-end ga-2"><v-btn @click="crtDialog = null">Close</v-btn><v-btn color="primary" prepend-icon="mdi-content-copy" @click="copy(crtDialog.pem)">Copy</v-btn></div></v-card></v-dialog>
 </template>
 
 <style scoped>
 .name-copy { max-width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .label-add-btn { opacity: .68; transition: opacity .15s, color .15s; }
 .label-add-btn:hover, .label-add-btn:focus-visible { opacity: 1; color: rgb(var(--v-theme-primary)) !important; }
+.device-label-chip { border: 1.5px solid currentColor; }
 .confirmation-copy-button { max-width: 100%; height: auto !important; min-height: 32px; padding-block: 6px; white-space: normal; }
 .confirmation-copy-button :deep(.v-btn__content) { white-space: normal; overflow-wrap: anywhere; text-align: left; }
 </style>

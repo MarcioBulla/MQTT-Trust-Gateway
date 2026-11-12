@@ -12,12 +12,14 @@ import { certificateMetadata } from '../services/certificate-service.js';
 export function registerSensitiveRoutes(app) {
   app.patch('/api/me/sensitive-preferences', rateLimit, requireAuth(async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    const { timeoutSeconds, requireAuthentication } = req.body;
+    const { timeoutSeconds, requireAuthentication, hideOnWindowBlur } = req.body;
     if (!Number.isSafeInteger(timeoutSeconds) || timeoutSeconds < 0 || typeof requireAuthentication !== 'boolean')
       return res.status(400).json({ error: 'Choose a non-negative whole number of seconds (0 means no timeout) and an authentication policy' });
+    if (hideOnWindowBlur !== undefined && typeof hideOnWindowBlur !== 'boolean')
+      return res.status(400).json({ error: 'Choose whether to hide sensitive information when the browser window loses focus' });
     const db = loadDb(), user = db.users.find(item => item.id === req.user.id);
     await verifyReauthentication(req, db, user, 'sensitive-settings');
-    user.sensitivePreferences = { timeoutSeconds, requireAuthentication };
+    user.sensitivePreferences = { timeoutSeconds, requireAuthentication, hideOnWindowBlur: hideOnWindowBlur ?? user.sensitivePreferences?.hideOnWindowBlur ?? true };
     sensitiveGrants.revokeSession(sessionKey(req));
     clearRevealCookies(req, res, [...sensitiveScopes, 'reveal-auth']);
     saveDb(db);

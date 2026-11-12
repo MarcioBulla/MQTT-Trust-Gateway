@@ -57,7 +57,7 @@ function goBack() {
 
         <section class="mb-7"><h2 class="text-h5 mb-2">When to use this</h2><p>{{ topic.when }}</p></section>
         <section class="mb-7"><h2 class="text-h5 mb-2">Before you begin</h2><ul><li v-for="item in topic.prerequisites" :key="item">{{ item }}</li></ul></section>
-        <section class="mb-7"><h2 class="text-h5 mb-2">Workflow</h2><ol><li v-for="item in topic.steps" :key="item">{{ item }}</li></ol></section>
+        <section class="mb-7"><h2 class="text-h5 mb-2">Workflow</h2><ol><li v-for="(item, index) in topic.steps" :key="typeof item === 'string' ? item : `${item.text}-${index}`">{{ typeof item === 'string' ? item : item.text }}<template v-if="typeof item !== 'string' && item.topicId && helpTopicById[item.topicId]"> <router-link :to="{ name: 'help-topic', params: { topicId: item.topicId } }">Read {{ helpTopicById[item.topicId].title }}</router-link></template></li></ol></section>
 
         <section v-if="guideScreenshot && topic.visualGuide?.length" class="mb-7" aria-labelledby="visual-guide-title">
           <h2 id="visual-guide-title" class="text-h5 mb-2">{{ topic.visualGuideTitle || 'Visual guide' }}</h2>

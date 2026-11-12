@@ -1,5 +1,6 @@
 import { reactive, ref, watch } from 'vue';
 import { api, state, registerStepUpHandler } from './api';
+import { shouldHideOnWindowInactive } from './sensitive-policy.js';
 
 export const revealScopes = reactive({});
 export const requestedScope = ref(null);
@@ -9,6 +10,8 @@ export const revealTitles = {
 };
 const timers = new Map();
 let epoch = 0, revoking = Promise.resolve();
+let revealAllAfterAuthorization = false;
+const scopes = Object.keys(revealTitles);
 export function isRevealed(scope) {
   const grant = revealScopes[scope];
   return Boolean(grant && performance.now() < grant.deadline);
@@ -21,6 +24,7 @@ function clearData(scope) {
   state.error = ''; state.notice = '';
 }
 export function hideSensitive(scope = 'all', { invalidate = true, closeDialog = true } = {}) {
+  if (scope === 'all') revealAllAfterAuthorization = false;
   if (invalidate) epoch++;
   if (closeDialog) requestedScope.value = null;
   for (const key of scope === 'all' ? Object.keys(revealScopes) : [scope]) clearData(key);
@@ -39,6 +43,24 @@ export async function requestReveal(scope) {
     catch { requestedScope.value = scope; }
   }
 }
+export async function requestRevealAll() {
+  if (scopes.every(isRevealed)) return;
+  revealAllAfterAuthorization = true;
+  await requestReveal(scopes.find((scope) => !isRevealed(scope)));
+}
+async function issueRevealGrant(scope, generation, userId) {
+  await revoking;
+  if (generation !== epoch || document.hidden || state.user?.id !== userId) throw new Error('Reveal canceled');
+  const grant = await api('/sensitive/reveal', 'POST', { scope });
+  if (generation !== epoch || document.hidden || state.user?.id !== userId) {
+    await hideSensitive(scope); throw new Error('Reveal canceled');
+  }
+  const duration = Math.max(0, grant.expiresInMs ?? grant.expiresAt - Date.now());
+  revealScopes[scope] = { deadline: performance.now() + duration, generation: ++epoch };
+  state.sensitiveScopes = revealScopes;
+  clearTimeout(timers.get(scope));
+  timers.set(scope, setTimeout(() => hideSensitive(scope), duration));
+}
 export async function authorizeReveal(scope, proofFactory) {
   const generation = epoch, userId = state.user?.id;
   const reauth = await proofFactory();
@@ -54,6 +76,11 @@ export async function authorizeReveal(scope, proofFactory) {
   clearTimeout(timers.get(scope));
   timers.set(scope, setTimeout(() => hideSensitive(scope), duration));
   requestedScope.value = null;
+  if (revealAllAfterAuthorization) {
+    revealAllAfterAuthorization = false;
+    const remaining = scopes.filter((item) => item !== scope);
+    for (const item of remaining) await issueRevealGrant(item, epoch, userId);
+  }
 }
 export async function sensitiveFetch(scope, url) {
   const grant = revealScopes[scope];
@@ -64,11 +91,12 @@ export async function sensitiveFetch(scope, url) {
 watch(() => state.user?.id, (next, previous) => {
   if (next !== previous) hideSensitive();
 }, { flush: 'sync' });
-document.addEventListener('visibilitychange', () => { if (document.hidden) hideSensitive(); });
+const hideWhenWindowInactive = () => shouldHideOnWindowInactive(state.user?.sensitivePreferences);
+document.addEventListener('visibilitychange', () => { if (document.hidden && hideWhenWindowInactive()) hideSensitive(); });
 window.addEventListener('pagehide', () => hideSensitive());
 window.addEventListener('pageshow', (event) => { if (event.persisted) hideSensitive(); });
 window.addEventListener('blur', () => {
-  if (Object.keys(revealScopes).length) hideSensitive('all', { invalidate: !requestedScope.value, closeDialog: !requestedScope.value });
+  if (hideWhenWindowInactive() && Object.keys(revealScopes).length) hideSensitive('all', { invalidate: !requestedScope.value, closeDialog: !requestedScope.value });
 });
 
 // Await the existing modal instead of leaving protected actions at an error message.
