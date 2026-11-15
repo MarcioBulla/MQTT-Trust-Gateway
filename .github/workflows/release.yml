@@ -35,6 +35,8 @@ jobs:
           bun-version: 1.4.4
       - name: Validate source, runner and channel
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -82,9 +84,14 @@ jobs:
           test "$(bun --version)" = 1.4.4
           node --version
           python3 - <<'PYLIVE'
-          import json
-          from scripts.updater.releases import fetch
-          payload=json.loads(fetch('https://api.github.com/repos/MarcioBulla/MQTT-Trust-Gateway/releases?per_page=1', accept='application/vnd.github+json'))
+          import json, os
+          from urllib.request import Request, urlopen
+          request=Request('https://api.github.com/repos/MarcioBulla/MQTT-Trust-Gateway/releases?per_page=1', headers={
+              'User-Agent': 'MQTT-Trust-Gateway-Release-Workflow',
+              'Accept': 'application/vnd.github+json',
+              'Authorization': 'Bearer '+os.environ['GH_TOKEN'],
+          })
+          with urlopen(request, timeout=20) as response: payload=json.load(response)
           assert isinstance(payload,list),'Public GitHub release discovery contract failed'
           PYLIVE
           openssl version
