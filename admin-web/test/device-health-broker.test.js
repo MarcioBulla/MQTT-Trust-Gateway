@@ -78,7 +78,7 @@ test('device health monitor handles retained replay, grace cancellation, LWT and
   // A retained status from before the monitor subscribes is an observation,
   // not proof that the device currently has a live MQTT connection.
   const retainedSeeder = await connectClient(url);
-  await retainedSeeder.publishAsync(syntheticTopic, 'online', { qos: 1, retain: true });
+  await retainedSeeder.publishAsync(syntheticTopic, 'up', { qos: 1, retain: true });
   await retainedSeeder.endAsync();
 
   const [{ loadDb, saveDb, sqlite }, { startDeviceHealthMonitor, stopDeviceHealthMonitor, getDeviceHealthStore }] = await Promise.all([
@@ -89,7 +89,7 @@ test('device health monitor handles retained replay, grace cancellation, LWT and
   db.devices.push({
     id: 'synthetic-lwt-device', name: 'Synthetic LWT device', status: 'active', enabled: true, trusted: true,
     topicRules: { mode: 'all', publish: [], subscribe: [] },
-    healthCheck: { enabled: true, topic: syntheticTopic, offlineGrace: 2, recoveryStability: 1 },
+    healthCheck: { enabled: true, topic: syntheticTopic, onlinePayload: 'up', offlinePayload: 'down', offlineGrace: 2, recoveryStability: 1 },
   });
   db.certificates.push({ id: 'synthetic-lwt-cert', deviceId: 'synthetic-lwt-device', status: 'active', brokerTrusted: true, validTo: new Date(Date.now() + 86400000).toISOString() });
   saveDb(db);
@@ -129,14 +129,14 @@ test('device health monitor handles retained replay, grace cancellation, LWT and
   await waitForObservation('online', true);
   assert.equal(store.last('synthetic-lwt-device', 'confirmed').state, 'unknown');
 
-  const device = await connectClient(url, { will: { topic: syntheticTopic, payload: 'offline', qos: 1, retain: true } });
-  await device.publishAsync(syntheticTopic, 'online', { qos: 1, retain: true });
+  const device = await connectClient(url, { will: { topic: syntheticTopic, payload: 'down', qos: 1, retain: true } });
+  await device.publishAsync(syntheticTopic, 'up', { qos: 1, retain: true });
   await waitForObservation('online', false);
   await waitForState('online');
 
-  await device.publishAsync(syntheticTopic, 'offline', { qos: 1, retain: false });
+  await device.publishAsync(syntheticTopic, 'down', { qos: 1, retain: false });
   await waitForObservation('offline', false);
-  await device.publishAsync(syntheticTopic, 'online', { qos: 1, retain: true });
+  await device.publishAsync(syntheticTopic, 'up', { qos: 1, retain: true });
   await waitForObservation('online', false);
   await new Promise((resolve) => setTimeout(resolve, 2200));
   assert.equal(store.last('synthetic-lwt-device', 'confirmed').state, 'online', 'recovery cancels a pending offline transition');
@@ -146,8 +146,8 @@ test('device health monitor handles retained replay, grace cancellation, LWT and
   await waitForObservation('offline', false);
   await waitForState('offline');
 
-  const recovered = await connectClient(url, { will: { topic: syntheticTopic, payload: 'offline', qos: 1, retain: true } });
-  await recovered.publishAsync(syntheticTopic, 'online', { qos: 1, retain: true });
+  const recovered = await connectClient(url, { will: { topic: syntheticTopic, payload: 'down', qos: 1, retain: true } });
+  await recovered.publishAsync(syntheticTopic, 'up', { qos: 1, retain: true });
   await waitForState('online');
 
   const observationsBeforeReconnect = observationCount();
@@ -159,7 +159,7 @@ test('device health monitor handles retained replay, grace cancellation, LWT and
   assert.equal(store.last('synthetic-lwt-device', 'confirmed').state, 'unknown',
     'the retained online state from before monitor reconnect is not proof of a live device');
   const observationsBeforeLiveStatus = observationCount();
-  await recovered.publishAsync(syntheticTopic, 'online', { qos: 1, retain: false });
+  await recovered.publishAsync(syntheticTopic, 'up', { qos: 1, retain: false });
   await waitForObservation('online', false, observationsBeforeLiveStatus);
   await waitForState('online');
 });

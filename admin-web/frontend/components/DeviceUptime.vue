@@ -15,7 +15,6 @@ function color(day) {
       <template #activator="{ props: tooltip }"><span v-bind="tooltip" class="uptime-bar" :style="{ background: color(day) }" tabindex="0" :aria-label="`${day.date}: ${day.uptime === null ? 'unknown' : `${day.uptime.toFixed(1)}% uptime`}`" /></template>
       <span>{{ day.date }} UTC · {{ day.uptime === null ? 'Unknown' : `${day.uptime.toFixed(1)}%` }}<br>Online {{ duration(day.online) }} · Offline {{ duration(day.offline) }} · Unknown {{ duration(day.unknown) }}<br>{{ day.complete ? 'Complete day' : 'Incomplete coverage' }}</span>
     </v-tooltip></div>
-    <v-tooltip v-if="props.health.uptime !== null" location="top"><template #activator="{ props: tooltip }"><span v-bind="tooltip" class="text-medium-emphasis text-caption">{{ props.health.uptime.toFixed(1) }}%</span></template><span>Uptime excludes unknown time. {{ props.health.unknown ? 'Coverage is incomplete.' : 'Coverage is complete.' }}</span></v-tooltip>
   </div>
 </template>
 <style scoped>

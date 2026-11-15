@@ -59,7 +59,7 @@ test('Device Health Check and uptime render synthetic configuration, coverage an
     await page.route('**/api/devices/synthetic-device/health', async (route) => {
       assert.equal(route.request().method(), 'GET');
       await route.fulfill({ json: {
-        config: { enabled: true, topic: 'gateway/health/synthetic-device/status', offlineGrace: 30, recoveryStability: 5 },
+      config: { enabled: true, topic: 'gateway/health/synthetic-device/status', onlinePayload: 'online', offlinePayload: 'offline', offlineGrace: 30, recoveryStability: 5 },
         status: 'unknown',
       } });
     });
@@ -68,6 +68,7 @@ test('Device Health Check and uptime render synthetic configuration, coverage an
     const uptime = page.locator('#uptime-enabled');
     await uptime.locator('.uptime-bar').first().waitFor();
     assert.equal(await uptime.locator('.uptime-bar').count(), 30);
+    assert.equal(await uptime.locator('.uptime .text-caption').count(), 0, 'the uptime cell shows bars without a percentage label');
     await page.locator('#uptime-disabled').getByText('—', { exact: true }).waitFor();
     const firstBar = uptime.locator('.uptime-bar').nth(0);
     assert.equal(await firstBar.getAttribute('aria-label'), '2026-10-15: 100.0% uptime');
@@ -87,6 +88,8 @@ test('Device Health Check and uptime render synthetic configuration, coverage an
     const healthTopicInput = form.getByRole('textbox', { name: /Health Topic/ });
     await healthTopicInput.waitFor();
     assert.equal(await healthTopicInput.inputValue(), 'gateway/health/synthetic-device/status');
+    assert.equal(await form.getByRole('textbox', { name: 'Online Payload' }).inputValue(), 'online');
+    assert.equal(await form.getByRole('textbox', { name: /Offline Payload/ }).inputValue(), 'offline');
     await form.getByText('Current Status:').waitFor();
     await form.getByText('Current Status:').locator('..').getByText('unknown', { exact: true }).waitFor();
     await form.getByText('MQTT LWT + Retain + QoS 1', { exact: true }).waitFor();

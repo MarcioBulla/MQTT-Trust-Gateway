@@ -50,6 +50,10 @@ test('device health API requires step-up, validates rules and stages isolated he
     const denied = await get('/api/devices/device-a/health');
     assert.equal(denied.status, 403);
     assert.deepEqual(await denied.json(), { error: 'Additional authentication required', stepUpRequired: true, scope: 'devices' });
+    const legacyConfig = await (await get('/api/devices/device-b/health', authorizedCookie)).json();
+    assert.deepEqual(legacyConfig.config, {
+      enabled: true, topic: 'gateway/health/device-b/status', onlinePayload: 'online', offlinePayload: 'offline', offlineGrace: 30, recoveryStability: 5,
+    }, 'existing device Health Check settings receive defaults for newly configurable payloads');
     assert.equal((await put({ enabled: true }, cookie)).status, 403);
 
     assert.equal((await put({ enabled: true, topic: 'outside/rules' })).status, 400);
@@ -59,7 +63,7 @@ test('device health API requires step-up, validates rules and stages isolated he
     const response = await put({ enabled: true });
     assert.equal(response.status, 200);
     const result = await response.json();
-    assert.deepEqual(result.config, { enabled: true, topic: 'gateway/health/device-a/status', offlineGrace: 30, recoveryStability: 5 });
+    assert.deepEqual(result.config, { enabled: true, topic: 'gateway/health/device-a/status', onlinePayload: 'online', offlinePayload: 'offline', offlineGrace: 30, recoveryStability: 5 });
     assert.equal(result.status, 'unknown');
     assert.match(result.message, /Apply pending broker changes/);
     assert.equal((await fs.readFile(path.join(process.env.BROKER_CONFIG_DIR, 'revision'), 'utf8')), 'already-applied');

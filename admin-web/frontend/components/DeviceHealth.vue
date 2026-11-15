@@ -22,13 +22,17 @@ function save() {
     <p class="text-body-2 text-medium-emphasis my-3">Passively monitor MQTT connection status. A retained status alone does not prove that a device is connected.</p>
     <v-switch v-model="config.enabled" label="Enable Health Check" color="primary" hide-details />
     <v-text-field v-model="config.topic" label="Health Topic" append-inner-icon="mdi-content-copy" @click:append-inner="copy(config.topic)" />
+    <div class="d-flex flex-column flex-sm-row ga-4">
+      <v-text-field v-model="config.onlinePayload" label="Online Payload" hint="Exact UTF-8 value published when the device is connected." persistent-hint />
+      <v-text-field v-model="config.offlinePayload" label="Offline Payload / LWT" hint="Exact UTF-8 value used by the Last Will and graceful disconnect." persistent-hint />
+    </div>
     <v-alert type="info" variant="tonal" class="mb-4">The selected topic is reserved for this device. Its publish Rules must allow the topic. Apply broker changes after saving.</v-alert>
     <p>Monitoring Strategy: <strong>MQTT LWT + Retain + QoS 1</strong></p>
     <p>Current Status: <strong>{{ status }}</strong></p>
     <p>Expected Keep Alive: <strong>60 seconds</strong> (configured by firmware)</p>
-    <p class="mt-3">Configure the MQTT Will as <code>offline</code>, QoS 1 and retain. After connecting, publish <code>online</code> with QoS 1 and retain. Publish <code>offline</code> before a clean disconnect.</p>
+    <p class="mt-3">Configure the MQTT Will with the Offline Payload, QoS 1 and retain. After connecting, publish the Online Payload with QoS 1 and retain. Publish the Offline Payload before a clean disconnect.</p>
     <p class="text-body-2 text-medium-emphasis">Use one MQTT session per device identity. Simultaneous sessions sharing an identity can report conflicting status. After a broker or Gateway restart, status remains Unknown until a new live publication is received.</p>
-    <v-btn variant="text" prepend-icon="mdi-content-copy" @click="copy(`Topic: ${config.topic}\nOnline: online\nOffline / Will: offline\nQoS: 1\nRetain: true\nKeep Alive: 60 seconds`)">Copy MQTT parameters</v-btn>
+    <v-btn variant="text" prepend-icon="mdi-content-copy" @click="copy(`Topic: ${config.topic}\nOnline: ${config.onlinePayload}\nOffline / Will: ${config.offlinePayload}\nQoS: 1\nRetain: true\nKeep Alive: 60 seconds`)">Copy MQTT parameters</v-btn>
     <v-expansion-panels class="mt-4"><v-expansion-panel title="Advanced Settings"><v-expansion-panel-text>
       <v-text-field v-model.number="config.offlineGrace" type="number" min="0" max="3600" label="Offline Grace Period (seconds)" />
       <v-text-field v-model.number="config.recoveryStability" type="number" min="0" max="3600" label="Recovery Stability Period (seconds)" />

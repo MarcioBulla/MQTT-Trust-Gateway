@@ -9,6 +9,7 @@ import { topicRulesForDevice } from './topic-rules.js';
 import { healthTopicMatches } from './device-health-config.js';
 
 const store = createDeviceHealthStore(sqlite);
+const maxStatusPayloadBytes = 128;
 const states = new Map();
 const suspended = new Set();
 let healthTopics = new Set();
@@ -133,20 +134,23 @@ export function startDeviceHealthMonitor({ connect = mqtt.connect } = {}) {
     if (!device || !device.healthAuthorized || suspended.has(device.id)) return;
     const rules = topicRulesForDevice(device);
     if (rules.mode !== 'all' && !rules.publish.some((filter) => healthTopicMatches(filter, topic))) { unknown(device); return; }
+    if (payload.length > maxStatusPayloadBytes) return;
     const value = payload.toString('utf8');
-    if (!['online', 'offline'].includes(value)) return;
-    store.append({ deviceId: device.id, at: Date.now(), kind: 'observation', state: value, retainedReplay: packet.retain });
+    const health = device.healthCheck;
+    if (value !== (health.onlinePayload ?? 'online') && value !== (health.offlinePayload ?? 'offline')) return;
+    const state = value === (health.onlinePayload ?? 'online') ? 'online' : 'offline';
+    store.append({ deviceId: device.id, at: Date.now(), kind: 'observation', state, retainedReplay: packet.retain });
     if (packet.retain || packet.qos !== 1) return;
     const entry = stateFor(device);
-    if (entry.state === value) { entry.pending = null; return; }
-    if (entry.pending?.state === value) return;
-    const seconds = value === 'online' ? device.healthCheck.recoveryStability : device.healthCheck.offlineGrace;
-    entry.pending = { state: value, until: Date.now() + seconds * 1000 };
+    if (entry.state === state) { entry.pending = null; return; }
+    if (entry.pending?.state === state) return;
+    const seconds = state === 'online' ? health.recoveryStability : health.offlineGrace;
+    entry.pending = { state, until: Date.now() + seconds * 1000 };
     reconcile();
   }
   activeClient.on('message', (topic, payload, packet) => {
     try {
-      if (client !== activeClient || !healthTopics.has(topic) || payload.length > 7) return;
+      if (client !== activeClient || !healthTopics.has(topic) || payload.length > maxStatusPayloadBytes) return;
       if (awaitingSubscription) {
         if (queuedMessages.length >= 256) { queuedMessages = []; queueOverflow = true; }
         else if (!queueOverflow) queuedMessages.push([topic, Buffer.from(payload), { retain: packet.retain, qos: packet.qos }]);

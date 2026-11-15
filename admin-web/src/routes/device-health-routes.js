@@ -6,7 +6,8 @@ import { validateDeviceHealthConfig } from '../services/device-health-config.js'
 import { getDeviceHealthStore, resetDeviceHealth, suspendDeviceHealth, resumeDeviceHealth } from '../services/device-health-monitor.js';
 import { calculateDeviceUptime } from '../services/device-uptime.js';
 
-const defaultConfig = (device) => ({ enabled: false, topic: `gateway/health/${device.id}/status`, offlineGrace: 30, recoveryStability: 5 });
+const defaultConfig = (device) => ({ enabled: false, topic: `gateway/health/${device.id}/status`, onlinePayload: 'online', offlinePayload: 'offline', offlineGrace: 30, recoveryStability: 5 });
+const configFor = (device) => ({ ...defaultConfig(device), ...(device.healthCheck || {}) });
 function summary(device, now) {
   if (!device.healthCheck?.enabled) return { status: 'disabled', uptime: null, days: [] };
   const store = getDeviceHealthStore(), from = Math.floor(now / 86400000) * 86400000 - 29 * 86400000;
@@ -23,7 +24,7 @@ export function registerDeviceHealthRoutes(app) {
     if (!requireSensitive(req, res, 'devices')) return;
     const device = loadDb().devices.find((d) => d.id === req.params.id);
     if (!device) return res.status(404).json({ error: 'Device not found' });
-    res.json({ config: device.healthCheck || defaultConfig(device), ...summary(device, Date.now()) });
+    res.json({ config: configFor(device), ...summary(device, Date.now()) });
   }));
   app.put('/api/devices/:id/health', requireAuth(async (req, res) => {
     if (!requireSensitive(req, res, 'devices')) return;
