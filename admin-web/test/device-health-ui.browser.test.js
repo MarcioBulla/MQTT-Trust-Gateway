@@ -26,14 +26,14 @@ test('Device Health Check and uptime render synthetic configuration, coverage an
     import { createRouter, createWebHashHistory } from 'vue-router';
     import DeviceUptime from '/components/DeviceUptime.vue';
     import DeviceHealth from '/components/DeviceHealth.vue';
-    const day = (date, values) => ({ date, online: 0, offline: 0, unknown: 0, complete: true, uptime: 0, ...values });
+    const day = (date, values) => ({ date, online: 0, offline: 0, unknown: 0, complete: true, endState: 'online', uptime: 0, ...values });
     const health = {
       status: 'online', uptime: 96.5, unknown: true,
       days: Array.from({ length: 30 }, (_, index) => {
         const date = new Date(Date.UTC(2026, 9, 15 + index)).toISOString().slice(0, 10);
         if (index === 0) return day(date, { online: 86400000, uptime: 100 });
         if (index === 1) return day(date, { online: 3600000, unknown: 82800000, complete: false, uptime: null });
-        if (index === 2) return day(date, { online: 43200000, offline: 43200000, uptime: 50 });
+        if (index === 2) return day(date, { online: 43200000, offline: 43200000, endState: 'offline', uptime: 50 });
         return day(date, { online: 86400000, uptime: 100 });
       }),
     };
@@ -77,12 +77,15 @@ test('Device Health Check and uptime render synthetic configuration, coverage an
     await tooltip.waitFor();
     assert.match(await tooltip.innerText(), /2026-10-15 UTC · 100\.0%/);
     assert.match(await tooltip.innerText(), /Complete day/);
-    const unknownBar = uptime.locator('.uptime-bar').nth(1);
-    assert.equal(await unknownBar.getAttribute('aria-label'), '2026-10-16: unknown');
-    await unknownBar.hover();
+    const partialOnlineBar = uptime.locator('.uptime-bar').nth(1);
+    assert.equal(await partialOnlineBar.getAttribute('aria-label'), '2026-10-16: unknown');
+    assert.match(await partialOnlineBar.getAttribute('style'), /success/, 'a partial day ending online is green');
+    await partialOnlineBar.hover();
     await tooltip.waitFor();
     assert.match(await tooltip.innerText(), /2026-10-16 UTC · Unknown/);
     assert.match(await tooltip.innerText(), /Incomplete coverage/);
+    const offlineBar = uptime.locator('.uptime-bar').nth(2);
+    assert.match(await offlineBar.getAttribute('style'), /error/, 'a day ending offline is red');
 
     const form = page.locator('.v-card').filter({ has: page.getByRole('heading', { name: 'Health Check' }) });
     const healthTopicInput = form.getByRole('textbox', { name: /Health Topic/ });

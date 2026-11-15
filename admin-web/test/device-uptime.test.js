@@ -13,6 +13,7 @@ test('uptime separates unknown time and splits transitions at UTC day boundaries
   ]);
   assert.equal(result.uptime, 75);
   assert.equal(result.days[0].complete, false);
+  assert.deepEqual(result.days.map((day) => day.endState), ['online', 'unknown', 'unknown']);
 });
 
 test('a state before the window establishes full coverage and disabled is unknown', () => {
@@ -22,6 +23,7 @@ test('a state before the window establishes full coverage and disabled is unknow
   ], Date.parse('2026-01-02T18:00:00Z'), 2);
   assert.equal(result.days[0].complete, true);
   assert.equal(result.days[0].uptime, 0);
+  assert.equal(result.days[0].endState, 'offline');
   assert.equal(result.days[1].unknown, 21600000);
 });
 
@@ -34,6 +36,7 @@ test('the default 30-day window has 30 UTC bars and excludes time before first o
   assert.equal(result.days.at(-1).date, '2026-03-30');
   assert.equal(result.days.slice(0, -1).every((day) => day.complete && day.uptime === 100), true);
   assert.equal(result.days.at(-1).complete, false);
+  assert.equal(result.days.at(-1).endState, 'online');
   assert.equal(result.uptime, 100);
 });
 
@@ -46,6 +49,7 @@ test('out-of-order transitions are sorted, future events ignored, and invalid wi
   assert.equal(result.days.length, 1);
   assert.equal(result.days[0].online, 43200000);
   assert.equal(result.days[0].offline, 21600000);
+  assert.equal(result.days[0].endState, 'offline');
   assert.equal(result.uptime, 200 / 3);
   for (const [now, days] of [[NaN, 1], [0, 0], [0, 367], [0, 1.5]])
     assert.throws(() => calculateDeviceUptime([], now, days), /Invalid uptime interval/);

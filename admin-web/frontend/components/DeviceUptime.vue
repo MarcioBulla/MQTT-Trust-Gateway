@@ -2,9 +2,10 @@
 const props = defineProps({ health: { type: Object, default: null } });
 const duration = (ms) => `${(ms / 3600000).toFixed(1)} h`;
 function color(day) {
-  if (!day.complete || day.unknown || !(day.online + day.offline)) return 'rgba(var(--v-theme-on-surface), 0.3)';
-  if (!day.offline) return 'rgb(var(--v-theme-success))';
-  if (!day.online) return 'rgb(var(--v-theme-error))';
+  if (!(day.online + day.offline)) return 'rgba(var(--v-theme-on-surface), 0.3)';
+  if (day.endState === 'offline') return 'rgb(var(--v-theme-error))';
+  if (day.offline) return 'rgb(var(--v-theme-warning))';
+  if (day.endState === 'online') return 'rgb(var(--v-theme-success))';
   return 'rgb(var(--v-theme-warning))';
 }
 </script>

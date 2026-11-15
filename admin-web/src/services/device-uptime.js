@@ -31,7 +31,15 @@ export function calculateDeviceUptime(events, now = Date.now(), days = 30) {
     totalOnline += totals.online;
     totalOffline += totals.offline;
     totalUnknown += totals.unknown;
-    result.push({ date: new Date(day).toISOString().slice(0, 10), ...totals, uptime: known ? 100 * totals.online / known : null, complete: dayEnd - day === dayMs && totals.unknown === 0 });
+    // The final confirmed state gives the bar its operational meaning: a day
+    // that ends offline is red, while a recovered outage remains yellow.
+    result.push({
+      date: new Date(day).toISOString().slice(0, 10),
+      ...totals,
+      endState: state === 'online' || state === 'offline' ? state : 'unknown',
+      uptime: known ? 100 * totals.online / known : null,
+      complete: dayEnd - day === dayMs && totals.unknown === 0,
+    });
   }
   const observed = totalOnline + totalOffline;
   return { days: result, online: totalOnline, offline: totalOffline, unknown: totalUnknown, uptime: observed ? 100 * totalOnline / observed : null };

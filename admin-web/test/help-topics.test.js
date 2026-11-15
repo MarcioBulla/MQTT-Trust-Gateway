@@ -33,6 +33,12 @@ test('Device Health Check help matches the passive LWT implementation and its li
   assert.match(topic.prerequisites.join(' '), /custom topic Rules.*publish/i);
   assert.match(topic.steps.join(' '), /Offline Grace Period.*Recovery Stability Period/i);
   assert.match(topic.steps.join(' '), /30 UTC calendar days/i);
+  assert.match(topic.steps.join(' '), /Green means the last reliable status.*online, with no offline interval observed/i);
+  assert.match(topic.steps.join(' '), /Yellow means the day ended online after an offline interval/i);
+  assert.match(topic.steps.join(' '), /Red means the last reliable status.*offline/i);
+  assert.match(topic.steps.join(' '), /Gray means no reliable online\/offline state was observed/i);
+  assert.match(topic.steps.join(' '), /do not imply full-day coverage/i);
+  assert.match(topic.steps.join(' '), /tooltip shows observed durations and coverage/i);
   assert.match(topic.artifacts.join(' '), /exact UTF-8 values online and offline/i);
   assert.match(topic.artifacts.join(' '), /cannot verify the retain flag for live messages/i);
   assert.match(topic.caution, /complete firmware health/i);
