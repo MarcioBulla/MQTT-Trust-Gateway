@@ -13,7 +13,7 @@ test('Gateway refuses a database schema newer than the running application', () 
   fs.mkdirSync(adminDirectory, { mode: 0o700 });
   const databasePath = path.join(adminDirectory, 'gateway.sqlite');
   const database = new DatabaseSync(databasePath);
-  database.exec("CREATE TABLE state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL); CREATE TABLE audit (id INTEGER PRIMARY KEY, at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL); INSERT INTO state VALUES(1, '{\"users\":[],\"sessions\":{},\"challenges\":{},\"certificates\":[],\"devices\":[],\"trustedCas\":[],\"deletedIdentities\":[],\"settings\":{}}'); PRAGMA user_version=2;");
+  database.exec("CREATE TABLE state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL); CREATE TABLE audit (id INTEGER PRIMARY KEY, at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL); INSERT INTO state VALUES(1, '{\"users\":[],\"sessions\":{},\"challenges\":{},\"certificates\":[],\"devices\":[],\"trustedCas\":[],\"deletedIdentities\":[],\"settings\":{}}'); PRAGMA user_version=4;");
   database.close();
   const moduleUrl = new URL('../src/db.js', import.meta.url).href;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(moduleUrl)})`], {

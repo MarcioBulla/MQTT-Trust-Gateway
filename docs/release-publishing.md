@@ -1,8 +1,8 @@
 # Publishing signed Gateway releases
 
 The manual **Verify and publish Gateway release** workflow runs on a fresh,
-GitHub-hosted `ubuntu-26.04` VM. It does not use ColdLab or require a
-self-hosted runner. The selected image provides systemd, rootless-capable
+GitHub-hosted `ubuntu-26.04` VM. It does not require a self-hosted runner.
+The selected image provides systemd, rootless-capable
 Podman 5.x, Python 3.12+, Node 24+, OpenSSL, GnuPG, and Chromium; the workflow
 pins Bun 1.4.4 and verifies the required tools before testing. It enables a
 temporary user systemd manager for the job's rootless Quadlet acceptance tests.

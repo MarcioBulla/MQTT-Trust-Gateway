@@ -3,7 +3,7 @@ import path from 'node:path';
 const root=path.resolve('admin-web/node_modules'),packages=[];
 function read(dir){
  const file=path.join(dir,'package.json');
- if(fs.existsSync(file)){const p=JSON.parse(fs.readFileSync(file));packages.push({name:p.name,version:p.version,license:p.license||'UNKNOWN',repository:typeof p.repository==='object'?p.repository.url:p.repository});}
+ if(fs.existsSync(file)){const p=JSON.parse(fs.readFileSync(file));let license=p.license||'UNKNOWN';if(license==='UNKNOWN'){const notice=['LICENSE','license','LICENSE.md','license.md'].map(name=>path.join(dir,name)).find(fs.existsSync);if(notice&&/^The MIT License \(MIT\)/.test(fs.readFileSync(notice,'utf8')))license='MIT';}packages.push({name:p.name,version:p.version,license,repository:typeof p.repository==='object'?p.repository.url:p.repository});}
  const nested=path.join(dir,'node_modules');if(fs.existsSync(nested)) scan(nested);
 }
 function scan(dir){for(const item of fs.readdirSync(dir,{withFileTypes:true})){if(!item.isDirectory()||item.name.startsWith('.'))continue;const d=path.join(dir,item.name);if(item.name.startsWith('@')){for(const name of fs.readdirSync(d))read(path.join(d,name));}else read(d)}}

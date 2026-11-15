@@ -5,6 +5,7 @@ import DateTime from '../components/DateTime.vue';
 import { formatDateTime } from '../date-time';
 import RowActions from '../components/RowActions.vue';
 import DataList from '../components/DataList.vue';
+import DeviceUptime from '../components/DeviceUptime.vue';
 import HelpButton from '../components/HelpButton.vue';
 import { visibleLicenseRows, licenseStatusLabel, mergeLicenseLabels } from '../license-rows.js';
 import { ref, computed, watch } from 'vue';
@@ -15,6 +16,7 @@ const props = defineProps({ licenses: Boolean });
 const emit = defineEmits(['add-certificate']);
 const router = useRouter();
 const devices = ref([]),
+  deviceHealth = ref({}),
   archived = ref([]),
   certs = ref([]),
   search = ref(''),
@@ -30,10 +32,12 @@ const devices = ref([]),
   labelColor = ref('blue'),
   labelMenuDevice = ref(null),
   labelMenuLicense = ref(null);
-const form = ref({ id: '', name: '', description: '', labels: '' }),
+const form = ref({ name: '', description: '', labels: '' }),
+  createdDeviceId = ref(''),
   issue = ref({ deviceId: '', days: 90, previous: null });
 const headers = [
   { title: 'Name', key: 'name', width: '180px', maxWidth: '200px' },
+  { title: 'Uptime (30d)', key: 'uptime', width: '240px', align: 'center', sortable: false },
   { title: 'Labels', key: 'labels', width: '170px', maxWidth: '190px' },
   { title: 'Provisioning', key: 'latestCertificate.provisioningMethod', width: '145px', maxWidth: '160px' },
   { title: 'Status', key: 'latestCertificate.status', width: '150px', maxWidth: '170px' },
@@ -72,9 +76,10 @@ const archivedHeaders = [
 const load = () =>
   action(async () => {
     const grant = revealScopes.devices;
-    const [d, a, c, s] = await Promise.all([api('/devices'), api('/devices?status=archived'), api('/certificates'), api('/status')]);
+    const [d, a, c, s, h] = await Promise.all([api('/devices'), api('/devices?status=archived'), api('/certificates'), api('/status'), api('/device-health/summary')]);
     if (!d || !a || !c || revealScopes.devices !== grant) return;
     devices.value = d.devices;
+    deviceHealth.value = h?.devices || {};
     archived.value = a.devices.map((item) => ({ ...item, daysRemaining: Math.max(0, Math.ceil((Date.parse(item.scheduledDeletionAt) - Date.now()) / 86400000)) }));
     certs.value = c.certificates;
     issue.value.days = s.defaultDays;
@@ -84,11 +89,20 @@ watch(() => revealScopes.devices, () => {
   load();
 }, { immediate: true, flush: 'sync' });
 defineExpose({ reload: load });
+function openRegisterDialog() {
+  form.value = { name: '', description: '', labels: '' };
+  createdDeviceId.value = '';
+  dialog.value = true;
+}
+function closeRegisterDialog() {
+  dialog.value = false;
+  form.value = { name: '', description: '', labels: '' };
+  createdDeviceId.value = '';
+}
 function create() {
   action(async () => {
-    await api('/devices', 'POST', { ...form.value, labels: form.value.labels.split(',').map((label) => label.trim()).filter(Boolean) });
-    dialog.value = false;
-    form.value = { id: '', name: '', description: '', labels: '' };
+    const result = await api('/devices', 'POST', { ...form.value, labels: form.value.labels.split(',').map((label) => label.trim()).filter(Boolean) });
+    createdDeviceId.value = result.device.id;
     await load();
   }, 'Device registered');
 }
@@ -295,7 +309,7 @@ const licenseRows = computed(() => visibleLicenseRows(certs.value, tab.value, fi
     </div>
     <div v-if="!props.licenses" class="d-flex flex-wrap ga-2">
       <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" variant="tonal" prepend-icon="mdi-certificate-outline">Add certificate</v-btn></template><v-list><v-list-item v-for="method in certificateMethods" :key="method.value" :title="method.title" @click="emit('add-certificate', method.value)" /></v-list></v-menu>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="dialog = true">Register device</v-btn>
+      <v-btn color="primary" prepend-icon="mdi-plus" @click="openRegisterDialog">Register device</v-btn>
     </div>
   </div>
   <v-row v-if="props.licenses" class="mb-4" dense>
@@ -329,7 +343,8 @@ const licenseRows = computed(() => visibleLicenseRows(certs.value, tab.value, fi
       :loading="!!state.busy"
       class="mt-4 identity-table" min-width="1100px"
     >
-      <template #item.name="{ item }"><v-tooltip :text="`ID: ${item.id}`" location="top" :open-delay="650" :close-delay="150"><template #activator="{ props: tooltipProps }"><v-btn v-bind="tooltipProps" variant="text" density="compact" :class="['name-copy', 'text-none', 'px-0', `text-${connectionColor(item.connectionStatus)}`]" :aria-label="`Copy device name ${item.name || item.id}`" @click="copy(item.name || item.id)">{{ item.name || item.id }}</v-btn></template></v-tooltip></template>
+      <template #item.name="{ item }"><v-tooltip :text="`Device ID: ${item.id}`" location="top" :open-delay="650" :close-delay="150"><template #activator="{ props: tooltipProps }"><v-btn v-bind="tooltipProps" variant="text" density="compact" :class="['name-copy', 'text-none', 'px-0', `text-${connectionColor(item.connectionStatus)}`]" :aria-label="`Copy device name ${item.name || item.id}; device ID ${item.id}`" @click="copy(item.name || item.id)">{{ item.name || item.id }}</v-btn></template></v-tooltip></template>
+      <template #item.uptime="{ item }"><div class="d-flex justify-center"><DeviceUptime :health="deviceHealth[item.id]" /></div></template>
       <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="rawLabel in item.labels || []" :key="labelValue(rawLabel).name" size="small" closable :color="labelValue(rawLabel).color" variant="tonal" class="device-label-chip" @click:close="removeLabel(item, labelValue(rawLabel).name)">{{ labelValue(rawLabel).name }}</v-chip><v-menu location="bottom start" :close-on-content-click="false" @update:model-value="openLabelMenu(item, $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to ${item.name || item.id}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLabels(item).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLabels(item)" :key="label.name" :title="label.name" @click="attachLabel(item, label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLabel(item)">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
       <template #item.latestCertificate.provisioningMethod="{ item }"><v-tooltip v-if="item.latestCertificate" :text="`Issuer: ${item.latestCertificate.issuerName || item.latestCertificate.issuer || 'Unknown'}${item.latestCertificate.brokerTrusted === false ? ' (not trusted)' : ''}`" location="top"><template #activator="{ props: tooltipProps }"><span v-bind="tooltipProps">{{ item.latestCertificate.provisioningMethod || '—' }}</span></template></v-tooltip><span v-else class="text-medium-emphasis">—</span></template>
       <template #item.latestCertificate.status="{ item }"><v-tooltip v-if="item.latestCertificate" :text="`Expires ${formatDateTime(item.latestCertificate.validTo)}`" location="top"><template #activator="{ props: tooltipProps }"><v-chip v-bind="tooltipProps" size="small" :color="color(item.latestCertificate.status)">{{ item.latestCertificate.status }}</v-chip></template></v-tooltip><v-chip v-else size="small" color="warning">No certificate</v-chip></template>
@@ -355,6 +370,7 @@ const licenseRows = computed(() => visibleLicenseRows(certs.value, tab.value, fi
       :loading="!!state.busy"
       class="mt-4 identity-table" min-width="1100px"
     >
+      <template #item.deviceId="{ item }"><v-tooltip :text="`Device ID: ${item.deviceId}`" location="top" :open-delay="500"><template #activator="{ props: tooltipProps }"><span v-bind="tooltipProps">{{ licenseDevice(item.deviceId)?.name || item.deviceId }}</span></template></v-tooltip></template>
       <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="label in licenseLabels(item)" :key="label.name" size="small" :closable="hasOwnLicenseLabel(item, label.name)" :class="{ 'device-label-chip': !hasOwnLicenseLabel(item, label.name) }" :color="label.color" variant="tonal" @click:close="removeLicenseLabel(item, label.name)">{{ label.name }}</v-chip><v-menu v-if="!item.licenseArchivedAt && !item.licenseDeletedAt" location="bottom start" :close-on-content-click="false" @update:model-value="openLicenseLabelMenu(item, $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to license ${item.deviceId}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredLicenseLabels(item).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredLicenseLabels(item)" :key="label.name" :title="label.name" @click="attachLicenseLabel(item, label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createLicenseLabel(item)">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
       <template #item.issuedAt="{ item }"><DateTime :value="item.issuedAt" /></template>
       <template #item.validTo="{ item }"><DateTime :value="item.validTo" /></template>
@@ -377,29 +393,10 @@ const licenseRows = computed(() => visibleLicenseRows(certs.value, tab.value, fi
   <v-alert type="info" variant="tonal" class="mt-5"
     >{{ props.licenses ? 'A certificate’s validity period defines its license period. Renewing issues a new certificate and preserves the previous record. Revocation blocks the identity at the broker.' : 'Device status and last activity are unavailable without a verified broker connection feed. Disabled devices have no topic authorization. Revocation also rejects the certificate at TLS authentication.' }}</v-alert
   >
-  <v-dialog v-model="dialog" max-width="550"
-    ><v-card class="pa-6"
-      ><div class="d-flex align-center justify-space-between mb-5"><h2 class="text-h5">Register device</h2><HelpButton topic-id="register-device" /></div>
-      <v-form @submit.prevent="create"
-        ><v-text-field
-          v-model="form.id"
-          label="Identifier"
-          hint="Letters, digits, dots, underscores, hyphens; max 64"
-          pattern="[A-Za-z0-9._-]{1,64}"
-          required
-          maxlength="64"
-        /><v-text-field v-model="form.name" label="Name" maxlength="100" /><v-text-field v-model="form.labels" label="Labels" hint="Optional; separate labels with commas" persistent-hint /><v-textarea
-          v-model="form.description"
-          label="Description"
-          maxlength="1000"
-        />
-        <div class="d-flex justify-end ga-2">
-          <v-btn @click="dialog = false">Cancel</v-btn
-          ><v-btn color="primary" type="submit" :loading="!!state.busy">Register</v-btn>
-        </div></v-form
-      ></v-card
-    ></v-dialog
-  >
+  <v-dialog v-model="dialog" max-width="550"><v-card class="pa-6"><div class="d-flex align-center justify-space-between mb-5"><h2 class="text-h5">Register device</h2><HelpButton topic-id="register-device" /></div>
+    <template v-if="!createdDeviceId"><v-form @submit.prevent="create"><v-text-field v-model="form.name" label="Name" maxlength="100" /><v-text-field v-model="form.labels" label="Labels" hint="Optional; separate labels with commas" persistent-hint /><v-textarea v-model="form.description" label="Description" maxlength="1000" /><p class="text-body-2 text-medium-emphasis mb-4">The Gateway generates an immutable device ID. You can use the same display name for multiple devices.</p><div class="d-flex justify-end ga-2"><v-btn @click="closeRegisterDialog">Cancel</v-btn><v-btn color="primary" type="submit" :loading="!!state.busy">Register</v-btn></div></v-form></template>
+    <template v-else><v-alert type="success" variant="tonal" class="mb-4">Device registered. Use this ID as the MQTT identity and certificate Common Name.</v-alert><div class="d-flex align-center flex-wrap ga-2"><code class="text-body-1">{{ createdDeviceId }}</code><v-btn size="small" variant="tonal" prepend-icon="mdi-content-copy" @click="copy(createdDeviceId)">Copy ID</v-btn></div><div class="d-flex justify-end mt-5"><v-btn color="primary" @click="closeRegisterDialog">Done</v-btn></div></template>
+  </v-card></v-dialog>
   <v-dialog v-model="issueDialog" max-width="720"
     ><v-card class="pa-6"
       ><h2 class="text-h5 mb-3">Renew certificate · {{ issue.deviceId }}</h2>
@@ -448,9 +445,7 @@ const licenseRows = computed(() => visibleLicenseRows(certs.value, tab.value, fi
     ><v-card class="pa-6"
       ><h2 class="text-h5 mb-3">{{ details?.name }}</h2>
       <p>{{ details?.description }}</p>
-      <p class="mt-2">
-        ID: {{ details?.id }} · Connection: unavailable · Last activity: unavailable
-      </p>
+      <div class="d-flex align-center flex-wrap ga-2 mt-2"><span>Device ID: <code>{{ details?.id }}</code></span><v-btn size="x-small" variant="text" icon="mdi-content-copy" aria-label="Copy device ID" @click="copy(details.id)" /><span>· Connection: unavailable · Last activity: unavailable</span></div>
       <h3 class="mt-5 mb-3">Certificate history</h3>
       <v-list
         ><v-list-item

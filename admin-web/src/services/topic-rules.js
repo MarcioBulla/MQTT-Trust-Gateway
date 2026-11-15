@@ -25,8 +25,22 @@ export function topicRulesForDevice(device) {
   catch { return { mode: 'custom', publish: [], subscribe: [] }; }
 }
 
-export function deviceAcl(device) {
+export function deviceAcl(device, healthTopics = []) {
   const rules = topicRulesForDevice(device);
-  if (rules.mode === 'all') return `\nuser ${device.id}\ntopic readwrite #\n`;
-  return `\nuser ${device.id}\n${rules.publish.map((filter) => `topic write ${filter}\n`).join('')}${rules.subscribe.map((filter) => `topic read ${filter}\n`).join('')}`;
+  const owners = new Map();
+  for (const entry of healthTopics) {
+    if (!entry || typeof entry.deviceId !== 'string' || !entry.deviceId ||
+        typeof entry.topic !== 'string' || !entry.topic || Buffer.byteLength(entry.topic, 'utf8') > 512 ||
+        /[\s\x00-\x1f\x7f+#]/u.test(entry.topic))
+      throw new Error('Invalid health topic');
+    if (owners.has(entry.topic) && owners.get(entry.topic) !== entry.deviceId)
+      throw new Error('Health topic belongs to multiple devices');
+    owners.set(entry.topic, entry.deviceId);
+  }
+  // Denies take precedence over # in Mosquitto. Each monitored status topic is
+  // reserved to its owner so another identity cannot forge its status.
+  const denies = [...owners].filter(([, owner]) => owner !== device.id)
+    .map(([topic]) => `topic deny ${topic}\n`).join('');
+  if (rules.mode === 'all') return `\nuser ${device.id}\n${denies}topic readwrite #\n`;
+  return `\nuser ${device.id}\n${denies}${rules.publish.map((filter) => `topic write ${filter}\n`).join('')}${rules.subscribe.map((filter) => `topic read ${filter}\n`).join('')}`;
 }

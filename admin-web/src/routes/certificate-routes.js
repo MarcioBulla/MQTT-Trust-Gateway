@@ -25,6 +25,7 @@ import {
 import { zipFiles } from '../zip.js';
 import { archiveDeviceRecord, restoreDeviceRecord, permanentlyDeleteDevice } from '../services/identity-service.js';
 import { normalizeTopicRules, topicRulesForDevice } from '../services/topic-rules.js';
+import { allocateEntityId, reserveEntityId } from '../services/entity-ids.js';
 const find = (db, id) => {
   const c = db.certificates.find((c) => c.id === id);
   if (!c) throw Object.assign(new Error('Certificate not found'), { status: 404 });
@@ -54,7 +55,7 @@ export function publicCertificate(c) {
   return { ...publicData, status: c.status === 'active' && c.brokerTrusted === false ? 'untrusted' : state(c), canDownload: Boolean(certificate) };
 }
 const deviceRecord = (db, id) => db.devices.find((device) => device.id === id);
-const publicDevice = ({ topicRules, ...device }) => device;
+const publicDevice = ({ topicRules, healthCheck, ...device }) => device;
 const LABEL_COLORS = new Set(['primary', 'blue', 'teal', 'green', 'amber', 'orange', 'red', 'purple', 'grey']);
 const normalizeLabels = (value) => {
   const labels = Array.isArray(value) ? value : String(value || '').split(',');
@@ -82,6 +83,8 @@ const ensureIdentity = (db, { id, name = id, description = '' }) => {
     throw Object.assign(new Error('This identity was permanently deleted and cannot be reused'), { status: 409 });
   let device = deviceRecord(db, id);
   if (!device) {
+    if (!reserveEntityId('device', id))
+      throw Object.assign(new Error('This device identifier has already been used'), { status: 409 });
     device = { id, name: String(name || id).slice(0, 100), description: String(description || '').slice(0, 1000), enabled: false, trusted: false, status: 'active', createdAt: new Date().toISOString() };
     db.devices.push(device);
   }
@@ -92,7 +95,7 @@ const ensureIdentity = (db, { id, name = id, description = '' }) => {
 function addIssuedRecord(db, { deviceId, certificate, method, issuer = 'local', brokerTrusted = true, csr = '', renewedFrom = '', issuedBy }) {
   const metadata = certificateMetadata(certificate);
   const record = {
-    id: crypto.randomUUID(), deviceId, certificate, csr, status: 'active', provisioningMethod: method,
+    id: allocateEntityId('certificate'), deviceId, certificate, csr, status: 'active', provisioningMethod: method,
     ...metadata, issuer, brokerTrusted, issuedAt: new Date().toISOString(), issuedBy, renewedFrom,
   };
   db.certificates.unshift(record);
@@ -242,7 +245,7 @@ export function registerCertificateRoutes(app) {
   }));
   app.post('/api/certificates/external-csr', requireAuth(async (req, res) => {
     const db = loadDb(), device = ensureIdentity(db, req.body);
-    const pendingId = crypto.randomUUID();
+    const pendingId = allocateEntityId('certificate');
     const generated = await generateExternalCsr({ deviceId: device.id, algorithm: req.body.algorithm, pendingId });
     const record = { id: pendingId, deviceId: device.id, csr: generated.csr, publicKey: generated.publicKey, publicKeyFingerprint: generated.preview.publicKeyFingerprint, algorithm: generated.algorithm, subject: generated.preview.subject, provisioningMethod: 'external-csr', status: 'pending_external_signature', issuedAt: new Date().toISOString(), issuedBy: req.user.username, privateKeyReceived: false };
     db.certificates.unshift(record); saveDb(db); audit(req.user.username, 'certificate.external_csr_created', `${device.id}:${record.id}`);
@@ -333,7 +336,7 @@ export function registerCertificateRoutes(app) {
       const db = loadDb();
       const archived = _req.query.status === 'archived';
       res.json({
-        devices: db.devices.filter((d) => archived ? d.status === 'archived' : d.status !== 'archived' && d.status !== 'deleted').map(({ topicRules, ...d }) => ({
+        devices: db.devices.filter((d) => archived ? d.status === 'archived' : d.status !== 'archived' && d.status !== 'deleted').map(({ topicRules, healthCheck, ...d }) => ({
           ...d,
           connectionStatus: 'unknown',
           lastActivity: null,
@@ -364,12 +367,15 @@ export function registerCertificateRoutes(app) {
     '/api/devices',
     requireAuth((req, res) => {
       const db = loadDb(),
-        id = String(req.body.id || '');
+        legacyRequestedId = String(req.body.id || ''),
+        id = legacyRequestedId || allocateEntityId('device');
       if (!/^[A-Za-z0-9._-]{1,64}$/.test(id) || id === env.adminMqttClientId)
         return res.status(400).json({ error: 'Invalid or reserved identifier' });
       if (db.devices.some((d) => d.id === id) || (db.deletedIdentities || []).some((entry) => entry.id === id))
         return res.status(409).json({ error: 'Device already exists' });
-      db.devices.push({
+      if (legacyRequestedId && !reserveEntityId('device', id))
+        return res.status(409).json({ error: 'This device identifier has already been used' });
+      const device = {
         id,
         name: String(req.body.name || id).slice(0, 100),
         description: String(req.body.description || '').slice(0, 1000),
@@ -378,10 +384,11 @@ export function registerCertificateRoutes(app) {
         trusted: false,
         status: 'active',
         createdAt: new Date().toISOString(),
-      });
+      };
+      db.devices.push(device);
       saveDb(db);
       audit(req.user.username, 'device.created', id);
-      res.status(201).json({ ok: true });
+      res.status(201).json({ ok: true, device: publicDevice(device) });
     }),
   );
   app.patch(

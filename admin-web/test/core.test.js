@@ -21,7 +21,7 @@ const { loadDb, saveDb, exclusive, sqlite } = await import('../src/db.js');
 const { enrollTotp, verifyTotp } = await import('../src/totp.js');
 const OTPAuth = await import('otpauth');
 test('legacy SQLite state receives the non-destructive baseline schema version', () => {
-  assert.equal(sqlite.prepare('PRAGMA user_version').get().user_version, 1);
+  assert.equal(sqlite.prepare('PRAGMA user_version').get().user_version, 3);
   assert.ok(loadDb().devices);
 });
 test('CA lifecycle: idempotence, CSR constraints, issuance, renewal, CRL and ACL enforcement', async () => {
@@ -197,11 +197,19 @@ test('manual changes batch into one apply and license removal preserves the devi
     return response.headers.get('content-type')?.includes('application/zip') ? response.arrayBuffer() : response.json();
   }
   const revisionFile = path.join(dir, 'broker/revision'), before = await fs.readFile(revisionFile, 'utf8');
+  const autoFirst = await request('/devices', 'POST', { name: 'Duplicate display name' }, 201);
+  const autoSecond = await request('/devices', 'POST', { name: 'Duplicate display name' }, 201);
+  assert.match(autoFirst.device.id, /^dev_[a-z0-9]{16}$/);
+  assert.match(autoSecond.device.id, /^dev_[a-z0-9]{16}$/);
+  assert.notEqual(autoFirst.device.id, autoSecond.device.id);
+  assert.equal(autoFirst.device.name, autoSecond.device.name);
+  assert.equal(sqlite.prepare("SELECT count(*) AS n FROM entity_ids WHERE kind='device' AND id IN (?,?)").get(autoFirst.device.id, autoSecond.device.id).n, 2);
   await request('/devices', 'POST', { id: 'batch-device' }, 201);
   await request('/devices/batch-device/approve', 'POST', { confirm: 'batch-device' }, 409);
   await request('/certificates/generate', 'POST', { id: 'batch-device', algorithm: 'ecdsa-p256', days: 2, bundle: true });
   await request('/devices/batch-device/approve', 'POST', { confirm: 'batch-device' });
   const second = await request('/certificates/generate', 'POST', { id: 'batch-device', algorithm: 'ecdsa-p256', days: 2 });
+  assert.match(second.record.id, /^cert_[a-z0-9]{16}$/);
   await request(`/certificates/${second.record.id}/labels`, 'PATCH', { labels: [{ name: 'License-only', color: 'purple' }] });
   assert.deepEqual(loadDb().certificates.find((certificate) => certificate.id === second.record.id).labels, [{ name: 'License-only', color: 'purple' }]);
   assert.deepEqual(loadDb().devices.find((device) => device.id === 'batch-device').labels, []);

@@ -5,11 +5,35 @@ import os from 'node:os';
 import path from 'node:path';
 import { normalizeTopicRules, deviceAcl } from '../src/services/topic-rules.js';
 
+test('reserved health topics deny other identities even with broad access', () => {
+  const topics = [{ deviceId: 'one', topic: 'gateway/health/one/status' }, { deviceId: 'two', topic: 'custom/two' }];
+  const acl = deviceAcl({ id: 'one' }, topics);
+  assert.match(acl, /topic deny custom\/two\ntopic readwrite #/);
+  assert.doesNotMatch(acl, /topic deny gateway\/health\/one\/status/);
+  assert.throws(() => deviceAcl({ id: 'one' }, [{ deviceId: 'two', topic: 'x\nuser evil' }]));
+  assert.throws(() => deviceAcl({ id: 'one' }, [...topics, { deviceId: 'three', topic: 'custom/two' }]));
+});
+
+test('reserved health-topic denies also override custom wildcard grants without changing the owner rule', () => {
+  const topics = [
+    { deviceId: 'device-a', topic: 'gateway/health/device-a/status' },
+    { deviceId: 'device-b', topic: 'gateway/health/device-b/status' },
+  ];
+  const own = deviceAcl({ id: 'device-a', topicRules: { mode: 'custom', publish: ['#'], subscribe: ['#'] } }, topics);
+  const other = deviceAcl({ id: 'device-c', topicRules: { mode: 'custom', publish: ['#'], subscribe: ['#'] } }, topics);
+  assert.doesNotMatch(own, /topic deny gateway\/health\/device-a\/status/);
+  assert.match(own, /topic deny gateway\/health\/device-b\/status/);
+  assert.match(other, /topic deny gateway\/health\/device-a\/status/);
+  assert.match(other, /topic deny gateway\/health\/device-b\/status/);
+  assert.match(other, /topic write #/);
+  assert.match(other, /topic read #/);
+});
+
 test('topic rules validate MQTT wildcards, deduplicate filters and fail closed for corrupt policies', () => {
-  const rules = normalizeTopicRules({ mode: 'custom', publish: ['AutoBoot/command/+', 'AutoBoot/command/+'], subscribe: ['AutoBoot/state', 'AutoBoot/availability', 'AutoBoot/result'] });
-  assert.deepEqual(rules.publish, ['AutoBoot/command/+']);
-  assert.match(deviceAcl({ id: 'AutoBootWeb', topicRules: rules }), /topic write AutoBoot\/command\/\+/);
-  assert.match(deviceAcl({ id: 'AutoBootWeb' }), /topic readwrite #/);
+  const rules = normalizeTopicRules({ mode: 'custom', publish: ['example/command/+', 'example/command/+'], subscribe: ['example/state', 'example/availability', 'example/result'] });
+  assert.deepEqual(rules.publish, ['example/command/+']);
+  assert.match(deviceAcl({ id: 'ExampleClient', topicRules: rules }), /topic write example\/command\/\+/);
+  assert.match(deviceAcl({ id: 'ExampleClient' }), /topic readwrite #/);
   for (const invalid of ['a/#/b', 'a+', 'a/+x', 'a\nuser attacker', 'a b', ''])
     assert.throws(() => normalizeTopicRules({ mode: 'custom', publish: [invalid], subscribe: [] }));
   assert.doesNotMatch(deviceAcl({ id: 'sensor', topicRules: { mode: 'broken' } }), /topic /);
@@ -24,21 +48,21 @@ test('saved rules survive reload and broker synchronization, and remain staged u
   const { prepareGateway, syncBroker, stageBroker, applyBrokerChanges } = await import('../src/services/certificate-service.js');
   await prepareGateway();
   const db = loadDb();
-  db.devices.push({ id: 'AutoBootWeb', enabled: true, trusted: true, status: 'active' });
-  db.certificates.push({ deviceId: 'AutoBootWeb', status: 'active', serial: '1', validTo: new Date(Date.now() + 86400000).toISOString() });
+  db.devices.push({ id: 'ExampleClient', enabled: true, trusted: true, status: 'active' });
+  db.certificates.push({ deviceId: 'ExampleClient', status: 'active', serial: '1', validTo: new Date(Date.now() + 86400000).toISOString() });
   saveDb(db);
   await syncBroker();
-  assert.match(await fs.readFile(path.join(root, 'broker/acl'), 'utf8'), /user AutoBootWeb\ntopic readwrite #/);
+  assert.match(await fs.readFile(path.join(root, 'broker/acl'), 'utf8'), /user ExampleClient\ntopic readwrite #/);
   const revision = await fs.readFile(path.join(root, 'broker/revision'), 'utf8');
   const saved = loadDb();
-  saved.devices[0].topicRules = normalizeTopicRules({ mode: 'custom', publish: ['AutoBoot/command/+'], subscribe: ['AutoBoot/state', 'AutoBoot/availability', 'AutoBoot/result'] });
+  saved.devices[0].topicRules = normalizeTopicRules({ mode: 'custom', publish: ['example/command/+'], subscribe: ['example/state', 'example/availability', 'example/result'] });
   saveDb(saved);
   await stageBroker();
   assert.equal(await fs.readFile(path.join(root, 'broker/revision'), 'utf8'), revision);
   assert.ok(await fs.readFile(path.join(root, 'broker/pending-revision'), 'utf8'));
   await syncBroker();
   const acl = await fs.readFile(path.join(root, 'broker/acl'), 'utf8');
-  assert.match(acl, /user AutoBootWeb\ntopic write AutoBoot\/command\/\+\ntopic read AutoBoot\/state\ntopic read AutoBoot\/availability\ntopic read AutoBoot\/result\n/);
+  assert.match(acl, /user ExampleClient\ntopic write example\/command\/\+\ntopic read example\/state\ntopic read example\/availability\ntopic read example\/result\n/);
   assert.deepEqual(loadDb().devices[0].topicRules, saved.devices[0].topicRules);
   await applyBrokerChanges();
   assert.notEqual(await fs.readFile(path.join(root, 'broker/revision'), 'utf8'), revision);
@@ -60,7 +84,7 @@ test('saved rules survive reload and broker synchronization, and remain staged u
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   try {
-    const url = `http://127.0.0.1:${server.address().port}/api/devices/AutoBootWeb/rules`;
+    const url = `http://127.0.0.1:${server.address().port}/api/devices/ExampleClient/rules`;
     assert.equal((await fetch(url, { headers: { Cookie: cookie } })).status, 403);
     const headers = { Cookie: `${cookie}; sensitive_devices=${grant.token}`, 'Content-Type': 'application/json' };
     assert.equal((await fetch(url, { headers })).status, 200);
@@ -81,5 +105,5 @@ test('saved rules survive reload and broker synchronization, and remain staged u
   } finally { await new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }); }
   const disabled = loadDb(); disabled.devices[0].enabled = false; saveDb(disabled);
   await syncBroker();
-  assert.doesNotMatch(await fs.readFile(path.join(root, 'broker/acl'), 'utf8'), /user AutoBootWeb/);
+  assert.doesNotMatch(await fs.readFile(path.join(root, 'broker/acl'), 'utf8'), /user ExampleClient/);
 });

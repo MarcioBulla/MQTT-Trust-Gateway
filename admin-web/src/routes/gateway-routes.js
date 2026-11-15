@@ -5,11 +5,13 @@ import { registerMqttRoutes } from './mqtt-routes.js';
 import { registerStatusRoutes } from './status-routes.js';
 import { registerLogRoutes } from './log-routes.js';
 import { registerUpdateRoutes } from './update-routes.js';
+import { registerDeviceHealthRoutes } from './device-health-routes.js';
 
 export function registerGatewayRoutes(app) {
   registerSensitiveRoutes(app);
   app.use('/api', guardSensitiveApi);
   registerStatusRoutes(app);
+  registerDeviceHealthRoutes(app);
   registerLogRoutes(app);
   registerUpdateRoutes(app);
   registerCertificateRoutes(app);

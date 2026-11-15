@@ -1,6 +1,6 @@
 # MQTT Trust Gateway
 
-**Version 1.3.1** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.3.1.md)
+**Version 1.4.0** · [Apache-2.0](LICENSE) · [Release notes](docs/releases/1.4.0.md)
 
 A lightweight, self-hosted MQTT gateway for trusted device identities. It combines Eclipse Mosquitto with a Vue 3 / Vuetify 3 admin console and a local certificate authority.
 
@@ -20,6 +20,9 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 - 🪪 Four certificate enrollment methods: sign a device CSR, create a CSR for an external CA, generate a complete device credential bundle, or import an existing certificate.
 - 🧩 **Per-device MQTT rules:** use the default `#` access or configure separate publish and subscribe topic filters for each identity; apply saved changes through the broker controls. The default grants broad access to ordinary topics.
 - 🧰 Central device and certificate lifecycle: renew a selected certificate using its existing public key, revoke, trust external CAs, archive, restore, or delete identities. Use **Add certificate → Sign an existing CSR** for key rotation.
+- 🆔 Stable IDs: the Gateway generates immutable device and certificate-record IDs. Device display names may repeat; the device ID remains the MQTT identity and certificate Common Name.
+- 🩺 Gateway health probes: lightweight liveness and private SQLite readiness endpoints for monitoring the Gateway itself; these do not monitor devices or MQTT connectivity.
+- 📶 Device MQTT health: optional per-device Online/Offline monitoring using MQTT LWT and QoS 1, a configurable status topic, grace and recovery periods, and a 30-day uptime view. Status stays Unknown until the monitor's QoS 1 subscription is granted and it receives a fresh live message. Unknown time is excluded; firmware must publish retained status, and simultaneous MQTT sessions using one identity make status ambiguous.
 - 🗃️ License history: deleted license records remain visible and labeled Deleted; device labels flow to licenses, while license labels stay local to that certificate.
 - 🛡️ Admin security: Argon2id passwords, TOTP, WebAuthn passkeys, expiring sessions, rate limiting, and step-up verification for sensitive data.
 - 📡 MQTT tools: live subscriptions, wildcard filters, pause/resume, retained-message management, and publishing at QoS 0/1/2.
@@ -32,10 +35,9 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 
 1. 🔐 **MCU certificate renewal:** improve the renewal workflow for MCU devices.
 2. ✉️ **SMTP settings:** initially email administrators when licenses are near expiry.
-3. 🩺 **Health checks:** report device heartbeat and online status.
-4. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
-5. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
-6. 🔄 **Offline release import:** install verified releases without an internet connection.
+3. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
+4. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
+5. 🔄 **Offline release import:** install verified releases without an internet connection.
 
 > [!NOTE]
 > System Updates installation requires enabling the host updater and configuring its pinned Ed25519 release key. Automatic installation is disabled; see the [operations guide](docs/system-updates-operations.md) for prerequisites and recovery-data handling.
@@ -136,6 +138,21 @@ Copy `gateway.env.example` to `gateway.env` and protect it with `chmod 600 gatew
 - `MQTT_RETAIN_ENABLED=false` disables retained publishing in both broker policy and backend.
 - MQTT message history is bounded and in-memory; its limit is configurable in the console and persisted in SQLite.
 
+### Gateway health endpoints
+
+- `GET /health` returns a minimal liveness response without checking SQLite or other services.
+- `GET /ready` performs a read-only SQLite check. `GET /healthz` checks host-updater readiness. Both accept direct local or private monitoring clients and reject requests carrying forwarded headers.
+- These endpoints bypass application login and return non-cacheable JSON; readiness failures do not expose internal errors.
+- TLS may terminate at an HTTPS reverse proxy. Check the public HTTPS entry point separately for external TLS and routing; use the private local HTTP endpoint for SQLite readiness.
+- Configure the public proxy to block `/ready` and `/healthz`, including when it removes forwarding headers; the backend then sees the proxy's private address and cannot distinguish it from another direct private monitoring client.
+
+```sh
+curl --fail http://127.0.0.1:8080/health
+curl --fail http://127.0.0.1:8080/ready
+# Separately verify the public HTTPS entry point when configured.
+curl --fail https://gateway.example.com/health
+```
+
 ### Persistent data
 
 - `admin/gateway.sqlite` and WAL: admin state and audit records.
@@ -179,6 +196,8 @@ Copy `gateway.env.example` to `gateway.env` and protect it with `chmod 600 gatew
 ## 🪪 Devices, certificates, and licenses
 
 The **Devices & Certificates** page uses one identity and certificate history for all four provisioning methods:
+
+The Gateway automatically generates IDs for new devices and certificate records; both can be copied from the interface. Device IDs remain the MQTT identity and certificate Common Name; display names are separate and may be duplicated. Existing IDs and certificate history are preserved when the additive SQLite ID registry is initialized.
 
 - **Sign a device CSR:** preferred when device firmware can generate its own key.
 - **Generate an external-signing CSR:** the Gateway creates a key and CSR; the private key is delivered once for secure handling.

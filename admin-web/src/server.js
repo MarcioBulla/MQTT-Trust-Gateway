@@ -6,7 +6,8 @@ import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env } from './config.js';
-import { exclusive, audit, loadDb } from './db.js';
+import { exclusive, audit, loadDb, sqlite } from './db.js';
+import { registerHealthRoutes } from './routes/health-routes.js';
 import { registerAdminRoutes } from './routes/admin-routes.js';
 import { startMqtt, stopMqtt } from './services/mqtt-service.js';
 import { refreshPki, syncBroker, hasPendingProvisioningDelivery } from './services/certificate-service.js';
@@ -14,6 +15,7 @@ import { purgeExpiredArchives } from './services/identity-service.js';
 import { captureAdminLogs } from './services/runtime-logs.js';
 import { checkForGatewayUpdates } from './services/system-updates.js';
 import { updateMaintenance } from './services/updater-client.js';
+import { startDeviceHealthMonitor, stopDeviceHealthMonitor } from './services/device-health-monitor.js';
 captureAdminLogs();
 const app = express();
 app.disable('x-powered-by');
@@ -34,9 +36,9 @@ app.use(
     strictTransportSecurity: false,
   }),
 );
-app.get('/healthz', async (_req, res, next) => {
-  try { res.json(await exclusive(() => ({ ok: true, updateReady: !hasPendingProvisioningDelivery() }))); }
-  catch (error) { next(error); }
+registerHealthRoutes(app, {
+  sqlite,
+  updateReady: () => !hasPendingProvisioningDelivery(),
 });
 app.use((req, res, next) => {
   res.set('Cache-Control', 'no-store');
@@ -98,6 +100,7 @@ await exclusive(async () => {
   if (purged.length) await syncBroker(true);
 });
 startMqtt();
+startDeviceHealthMonitor();
 const aclTimer = setInterval(
   () => exclusive(() => updateMaintenance() ? undefined : syncBroker()).catch((e) => console.error(e.message)),
   30000,
@@ -144,6 +147,7 @@ for (const signal of ['SIGTERM', 'SIGINT'])
   process.on(signal, async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    stopDeviceHealthMonitor();
     clearInterval(aclTimer);
     clearInterval(pkiTimer);
     clearInterval(archiveTimer);

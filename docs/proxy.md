@@ -40,6 +40,8 @@ server {
     server_name gateway.example.com;
     ssl_certificate /your/existing/fullchain.pem;
     ssl_certificate_key /your/existing/key.pem;
+    location = /ready { return 404; }
+    location = /healthz { return 404; }
     location / {
         proxy_pass http://mqtt-admin:8080;
         proxy_set_header Host $host;

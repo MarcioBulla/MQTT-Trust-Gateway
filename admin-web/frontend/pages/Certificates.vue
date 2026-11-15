@@ -13,6 +13,7 @@ import HelpButton from '../components/HelpButton.vue';
 import { licenseStatusLabel, mergeLicenseLabels } from '../license-rows.js';
 import { certificateMethods } from '../certificate-methods';
 import DeviceRules from '../components/DeviceRules.vue';
+import DeviceHealth from '../components/DeviceHealth.vue';
 
 const props = defineProps({ embedded: Boolean, deviceId: { type: String, default: '' } });
 const emit = defineEmits(['updated']);
@@ -39,13 +40,14 @@ const pending = computed(() => certificates.value.filter((item) => item.status =
 const displayedCertificates = computed(() => certificates.value.filter((item) => !props.deviceId || item.deviceId === props.deviceId));
 const deviceOptions = computed(() => devices.value.map((device) => ({ title: `${device.name || device.id} · ${device.id}`, value: device.id })));
 const currentDevice = computed(() => devices.value.find((item) => item.id === props.deviceId) || null);
-const headers = [
-  { title: 'Device', key: 'deviceId', width: '150px' }, { title: 'Labels', key: 'labels', width: '190px', maxWidth: '210px' },
+function displayDeviceName(id) { return devices.value.find((item) => item.id === id)?.name || id; }
+const headers = computed(() => [
+  ...(!props.deviceId ? [{ title: 'Device', key: 'deviceId', width: '150px' }] : []), { title: 'Labels', key: 'labels', width: '190px', maxWidth: '210px' },
   { title: 'Provisioning', key: 'provisioningMethod', width: '150px' },
   { title: 'Issuer', key: 'issuerName', width: '180px' }, { title: 'Algorithm', key: 'algorithm', width: '140px' },
   { title: 'Expires', key: 'validTo', width: '160px' }, { title: 'Status', key: 'status', width: '135px' },
   { title: '', key: 'actions', width: '64px', sortable: false },
-];
+]);
 const labelValue = (label) => typeof label === 'string' ? { name: label, color: 'primary' } : { name: label.name, color: label.color || 'primary' };
 function certificateLabels(certificate) {
   const device = devices.value.find((item) => item.id === certificate.deviceId);
@@ -199,14 +201,15 @@ defineExpose({ open });
     <div><div class="text-overline text-primary">IDENTITY & CRYPTOGRAPHIC CREDENTIALS</div><h1 class="text-h4 font-weight-bold">Certificates and identities</h1><p class="text-medium-emphasis mt-2">Four enrollment methods share one device registry. Private keys are never recoverable after delivery.</p></div>
     <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" color="primary" prepend-icon="mdi-plus">Add certificate</v-btn></template><v-list><v-list-item v-for="method in certificateMethods" :key="method.value" :title="method.title" @click="open(method.value)" /></v-list></v-menu>
   </div>
-  <v-tabs v-if="props.deviceId" v-model="editTab" class="mb-5"><v-tab value="licenses">Licenses</v-tab><v-tab value="rules">Rules</v-tab><v-tab value="health">Health Check · WIP</v-tab></v-tabs>
+  <v-tabs v-if="props.deviceId" v-model="editTab" class="mb-5"><v-tab value="licenses">Licenses</v-tab><v-tab value="rules">Rules</v-tab><v-tab value="health">Health Check</v-tab></v-tabs>
   <DeviceRules v-if="props.deviceId && editTab === 'rules'" :device-id="props.deviceId" />
-  <v-card v-if="props.deviceId && editTab === 'health'" class="pa-6"><v-chip color="warning" size="small" class="mb-3">WIP</v-chip><h2 class="text-h6">Health Check</h2><p class="text-medium-emphasis mt-2">Device heartbeat monitoring and health checks are planned.</p></v-card>
+  <DeviceHealth v-if="props.deviceId && editTab === 'health'" :device-id="props.deviceId" />
   <v-alert v-if="!props.embedded && (!props.deviceId || editTab === 'licenses')" type="info" variant="tonal" class="mb-5">Importing a certificate does not automatically trust its issuer. External CAs must be added and explicitly approved below. Apply pending broker changes to enforce access and trust changes.</v-alert>
   <div v-if="props.embedded" class="d-flex flex-wrap align-center justify-space-between ga-3 mb-4">
     <div><h2 class="text-h6">Certificate provisioning</h2><p class="text-body-2 text-medium-emphasis mb-0">Manage credentials from the same device registry. Use Add certificate above to choose a method.</p></div>
   </div>
   <v-card v-if="!props.embedded && (!props.deviceId || editTab === 'licenses')" class="pa-4 mb-6"><v-text-field v-if="!props.deviceId" v-model="search" label="Search certificates" prepend-inner-icon="mdi-magnify" hide-details /><DataList :headers="headers" :items="displayedCertificates" :search="search" :loading="!!state.busy" class="mt-4 certificate-table">
+    <template #item.deviceId="{ item }"><v-tooltip :text="`Device ID: ${item.deviceId}`" location="top" :open-delay="500"><template #activator="{ props: tooltipProps }"><span v-bind="tooltipProps">{{ displayDeviceName(item.deviceId) }}</span></template></v-tooltip></template>
     <template #item.labels="{ item }"><div class="d-flex flex-wrap ga-1"><v-chip v-for="label in certificateLabels(item)" :key="label.name" size="small" :style="isDeviceLabel(item, label.name) ? { border: '1.5px solid currentColor' } : undefined" :color="label.color" variant="tonal">{{ label.name }}</v-chip></div></template>
     <template #item.validTo="{ item }"><DateTime :value="item.validTo" /></template>
     <template #item.algorithm="{ item }">{{ item.algorithm || '—' }}</template>
@@ -227,7 +230,10 @@ defineExpose({ open });
 
   <v-dialog v-model="dialog" max-width="820" scrollable><v-card class="pa-6"><div class="d-flex align-center justify-space-between mb-4"><h2 class="text-h5">{{ certificateMethods.find((item) => item.value === method)?.title }}</h2><HelpButton :topic-id="({ generate: 'generate-complete-certificate', sign: 'sign-existing-csr', external: 'generate-csr-external-signing', import: 'import-certificate' })[method]" /></div>
     <template v-if="!generatedPending">
-      <v-combobox v-model="form.deviceId" :items="deviceOptions" item-title="title" item-value="value" :return-object="false" label="MQTT device identity" hint="Search by name or ID, or enter a new device ID. The ID must match the certificate CN." :disabled="!!props.deviceId" :loading="devicesLoading" required>
+      <v-select v-if="method !== 'import'" v-model="form.deviceId" :items="deviceOptions" item-title="title" item-value="value" :return-object="false" label="Registered device" hint="Register a device first; the generated ID is its MQTT identity and certificate CN." :disabled="!!props.deviceId" :loading="devicesLoading" required>
+        <template #append><v-tooltip text="Refresh devices" location="top" :open-delay="500"><template #activator="{ props: refreshProps }"><v-btn v-bind="refreshProps" icon="mdi-refresh" variant="text" size="small" aria-label="Refresh device identities" :loading="devicesLoading" :disabled="devicesLoading" @click="refreshDeviceOptions" /></template></v-tooltip></template>
+      </v-select>
+      <v-combobox v-else v-model="form.deviceId" :items="deviceOptions" item-title="title" item-value="value" :return-object="false" label="Device identity / certificate CN" hint="Select a registered device or enter the Common Name from the existing certificate." :disabled="!!props.deviceId" :loading="devicesLoading">
         <template #append><v-tooltip text="Refresh devices" location="top" :open-delay="500"><template #activator="{ props: refreshProps }"><v-btn v-bind="refreshProps" icon="mdi-refresh" variant="text" size="small" aria-label="Refresh device identities" :loading="devicesLoading" :disabled="devicesLoading" @click="refreshDeviceOptions" /></template></v-tooltip></template>
       </v-combobox>
       <v-alert v-if="deviceOptionsError" type="error" variant="tonal" density="compact" class="mb-4">{{ deviceOptionsError }}. Use Refresh devices to try again.</v-alert>
@@ -243,5 +249,5 @@ defineExpose({ open });
     <template v-else><v-alert type="warning" variant="tonal">Download this private key now. The Gateway keeps no disk copy and cannot recover it. After saving it securely, confirm receipt.</v-alert><div class="d-flex ga-2 mt-4"><v-btn :disabled="generatedPending.keyDownloaded" @click="deliverPendingKey">Download private key once</v-btn><v-btn color="primary" :disabled="!generatedPending.keyDownloaded" @click="confirmKeyReceived">I stored this key securely</v-btn></div></template>
   </v-card></v-dialog>
   <v-dialog :model-value="!!renewal" max-width="680" @update:model-value="renewal = null"><v-card class="pa-6"><h2 class="text-h5 mb-3">Renew certificate · {{ renewal?.deviceId }}</h2><p class="text-body-2 mb-3">Renewal uses the selected certificate’s existing public key. Install the new certificate and keep using the matching private key; the Gateway never receives or stores it.</p><v-form @submit.prevent="submitRenewal"><v-text-field v-model.number="renewalDays" type="number" min="1" label="Validity from today (days)" required /><div class="d-flex justify-end ga-2"><v-btn @click="renewal = null">Cancel</v-btn><v-btn color="primary" type="submit" :loading="!!state.busy">Renew</v-btn></div></v-form></v-card></v-dialog>
-  <v-dialog v-model="details" max-width="720"><v-card v-if="details" class="pa-6"><h2 class="text-h5 mb-4">{{ details.deviceId }} certificate</h2><v-table density="compact"><tbody><tr><th>Provisioning</th><td>{{ details.provisioningMethod }}</td></tr><tr><th>Subject</th><td>{{ details.subject || 'Pending external signature' }}</td></tr><tr><th>SAN</th><td><SensitiveValue scope="devices" :value="details.san" label="Certificate san" /></td></tr><tr><th>Serial</th><td><SensitiveValue scope="devices" :value="details.serial" label="Certificate serial" /></td></tr><tr><th>SHA-256 fingerprint</th><td class="text-break"><SensitiveValue scope="devices" :value="details.fingerprint" label="Certificate fingerprint" /></td></tr><tr><th>Issuer</th><td>{{ details.issuerName || details.issuer || 'Pending' }}</td></tr><tr><th>Algorithm</th><td>{{ details.algorithm }}</td></tr><tr><th>Validity</th><td>{{ formatDateTime(details.validFrom) }} → {{ formatDateTime(details.validTo) }}</td></tr><tr><th>Certificate state</th><td>{{ details.status }}</td></tr><tr><th>Broker trust</th><td>{{ details.brokerTrusted === false ? 'Not trusted; cannot connect' : 'Trusted' }}</td></tr><tr><th>Renewed from</th><td>{{ details.renewedFrom || '—' }}</td></tr></tbody></v-table><div class="d-flex justify-end mt-5"><v-btn @click="details = null">Close</v-btn></div></v-card></v-dialog>
+  <v-dialog v-model="details" max-width="720"><v-card v-if="details" class="pa-6"><h2 class="text-h5 mb-4">{{ details.deviceId }} certificate</h2><v-table density="compact"><tbody><tr><th>Certificate ID</th><td><code>{{ details.id }}</code> <v-btn size="x-small" variant="text" icon="mdi-content-copy" aria-label="Copy certificate ID" @click="copy(details.id)" /></td></tr><tr><th>Provisioning</th><td>{{ details.provisioningMethod }}</td></tr><tr><th>Subject</th><td>{{ details.subject || 'Pending external signature' }}</td></tr><tr><th>SAN</th><td><SensitiveValue scope="devices" :value="details.san" label="Certificate san" /></td></tr><tr><th>Serial</th><td><SensitiveValue scope="devices" :value="details.serial" label="Certificate serial" /></td></tr><tr><th>SHA-256 fingerprint</th><td class="text-break"><SensitiveValue scope="devices" :value="details.fingerprint" label="Certificate fingerprint" /></td></tr><tr><th>Issuer</th><td>{{ details.issuerName || details.issuer || 'Pending' }}</td></tr><tr><th>Algorithm</th><td>{{ details.algorithm }}</td></tr><tr><th>Validity</th><td>{{ formatDateTime(details.validFrom) }} → {{ formatDateTime(details.validTo) }}</td></tr><tr><th>Certificate state</th><td>{{ details.status }}</td></tr><tr><th>Broker trust</th><td>{{ details.brokerTrusted === false ? 'Not trusted; cannot connect' : 'Trusted' }}</td></tr><tr><th>Renewed from</th><td>{{ details.renewedFrom || '—' }}</td></tr></tbody></v-table><div class="d-flex justify-end mt-5"><v-btn @click="details = null">Close</v-btn></div></v-card></v-dialog>
 </template>
