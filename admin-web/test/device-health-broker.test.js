@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import mqtt from 'mqtt';
 
 test('device health monitor handles retained replay, grace cancellation, LWT and broker loss', { timeout: 45000 }, async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gateway-device-health-mqtt-'));
+  const root = await fs.mkdtemp(path.join(process.env.MQTT_TEST_TMPDIR || os.tmpdir(), 'gateway-device-health-mqtt-'));
   await fs.chmod(root, 0o755);
   const dataDir = path.join(root, 'admin');
   const caDir = path.join(root, 'ca');

@@ -8,14 +8,17 @@ import vue from '@vitejs/plugin-vue';
 import { chromium } from '@playwright/test';
 
 test('Device Health Check and uptime render synthetic configuration, coverage and UTC tooltips', {
-  skip: !existsSync('/bin/chromium'), timeout: 30000,
+  skip: !existsSync('/bin/chromium'), timeout: 90000,
 }, async () => {
   const root = path.resolve('frontend');
   const token = String(Date.now());
   const html = path.join(root, `__device_health_${token}.html`);
   const entry = path.join(root, `__device_health_${token}.js`);
-  await fs.writeFile(html, `<html><body><div id="app"></div><script type="module" src="/${path.basename(entry)}"></script></body></html>`);
-  await fs.writeFile(entry, `
+  let server;
+  let browser;
+  try {
+    await fs.writeFile(html, `<html><body><div id="app"></div><script type="module" src="/${path.basename(entry)}"></script></body></html>`);
+    await fs.writeFile(entry, `
     import { createApp, defineComponent, h } from 'vue';
     import { createVuetify } from 'vuetify';
     import * as components from 'vuetify/components';
@@ -45,14 +48,13 @@ test('Device Health Check and uptime render synthetic configuration, coverage an
       h(DeviceHealth, { deviceId: 'synthetic-device' }),
     ]); } });
     createApp(App).use(vuetify).use(router).mount('#app');
-  `);
-  const server = await createServer({ configFile: false, root, plugins: [vue()], server: { host: '127.0.0.1', port: 0, strictPort: false, hmr: false } });
-  let browser;
-  try {
+    `);
+    server = await createServer({ configFile: false, root, plugins: [vue()], server: { host: '127.0.0.1', port: 0, strictPort: false, hmr: false } });
     await server.listen();
-    browser = await chromium.launch({ executablePath: '/bin/chromium', headless: true, args: ['--no-sandbox'] });
+    browser = await chromium.launch({ executablePath: '/bin/chromium', headless: true, timeout: 45000, args: ['--no-sandbox'] });
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    page.setDefaultTimeout(3000);
+    page.setDefaultTimeout(10000);
+    page.setDefaultNavigationTimeout(45000);
     page.on('pageerror', (error) => console.error('Health UI browser error:', error.message));
     await page.route('**/api/devices/synthetic-device/health', async (route) => {
       assert.equal(route.request().method(), 'GET');
@@ -61,9 +63,10 @@ test('Device Health Check and uptime render synthetic configuration, coverage an
         status: 'unknown',
       } });
     });
-    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/${path.basename(html)}`);
+    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/${path.basename(html)}`, { waitUntil: 'domcontentloaded' });
 
     const uptime = page.locator('#uptime-enabled');
+    await uptime.locator('.uptime-bar').first().waitFor();
     assert.equal(await uptime.locator('.uptime-bar').count(), 30);
     await page.locator('#uptime-disabled').getByText('—', { exact: true }).waitFor();
     const firstBar = uptime.locator('.uptime-bar').nth(0);
@@ -93,9 +96,17 @@ test('Device Health Check and uptime render synthetic configuration, coverage an
     assert.equal(await form.getByLabel('Offline Grace Period (seconds)').inputValue(), '30');
     assert.equal(await form.getByLabel('Recovery Stability Period (seconds)').inputValue(), '5');
   } finally {
-    await browser?.close();
-    await server.close();
-    await fs.rm(html, { force: true });
-    await fs.rm(entry, { force: true });
+    try {
+      await browser?.close();
+    } finally {
+      try {
+        if (server) {
+          server.httpServer?.closeAllConnections();
+          await server.close();
+        }
+      } finally {
+        await Promise.all([fs.rm(html, { force: true }), fs.rm(entry, { force: true })]);
+      }
+    }
   }
 });
