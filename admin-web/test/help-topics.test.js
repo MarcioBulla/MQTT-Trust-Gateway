@@ -38,7 +38,13 @@ test('Device Health Check help matches the passive LWT implementation and its li
   assert.match(topic.steps.join(' '), /Red means the last reliable status.*offline/i);
   assert.match(topic.steps.join(' '), /Gray means no reliable online\/offline state was observed/i);
   assert.match(topic.steps.join(' '), /do not imply full-day coverage/i);
-  assert.match(topic.steps.join(' '), /tooltip shows observed durations and coverage/i);
+  assert.match(topic.steps.join(' '), /tooltip shows the date, Ended state.*durations in HH:MM/i);
+  assert.match(topic.steps.join(' '), /does not show coverage or an uptime percentage/i);
+  assert.match(topic.overview, /Allow other identities to read this status topic/i);
+  assert.match(topic.overview, /active, enabled, and trusted/i);
+  assert.match(topic.overview, /matching Subscribe Rule.*do not add a matching Publish Rule/i);
+  assert.match(topic.overview, /broker deny ACL prevents other identities from publishing/i);
+  assert.match(topic.steps.join(' '), /apply the pending broker changes/i);
   assert.match(topic.artifacts.join(' '), /exact UTF-8 values online and offline/i);
   assert.match(topic.artifacts.join(' '), /cannot verify the retain flag for live messages/i);
   assert.match(topic.caution, /complete firmware health/i);

@@ -75,10 +75,11 @@ test('Mosquitto reserves each retained health topic to its owner across restart'
   await new Promise((resolve) => probe.close(resolve));
   const acl = path.join(root, 'acl'), config = path.join(root, 'mosquitto.conf');
   const topics = [
-    { deviceId: 'health-owner-a', topic: 'gateway/health/health-owner-a/status' },
+    { deviceId: 'health-owner-a', topic: 'gateway/health/health-owner-a/status', readers: ['health-observer'] },
     { deviceId: 'health-owner-b', topic: 'gateway/health/health-owner-b/status' },
   ];
-  await fs.writeFile(acl, `${deviceAcl({ id: 'health-owner-a' }, topics)}${deviceAcl({ id: 'health-owner-b' }, topics)}`);
+  const observer = { id: 'health-observer', topicRules: { mode: 'custom', publish: ['observer/events'], subscribe: [topics[0].topic] } };
+  await fs.writeFile(acl, `${deviceAcl({ id: 'health-owner-a' }, topics)}${deviceAcl({ id: 'health-owner-b' }, topics)}${deviceAcl(observer, topics)}`);
   await fs.writeFile(config, `listener ${port} 127.0.0.1\nallow_anonymous true\npersistence false\nacl_file ${acl}\n`);
   await fs.chmod(acl, 0o644);
   await fs.chmod(config, 0o644);
@@ -110,14 +111,20 @@ test('Mosquitto reserves each retained health topic to its owner across restart'
   async function verify() {
     const ownerA = await connect('health-owner-a');
     const ownerB = await connect('health-owner-b');
+    const reader = await connect('health-observer');
     try {
+      const received = new Promise((resolve) => reader.once('message', (topic, payload) => resolve([topic, payload.toString()])));
+      await reader.subscribeAsync(topics[0].topic, { qos: 1 });
       await assert.doesNotReject(ownerA.publishAsync(topics[0].topic, 'online', { qos: 1, retain: true }));
       await assert.doesNotReject(ownerB.publishAsync(topics[1].topic, 'online', { qos: 1, retain: true }));
+      assert.deepEqual(await received, [topics[0].topic, 'online']);
+      await assert.rejects(reader.publishAsync(topics[0].topic, 'forged', { qos: 1, retain: true }), /authoriz|denied|closed/i);
       await assert.rejects(ownerA.publishAsync(topics[1].topic, 'offline', { qos: 1, retain: true }), /authoriz|denied|closed/i);
       await assert.rejects(ownerB.publishAsync(topics[0].topic, 'offline', { qos: 1, retain: true }), /authoriz|denied|closed/i);
     } finally {
       await ownerA.endAsync(true).catch(() => {});
       await ownerB.endAsync(true).catch(() => {});
+      await reader.endAsync(true).catch(() => {});
     }
   }
   await start();

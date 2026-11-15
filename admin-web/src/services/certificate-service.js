@@ -527,7 +527,7 @@ async function submitBrokerRevision(revision) {
 export async function syncBroker(force = false, { defer = false } = {}) {
   const db = loadDb();
   const healthTopics = db.devices.filter((device) => device.healthCheck?.enabled && device.status === 'active')
-    .map((device) => ({ deviceId: device.id, topic: device.healthCheck.topic }));
+    .map((device) => ({ deviceId: device.id, topic: device.healthCheck.topic, readers: device.healthCheck.readers || [] }));
   let acl = `user ${env.adminMqttClientId}\ntopic readwrite #\ntopic read $SYS/#\n`;
   // Infrastructure probe identity contains ':' and cannot be registered as a device.
   if (await exists(path.join(env.dataDir, 'update-health-client.crt')))

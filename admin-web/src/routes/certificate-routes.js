@@ -25,6 +25,7 @@ import {
 import { zipFiles } from '../zip.js';
 import { archiveDeviceRecord, restoreDeviceRecord, permanentlyDeleteDevice } from '../services/identity-service.js';
 import { normalizeTopicRules, topicRulesForDevice } from '../services/topic-rules.js';
+import { healthTopicMatches } from '../services/device-health-config.js';
 import { allocateEntityId, reserveEntityId } from '../services/entity-ids.js';
 const find = (db, id) => {
   const c = db.certificates.find((c) => c.id === id);
@@ -357,6 +358,14 @@ export function registerCertificateRoutes(app) {
     if (!device) return res.status(404).json({ error: 'Device not found' });
     if (device.status !== 'active') return res.status(409).json({ error: 'Archived devices must be restored before changes' });
     const rules = normalizeTopicRules(req.body);
+    for (const owner of db.devices) {
+      const health = owner.healthCheck;
+      if (!health?.enabled || !health.readers?.includes(device.id)) continue;
+      if (rules.mode !== 'custom' || !rules.subscribe.some((filter) => healthTopicMatches(filter, health.topic)))
+        return res.status(400).json({ error: `Keep a matching Subscribe Rule for ${owner.id}'s health topic or remove this identity as a reader` });
+      if (rules.publish.some((filter) => healthTopicMatches(filter, health.topic)))
+        return res.status(400).json({ error: `A health topic reader cannot publish to ${owner.id}'s health topic` });
+    }
     device.topicRules = rules;
     saveDb(db);
     audit(req.user.username, 'device.rules_updated', device.id);

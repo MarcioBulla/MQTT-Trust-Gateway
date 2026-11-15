@@ -22,8 +22,9 @@ test('device health API requires step-up, validates rules and stages isolated he
   db.devices.push(
     { id: 'device-a', name: 'Synthetic A', enabled: true, trusted: true, status: 'active', topicRules: { mode: 'custom', publish: ['gateway/health/+/status'], subscribe: [] } },
     { id: 'device-b', name: 'Synthetic B', enabled: true, trusted: true, status: 'active', topicRules: { mode: 'all' }, healthCheck: { enabled: true, topic: 'gateway/health/device-b/status' } },
+    { id: 'device-reader', name: 'Synthetic reader', enabled: true, trusted: true, status: 'active', topicRules: { mode: 'custom', publish: ['reader/out'], subscribe: ['gateway/health/device-a/status'] } },
   );
-  for (const id of ['device-a', 'device-b']) db.certificates.push({ id: `cert-${id}`, deviceId: id, status: 'active', brokerTrusted: true, serial: id, validTo: new Date(Date.now() + 86400000).toISOString() });
+  for (const id of ['device-a', 'device-b', 'device-reader']) db.certificates.push({ id: `cert-${id}`, deviceId: id, status: 'active', brokerTrusted: true, serial: id, validTo: new Date(Date.now() + 86400000).toISOString() });
   let cookie;
   createSession(db, user, { secure: false }, { setHeader(_name, value) { cookie = value.split(';')[0]; } });
   saveDb(db);
@@ -52,7 +53,7 @@ test('device health API requires step-up, validates rules and stages isolated he
     assert.deepEqual(await denied.json(), { error: 'Additional authentication required', stepUpRequired: true, scope: 'devices' });
     const legacyConfig = await (await get('/api/devices/device-b/health', authorizedCookie)).json();
     assert.deepEqual(legacyConfig.config, {
-      enabled: true, topic: 'gateway/health/device-b/status', onlinePayload: 'online', offlinePayload: 'offline', offlineGrace: 30, recoveryStability: 5,
+      enabled: true, topic: 'gateway/health/device-b/status', onlinePayload: 'online', offlinePayload: 'offline', readers: [], offlineGrace: 30, recoveryStability: 5,
     }, 'existing device Health Check settings receive defaults for newly configurable payloads');
     assert.equal((await put({ enabled: true }, cookie)).status, 403);
 
@@ -60,10 +61,14 @@ test('device health API requires step-up, validates rules and stages isolated he
     assert.equal((await put({ enabled: true, topic: 'gateway/health/+' })).status, 400);
     assert.equal((await put({ enabled: true, topic: 'gateway/health/device-b/status' })).status, 400);
 
-    const response = await put({ enabled: true });
+    const response = await put({ enabled: true, readers: ['device-reader'] });
     assert.equal(response.status, 200);
     const result = await response.json();
-    assert.deepEqual(result.config, { enabled: true, topic: 'gateway/health/device-a/status', onlinePayload: 'online', offlinePayload: 'offline', offlineGrace: 30, recoveryStability: 5 });
+    assert.deepEqual(result.config, { enabled: true, topic: 'gateway/health/device-a/status', onlinePayload: 'online', offlinePayload: 'offline', readers: ['device-reader'], offlineGrace: 30, recoveryStability: 5 });
+    assert.deepEqual(result.readerCandidates, [
+      { id: 'device-b', label: 'Synthetic B (device-b)' },
+      { id: 'device-reader', label: 'Synthetic reader (device-reader)' },
+    ]);
     assert.equal(result.status, 'unknown');
     assert.match(result.message, /Apply pending broker changes/);
     assert.equal((await fs.readFile(path.join(process.env.BROKER_CONFIG_DIR, 'revision'), 'utf8')), 'already-applied');
@@ -71,6 +76,10 @@ test('device health API requires step-up, validates rules and stages isolated he
     const acl = await fs.readFile(path.join(process.env.BROKER_CONFIG_DIR, 'acl'), 'utf8');
     assert.match(acl, /user device-a\ntopic deny gateway\/health\/device-b\/status\ntopic write gateway\/health\/\+\/status/);
     assert.match(acl, /user device-b\ntopic deny gateway\/health\/device-a\/status\ntopic readwrite #/);
+    assert.match(acl, /user device-reader\ntopic deny gateway\/health\/device-b\/status\ntopic write reader\/out\ntopic read gateway\/health\/device-a\/status/);
+    const readerRulesUrl = `${base}/api/devices/device-reader/rules`;
+    assert.equal((await fetch(readerRulesUrl, { method: 'PUT', headers: { Cookie: authorizedCookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'all' }) })).status, 400);
+    assert.equal((await fetch(readerRulesUrl, { method: 'PUT', headers: { Cookie: authorizedCookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'custom', publish: ['gateway/health/device-a/status'], subscribe: ['gateway/health/device-a/status'] }) })).status, 400);
     assert.equal(loadDb().devices.find((device) => device.id === 'device-a').healthCheck.topic, 'gateway/health/device-a/status');
     const listing = await (await get('/api/devices')).json();
     assert.ok(listing.devices.every((device) => device.healthCheck === undefined));

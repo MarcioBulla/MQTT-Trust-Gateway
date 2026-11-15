@@ -30,5 +30,20 @@ export function validateDeviceHealthConfig(input, device, devices) {
   const rules = topicRulesForDevice(device);
   if (input.enabled && rules.mode === 'custom' && !rules.publish.some((filter) => healthTopicMatches(filter, topic)))
     throw new Error('Device publish Rules must allow the health topic');
-  return { enabled: input.enabled, topic, onlinePayload, offlinePayload, offlineGrace: seconds(input.offlineGrace, 30), recoveryStability: seconds(input.recoveryStability, 5) };
+  const readers = input.readers === undefined ? [] : input.readers;
+  if (!Array.isArray(readers) || readers.length > 100) throw new Error('Provide up to 100 reader identities');
+  const allowedReaders = new Set();
+  for (const readerId of readers) {
+    if (typeof readerId !== 'string' || readerId === device.id) throw new Error('Health topic readers must be other device identities');
+    const reader = devices.find((candidate) => candidate.id === readerId);
+    if (!reader || reader.status !== 'active' || !reader.enabled || reader.trusted === false)
+      throw new Error('Health topic readers must be active, enabled, trusted identities');
+    const readerRules = topicRulesForDevice(reader);
+    if (readerRules.mode !== 'custom' || !readerRules.subscribe.some((filter) => healthTopicMatches(filter, topic)))
+      throw new Error('Health topic readers need a matching Subscribe Rule');
+    if (readerRules.publish.some((filter) => healthTopicMatches(filter, topic)))
+      throw new Error('Health topic readers must not have a Publish Rule for this topic');
+    allowedReaders.add(readerId);
+  }
+  return { enabled: input.enabled, topic, onlinePayload, offlinePayload, readers: [...allowedReaders], offlineGrace: seconds(input.offlineGrace, 30), recoveryStability: seconds(input.recoveryStability, 5) };
 }

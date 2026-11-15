@@ -3,16 +3,16 @@ import { ref, watch } from 'vue';
 import { api, action, copy, markBrokerMutation } from '../api';
 import HelpButton from './HelpButton.vue';
 const props = defineProps({ deviceId: { type: String, required: true } });
-const config = ref(null), status = ref('unknown');
+const config = ref(null), status = ref('unknown'), readerCandidates = ref([]);
 async function load() {
   const response = await api(`/devices/${encodeURIComponent(props.deviceId)}/health`);
-  if (response) { config.value = response.config; status.value = response.status; }
+  if (response) { config.value = response.config; status.value = response.status; readerCandidates.value = response.readerCandidates || []; }
 }
 watch(() => props.deviceId, () => action(load), { immediate: true });
 function save() {
   action(async () => {
     const result = await api(`/devices/${encodeURIComponent(props.deviceId)}/health`, 'PUT', config.value);
-    config.value = result.config; status.value = result.status; markBrokerMutation();
+    config.value = result.config; status.value = result.status; readerCandidates.value = result.readerCandidates || []; markBrokerMutation();
   }, 'Health Check saved. Apply pending broker changes before monitoring.');
 }
 </script>
@@ -26,7 +26,8 @@ function save() {
       <v-text-field v-model="config.onlinePayload" label="Online Payload" hint="Exact UTF-8 value published when the device is connected." persistent-hint />
       <v-text-field v-model="config.offlinePayload" label="Offline Payload / LWT" hint="Exact UTF-8 value used by the Last Will and graceful disconnect." persistent-hint />
     </div>
-    <v-alert type="info" variant="tonal" class="mb-4">The selected topic is reserved for this device. Its publish Rules must allow the topic. Apply broker changes after saving.</v-alert>
+    <v-autocomplete v-model="config.readers" :items="readerCandidates" item-title="label" item-value="id" label="Allow other identities to read this status topic" multiple chips closable-chips clearable hint="Readers need a matching Subscribe Rule and cannot have a Publish Rule for this topic." persistent-hint />
+    <v-alert type="info" variant="tonal" class="mb-4">The selected topic is reserved for this device. Its publish Rules must allow the topic. Selected readers can subscribe only when their own Subscribe Rules allow it. Apply broker changes after saving.</v-alert>
     <p>Monitoring Strategy: <strong>MQTT LWT + Retain + QoS 1</strong></p>
     <p>Current Status: <strong>{{ status }}</strong></p>
     <p>Expected Keep Alive: <strong>60 seconds</strong> (configured by firmware)</p>

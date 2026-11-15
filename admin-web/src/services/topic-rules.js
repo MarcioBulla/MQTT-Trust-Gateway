@@ -33,13 +33,17 @@ export function deviceAcl(device, healthTopics = []) {
         typeof entry.topic !== 'string' || !entry.topic || Buffer.byteLength(entry.topic, 'utf8') > 512 ||
         /[\s\x00-\x1f\x7f+#]/u.test(entry.topic))
       throw new Error('Invalid health topic');
-    if (owners.has(entry.topic) && owners.get(entry.topic) !== entry.deviceId)
+    if (owners.has(entry.topic) && owners.get(entry.topic).deviceId !== entry.deviceId)
       throw new Error('Health topic belongs to multiple devices');
-    owners.set(entry.topic, entry.deviceId);
+    const readers = entry.readers === undefined ? [] : entry.readers;
+    if (!Array.isArray(readers) || readers.some((reader) => typeof reader !== 'string' || !reader))
+      throw new Error('Invalid health topic readers');
+    owners.set(entry.topic, { deviceId: entry.deviceId, readers: new Set(readers) });
   }
-  // Denies take precedence over # in Mosquitto. Each monitored status topic is
-  // reserved to its owner so another identity cannot forge its status.
-  const denies = [...owners].filter(([, owner]) => owner !== device.id)
+  // Mosquitto's deny directive applies to both directions and overrides wildcard
+  // allows. A permitted reader is therefore required to use precise custom
+  // Rules: it may read the owner's topic but has no matching write Rule.
+  const denies = [...owners].filter(([, entry]) => entry.deviceId !== device.id && !entry.readers.has(device.id))
     .map(([topic]) => `topic deny ${topic}\n`).join('');
   if (rules.mode === 'all') return `\nuser ${device.id}\n${denies}topic readwrite #\n`;
   return `\nuser ${device.id}\n${denies}${rules.publish.map((filter) => `topic write ${filter}\n`).join('')}${rules.subscribe.map((filter) => `topic read ${filter}\n`).join('')}`;

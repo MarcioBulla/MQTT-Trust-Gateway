@@ -59,7 +59,8 @@ test('Device Health Check and uptime render synthetic configuration, coverage an
     await page.route('**/api/devices/synthetic-device/health', async (route) => {
       assert.equal(route.request().method(), 'GET');
       await route.fulfill({ json: {
-      config: { enabled: true, topic: 'gateway/health/synthetic-device/status', onlinePayload: 'online', offlinePayload: 'offline', offlineGrace: 30, recoveryStability: 5 },
+      config: { enabled: true, topic: 'gateway/health/synthetic-device/status', onlinePayload: 'online', offlinePayload: 'offline', readers: [], offlineGrace: 30, recoveryStability: 5 },
+      readerCandidates: [{ id: 'health-reader', label: 'Health reader (health-reader)' }],
         status: 'unknown',
       } });
     });
@@ -75,15 +76,14 @@ test('Device Health Check and uptime render synthetic configuration, coverage an
     await firstBar.hover();
     const tooltip = page.locator('.v-overlay--active .v-overlay__content');
     await tooltip.waitFor();
-    assert.match(await tooltip.innerText(), /2026-10-15 UTC · 100\.0%/);
-    assert.match(await tooltip.innerText(), /Complete day/);
+    assert.match(await tooltip.innerText(), /2026-10-15 UTC · Ended Online/);
     const partialOnlineBar = uptime.locator('.uptime-bar').nth(1);
     assert.equal(await partialOnlineBar.getAttribute('aria-label'), '2026-10-16: unknown');
     assert.match(await partialOnlineBar.getAttribute('style'), /success/, 'a partial day ending online is green');
     await partialOnlineBar.hover();
     await tooltip.waitFor();
-    assert.match(await tooltip.innerText(), /2026-10-16 UTC · Unknown/);
-    assert.match(await tooltip.innerText(), /Incomplete coverage/);
+    assert.match(await tooltip.innerText(), /2026-10-16 UTC · Ended Online/);
+    assert.match(await tooltip.innerText(), /Unknown 23:00/);
     const offlineBar = uptime.locator('.uptime-bar').nth(2);
     assert.match(await offlineBar.getAttribute('style'), /error/, 'a day ending offline is red');
 
@@ -93,6 +93,7 @@ test('Device Health Check and uptime render synthetic configuration, coverage an
     assert.equal(await healthTopicInput.inputValue(), 'gateway/health/synthetic-device/status');
     assert.equal(await form.getByRole('textbox', { name: 'Online Payload' }).inputValue(), 'online');
     assert.equal(await form.getByRole('textbox', { name: /Offline Payload/ }).inputValue(), 'offline');
+    await form.getByRole('combobox', { name: 'Allow other identities to read this status topic' }).waitFor();
     await form.getByText('Current Status:').waitFor();
     await form.getByText('Current Status:').locator('..').getByText('unknown', { exact: true }).waitFor();
     await form.getByText('MQTT LWT + Retain + QoS 1', { exact: true }).waitFor();

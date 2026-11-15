@@ -14,15 +14,20 @@ test('reserved health topics deny other identities even with broad access', () =
   assert.throws(() => deviceAcl({ id: 'one' }, [...topics, { deviceId: 'three', topic: 'custom/two' }]));
 });
 
-test('reserved health-topic denies also override custom wildcard grants without changing the owner rule', () => {
+test('health topic owners can grant a precise reader without allowing publication', () => {
   const topics = [
-    { deviceId: 'device-a', topic: 'gateway/health/device-a/status' },
+    { deviceId: 'device-a', topic: 'gateway/health/device-a/status', readers: ['device-c'] },
     { deviceId: 'device-b', topic: 'gateway/health/device-b/status' },
   ];
   const own = deviceAcl({ id: 'device-a', topicRules: { mode: 'custom', publish: ['#'], subscribe: ['#'] } }, topics);
-  const other = deviceAcl({ id: 'device-c', topicRules: { mode: 'custom', publish: ['#'], subscribe: ['#'] } }, topics);
+  const reader = deviceAcl({ id: 'device-c', topicRules: { mode: 'custom', publish: ['other/#'], subscribe: ['gateway/health/device-a/status'] } }, topics);
+  const other = deviceAcl({ id: 'device-d', topicRules: { mode: 'custom', publish: ['#'], subscribe: ['#'] } }, topics);
   assert.doesNotMatch(own, /topic deny gateway\/health\/device-a\/status/);
   assert.match(own, /topic deny gateway\/health\/device-b\/status/);
+  assert.doesNotMatch(reader, /topic deny gateway\/health\/device-a\/status/);
+  assert.match(reader, /topic deny gateway\/health\/device-b\/status/);
+  assert.match(reader, /topic read gateway\/health\/device-a\/status/);
+  assert.doesNotMatch(reader, /topic write gateway\/health\/device-a\/status/);
   assert.match(other, /topic deny gateway\/health\/device-a\/status/);
   assert.match(other, /topic deny gateway\/health\/device-b\/status/);
   assert.match(other, /topic write #/);
