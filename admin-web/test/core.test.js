@@ -21,7 +21,7 @@ const { loadDb, saveDb, exclusive, sqlite } = await import('../src/db.js');
 const { enrollTotp, verifyTotp } = await import('../src/totp.js');
 const OTPAuth = await import('otpauth');
 test('legacy SQLite state receives the non-destructive baseline schema version', () => {
-  assert.equal(sqlite.prepare('PRAGMA user_version').get().user_version, 3);
+  assert.equal(sqlite.prepare('PRAGMA user_version').get().user_version, 4);
   assert.ok(loadDb().devices);
 });
 test('CA lifecycle: idempotence, CSR constraints, issuance, renewal, CRL and ACL enforcement', async () => {

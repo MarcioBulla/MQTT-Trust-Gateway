@@ -458,6 +458,8 @@ export const helpTopics = [
       'Dashboard: display service connection, CA availability, and enforcement status',
       'Device monitoring: use the separate per-device Health Check when configured'
     ],
+    workflowMermaid: 'flowchart LR\n  A[Open Dashboard] --> B[Request authenticated status snapshot]\n  B --> C[Read Admin broker connection]\n  B --> D[Read local CA certificate]\n  B --> E[Compare broker configuration revisions]\n  C --> F[Display Gateway service health]\n  D --> F\n  E --> F\n  F --> G[Use device Health Check for device status]',
+    mermaid: 'sequenceDiagram\n  actor Admin as Administrator\n  participant UI as Dashboard\n  participant API as Admin API\n  participant MQTT as Admin MQTT client\n  participant Files as Local certificate and revision files\n  Admin->>UI: Open Dashboard or refresh status\n  UI->>API: Request authenticated status snapshot\n  API->>MQTT: Read current broker connection state\n  MQTT-->>API: Connected or unavailable\n  API->>Files: Read CA/server certificate and revision markers\n  Files-->>API: Expiry and applied configuration state\n  API-->>UI: Return service health summary\n  Note over UI,API: This summary does not report device connectivity',
     relatedTopicIds: ['device-health-check', 'system-updates']
   },
   {
@@ -484,6 +486,15 @@ export const helpTopics = [
     linux: [
       { label: 'Linux host (OpenSSL) · inspect the downloaded public CA certificate', code: 'openssl x509 -in gateway-ca.crt -noout -subject -issuer -dates -fingerprint -sha256' }
     ],
+    sequence: [
+      'Dashboard → Admin API: request Download CA',
+      'Admin API → browser: return the public gateway-ca.crt file',
+      'Administrator → MQTT client: install the CA certificate in its trust store',
+      'MQTT client → broker: validate the server chain and hostname during TLS',
+      'Device → broker: present its separate device certificate for mTLS'
+    ],
+    workflowMermaid: 'flowchart LR\n  A[Download gateway-ca.crt] --> B[Install as broker trust anchor]\n  B --> C[Connect using broker hostname]\n  C --> D{CA chain and hostname valid?}\n  D -- Yes --> E[Continue TLS and device mTLS]\n  D -- No --> F[Stop and verify trust material and SAN]\n  G[CA expires later] --> H[Plan supported CA replacement separately]',
+    mermaid: 'sequenceDiagram\n  actor Admin as Administrator\n  participant UI as Gateway Dashboard\n  participant API as Admin API\n  participant Client as MQTT client\n  participant Broker as Mosquitto broker\n  Admin->>UI: Select Download CA\n  UI->>API: Request public CA certificate\n  API-->>UI: Return gateway-ca.crt\n  UI-->>Admin: Download gateway-ca.crt\n  Admin->>Client: Install CA in the client trust store\n  Client->>Broker: Start TLS using broker hostname\n  Broker-->>Client: Present broker server certificate\n  Client->>Client: Validate CA chain and hostname SAN\n  Note over Client,Broker: Device mTLS uses a separate device certificate and private key',
     relatedTopicIds: ['first-device-to-first-message', 'generate-complete-certificate', 'import-certificate']
   },
   {
@@ -499,6 +510,15 @@ export const helpTopics = [
       'These settings are not active. The switches, threshold fields, topic, and message template are disabled placeholders; they cannot be saved and do not publish MQTT messages.',
       'For an available manual renewal, use Renew from the action menu for the specific eligible certificate in Device Licenses or the Licenses page. That action issues a new certificate using the selected certificate’s public key; it does not install the certificate on the device or revoke the previous certificate.'
     ],
+    sequence: [
+      'Administrator → Renew tab: review the separate device-certificate and Gateway CA planning sections',
+      'Administrator: inspect the disabled automatic-renewal switches and days-before-expiry fields',
+      'Renew tab: display planned MQTT topics and message-template fields only',
+      'Gateway: do not save settings, schedule renewals, issue certificates, rotate the CA, or publish messages',
+      'For current manual renewal: use the existing certificate-specific Renew action'
+    ],
+    workflowMermaid: 'flowchart LR\n  A[Open Edit Device → Renew] --> B[Review device certificate renewal preview]\n  A --> C[Review Gateway CA renewal preview]\n  B --> D[Controls are disabled WIP placeholders]\n  C --> D\n  D --> E[No settings or MQTT messages are produced]\n  F[Need current manual renewal?] --> G[Use the selected certificate Renew action]',
+    mermaid: 'sequenceDiagram\n  actor Admin as Administrator\n  participant UI as Device Renew tab\n  participant API as Gateway API\n  Admin->>UI: Open the Renew planning tab\n  UI-->>Admin: Show disabled device and CA renewal controls\n  Note over UI,API: Preview fields are not saved or submitted\n  Note over UI,API: No certificate is issued and no CA is rotated\n  Note over UI,API: No MQTT renewal message is published\n  Admin->>UI: Choose current certificate-specific Renew action\n  UI->>API: Submit the existing manual renewal request',
     relatedTopicIds: ['certificate-renewal', 'sign-existing-csr']
   },
   {
@@ -513,6 +533,15 @@ export const helpTopics = [
       'Do not expect the tab to upload or store firmware, generate a device download link, or deliver a firmware notification.',
       'Firmware signing, authenticity verification, device-side download, installation, and version reporting are not implemented by these placeholder controls.'
     ],
+    sequence: [
+      'Administrator → Edit Device: open the Firmware tab',
+      'Firmware tab → Administrator: display the planned upload area and empty table',
+      'Administrator: review disabled delivery and version-report template fields',
+      'Gateway: do not accept or store a firmware file and do not send an MQTT message',
+      'Device: no download link or firmware update is provided by this preview'
+    ],
+    workflowMermaid: 'flowchart LR\n  A[Open Edit Device → Firmware] --> B[Review planned firmware table]\n  B --> C[Review disabled MQTT templates]\n  C --> D[WIP preview only]\n  D --> E[No upload, storage, link, or device delivery]',
+    mermaid: 'sequenceDiagram\n  actor Admin as Administrator\n  participant UI as Firmware tab\n  participant Gateway as MQTT Trust Gateway\n  participant MCU as Device MCU\n  Admin->>UI: Open Firmware tab\n  UI-->>Admin: Display preview table and disabled controls\n  Note over UI,Gateway: No upload request or firmware record is created\n  Note over Gateway,MCU: No link or firmware notification is sent',
     relatedTopicIds: ['register-device', 'device-topic-rules', 'first-device-to-first-message']
   },
 ];

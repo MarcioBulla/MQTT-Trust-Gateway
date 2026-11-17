@@ -34,9 +34,9 @@ def main():
         if not args.ephemeral_test_key and base64.b64decode(os.environ.get('GATEWAY_RELEASE_PUBLIC_KEY_B64',''),validate=True)!=public:
             raise ValueError('Signing key does not match the separately configured trust key')
         manifest={'format_version':1,'version':args.version,'channel':'beta' if '-' in args.version.split('+')[0] else 'stable',
-            'schema_version':3,'images':{'admin':{'reference':args.admin},'broker':{'reference':args.broker}},
+            'schema_version':4,'images':{'admin':{'reference':args.admin},'broker':{'reference':args.broker}},
             'compatibility':{'min_gateway_version':'1.0.2','min_podman_version':'5.0.0'},
-            'migrations':{'from':1,'to':3,'requires_snapshot':True},
+            'migrations':{'from':3,'to':4,'requires_snapshot':True},
             'health_checks':dict.fromkeys(('admin','database','broker_tls','mqtt_mtls'),True)}
         payload=json.dumps(manifest,sort_keys=True,separators=(',',':')).encode()+b'\n'
         raw=root/'manifest.json';raw.write_bytes(payload)
