@@ -144,7 +144,7 @@ class RealUpdateTests(unittest.TestCase):
             command('systemctl','--user','start',cls.names['broker']+'.service',cls.names['admin']+'.service')
             cls.host=FixtureHost(cls.config,cls.artifacts)
             try:
-                cls.host.health({'version':'1.0.2','schemaVersion':3})
+                cls.host.health({'version':'1.0.2','schemaVersion':4})
             except Exception:
                 # This integration fixture contains only generated identities
                 # and synthetic data. Surface broker startup diagnostics so
@@ -222,8 +222,8 @@ class RealUpdateTests(unittest.TestCase):
         for name,image in (('admin',admin),('broker',broker)):
             digest=command('podman','image','inspect','--format','{{.Digest}}',image)
             images[name]={'reference':'ghcr.io/marciobulla/mqtt-trust-'+name+'@'+digest}
-        schema_version=4 if migration_failure else 3
-        previous_schema=3
+        schema_version=5 if migration_failure else 4
+        previous_schema=4
         manifest={'version':version,'channel':'beta' if releases.VERSION.fullmatch(version).group(4) else 'stable','schema_version':schema_version,'images':images,
                   'compatibility':{'min_gateway_version':'1.0.2','min_podman_version':'5.0.0'},
                   'migrations':{'from':previous_schema,'to':schema_version,'requires_snapshot':True},
@@ -319,7 +319,7 @@ class RealUpdateTests(unittest.TestCase):
         self.mqtt_fixture('retain-read','retained-state')
         successful=controller.install(target)
         self.assertEqual(successful['state'],'COMPLETED', 'Controller stage: '+str(successful.get('errorCode'))+' / '+str(successful.get('failedStage')))
-        self.host.health({'version':target,'schemaVersion':3})
+        self.host.health({'version':target,'schemaVersion':4})
         self.mqtt_fixture('retain-read','retained-state')
         self.assertTrue(self.mqtt_fixture('queue-read','queued-before-'+target)['sessionPresent'])
         import sqlite3
@@ -349,7 +349,7 @@ class RealUpdateTests(unittest.TestCase):
         recovered=Controller(self.state,FixtureHost(self.config,self.artifacts)).recover()
         self.assertEqual(recovered['state'],'ROLLED_BACK')
         self.assertEqual(hashlib.sha256((self.data/'admin/ca/ca.key').read_bytes()).hexdigest(),ca_before)
-        self.host.health({'version':target,'schemaVersion':3})
+        self.host.health({'version':target,'schemaVersion':4})
 
         # Bootstrap and run the actual independently installed systemd updater.
         self.__class__.updater_service=Path.home()/'.config/systemd/user'/(self.prefix+'-updater.service')
@@ -364,4 +364,4 @@ class RealUpdateTests(unittest.TestCase):
             time.sleep(0.2)
         self.assertTrue(status['available'])
         self.assertEqual(status['installed']['version'],target)
-        self.host.health({'version':target,'schemaVersion':3})
+        self.host.health({'version':target,'schemaVersion':4})
