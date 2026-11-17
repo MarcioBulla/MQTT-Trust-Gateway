@@ -24,3 +24,37 @@ test('Gateway refuses a database schema newer than the running application', () 
   assert.match(result.stderr, /newer than this Gateway supports/);
   fs.rmSync(directory, { recursive: true, force: true });
 });
+
+test('startup removes only the obsolete firmware planning flag without changing schema or identities', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-firmware-planning-cleanup-'));
+  const adminDirectory = path.join(directory, 'admin');
+  fs.mkdirSync(adminDirectory, { mode: 0o700 });
+  const databasePath = path.join(adminDirectory, 'gateway.sqlite');
+  const state = {
+    users: [], sessions: {}, challenges: {}, certificates: [{ id: 'cert-kept' }],
+    devices: [{ id: 'device-kept', renewal: { firmwareTemplateConfigured: true, deviceLicenseAutoRenewEnabled: false } }],
+    trustedCas: [], deletedIdentities: [], settings: {},
+  };
+  const database = new DatabaseSync(databasePath);
+  database.exec('CREATE TABLE state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL); CREATE TABLE audit (id INTEGER PRIMARY KEY, at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL);');
+  database.prepare('INSERT INTO state VALUES(1, ?)').run(JSON.stringify(state));
+  database.exec('PRAGMA user_version=4;');
+  database.close();
+
+  const moduleUrl = new URL('../src/db.js', import.meta.url).href;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(moduleUrl)})`], {
+    env: { ...process.env, ADMIN_DATA_DIR: adminDirectory }, encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const updated = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    const persisted = JSON.parse(updated.prepare('SELECT value FROM state WHERE id=1').get().value);
+    assert.equal(persisted.devices[0].id, 'device-kept');
+    assert.deepEqual(persisted.devices[0].renewal, { deviceLicenseAutoRenewEnabled: false });
+    assert.equal(persisted.certificates[0].id, 'cert-kept');
+    assert.equal(updated.prepare('PRAGMA user_version').get().user_version, 4);
+  } finally {
+    updated.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

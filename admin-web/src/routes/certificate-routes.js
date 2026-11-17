@@ -396,7 +396,6 @@ export function registerCertificateRoutes(app) {
           deviceLicenseAutoRenewEnabled: false,
           gatewayCaTemplateConfigured: false,
           gatewayCaAutoRenewEnabled: false,
-          firmwareTemplateConfigured: false,
         },
         createdAt: new Date().toISOString(),
       };

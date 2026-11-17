@@ -98,7 +98,6 @@ test('schema v2 migrates to health tables while preserving state and entity IDs'
       deviceLicenseAutoRenewEnabled: false,
       gatewayCaTemplateConfigured: false,
       gatewayCaAutoRenewEnabled: false,
-      firmwareTemplateConfigured: false,
     });
     assert.deepEqual(database.prepare('SELECT kind,id FROM entity_ids ORDER BY kind,id').all().map(row => ({ ...row })), [
       { kind: 'certificate', id: 'certificate-v2' }, { kind: 'device', id: 'device-v2' },

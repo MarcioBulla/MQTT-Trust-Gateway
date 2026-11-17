@@ -266,7 +266,6 @@ defineExpose({ open });
     <v-tab value="rules">Rules</v-tab>
     <v-tab value="health">Health Check</v-tab>
     <v-tab value="renew">Renew <v-chip size="x-small" class="ml-2" color="warning" variant="tonal">WIP</v-chip></v-tab>
-    <v-tab value="firmware">Firmware <v-chip size="x-small" class="ml-2" color="warning" variant="tonal">WIP</v-chip></v-tab>
   </v-tabs>
   <DeviceRules v-if="props.deviceId && editTab === 'rules'" :device-id="props.deviceId" />
   <DeviceHealth v-if="props.deviceId && editTab === 'health'" :device-id="props.deviceId" />
@@ -304,7 +303,6 @@ defineExpose({ open });
       </v-row>
     </v-card>
   </v-card>
-  <v-card v-if="props.deviceId && editTab === 'firmware'" class="pa-6"><div class="d-flex align-center justify-space-between ga-3 mb-5"><div class="d-flex align-center ga-2"><h2 class="text-h6">Firmware</h2><v-chip size="small" color="warning" variant="tonal">Work in progress</v-chip><HelpButton topic-id="device-firmware-planning" /></div><v-btn disabled color="primary" prepend-icon="mdi-upload">Upload firmware</v-btn></div><v-table density="comfortable" class="mb-6"><thead><tr><th>Version</th><th>Name</th><th>Signature</th><th>Download</th><th>Copy link</th><th>Send to device</th></tr></thead><tbody><tr><td colspan="6" class="text-center text-medium-emphasis py-8">No firmware uploaded.</td></tr></tbody></v-table><v-card variant="outlined" class="pa-4"><h3 class="text-subtitle-1 mb-4">MQTT delivery template</h3><v-row><v-col cols="12" md="6"><v-text-field disabled label="Firmware announcement topic" placeholder="devices/{device_id}/firmware/update" /></v-col><v-col cols="12" md="6"><v-text-field disabled label="Installed-version report topic" placeholder="devices/{device_id}/firmware/status" /></v-col><v-col cols="12"><v-textarea disabled label="Update message template" rows="4" placeholder="Version, download URL, checksum, and release notes" /></v-col><v-col cols="12"><v-textarea disabled label="Installed-version message template" rows="3" placeholder="Device version and update result" /></v-col></v-row></v-card></v-card>
   <v-alert v-if="!props.embedded && (!props.deviceId || editTab === 'licenses')" type="info" variant="tonal" class="mb-5">Importing a certificate does not automatically trust its issuer. External CAs must be added and explicitly approved below. Apply pending broker changes to enforce access and trust changes.</v-alert>
   <div v-if="props.embedded" class="d-flex flex-wrap align-center justify-space-between ga-3 mb-4">
     <div><h2 class="text-h6">Certificate provisioning</h2><p class="text-body-2 text-medium-emphasis mb-0">Manage credentials from the same device registry. Use Add certificate above to choose a method.</p></div>

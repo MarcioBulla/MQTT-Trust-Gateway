@@ -52,7 +52,6 @@ const renewalPlanning = {
       device.renewal.deviceLicenseAutoRenewEnabled = Boolean(device.renewal.deviceLicenseAutoRenewEnabled);
       device.renewal.gatewayCaTemplateConfigured = Boolean(device.renewal.gatewayCaTemplateConfigured);
       device.renewal.gatewayCaAutoRenewEnabled = Boolean(device.renewal.gatewayCaAutoRenewEnabled);
-      device.renewal.firmwareTemplateConfigured = Boolean(device.renewal.firmwareTemplateConfigured);
     }
     database.prepare('UPDATE state SET value=? WHERE id=1').run(JSON.stringify(state));
   },

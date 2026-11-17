@@ -57,6 +57,26 @@ test('Device Health Check help matches the passive LWT implementation and its li
   assert.deepEqual(topic.relatedTopicIds, ['device-topic-rules', 'register-device', 'mqtt-manager']);
 });
 
+test('Help does not describe Gateway-managed device firmware or OTA', () => {
+  const plannedFirmwareTopics = helpTopics.filter((topic) => /firmware|\bota\b|mcuboot/i.test(`${topic.id} ${topic.title}`));
+  assert.deepEqual(plannedFirmwareTopics, []);
+
+  const helpText = helpTopics.map((topic) => [
+    topic.shortSummary, topic.caution, topic.overview, topic.when,
+    ...(topic.prerequisites ?? []), ...(topic.steps ?? []), ...(topic.artifacts ?? []),
+    ...(topic.zephyr ? [topic.zephyr] : []), ...(topic.sequence ?? []),
+    topic.workflowMermaid, topic.mermaid,
+  ].filter(Boolean).join(' ')).join('\n');
+  assert.doesNotMatch(helpText, /Gateway.{0,60}(?:upload|manage|deliver|distribute|install|update).{0,60}(?:firmware|OTA)/i);
+  assert.doesNotMatch(helpText, /(?:firmware|OTA).{0,60}(?:uploaded|managed|delivered|distributed|installed|updated).{0,60}by the Gateway/i);
+
+  const health = helpTopicById['device-health-check'];
+  assert.match(health.overview, /firmware must publish/i);
+  for (const id of ['generate-complete-certificate', 'sign-existing-csr', 'generate-csr-external-signing', 'import-certificate']) {
+    assert.ok(helpTopicById[id]?.zephyr, `${id} should retain its Zephyr certificate guidance`);
+  }
+});
+
 test('System Updates help describes signed installation, safe rollback, and recovery limits', () => {
   const topic = helpTopicById['system-updates'];
   assert.ok(topic);

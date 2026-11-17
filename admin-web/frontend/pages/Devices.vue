@@ -134,7 +134,6 @@ function gatewayTags(device) {
   return [
     tag('license', renewal.deviceLicenseTemplateConfigured, renewal.deviceLicenseAutoRenewEnabled, 'License'),
     tag('ca', renewal.gatewayCaTemplateConfigured, renewal.gatewayCaAutoRenewEnabled, 'Gateway CA'),
-    renewal.firmwareTemplateConfigured ? { kind: 'firmware', label: 'Firmware', color: 'primary', description: 'Firmware delivery template is planned' } : null,
     device.restrictedTopicAccess ? {
       kind: 'rules', label: 'Restricted Rules', color: device.topicRulesUseWildcard ? 'teal' : 'amber',
       description: device.topicRulesUseWildcard ? 'Topic Rules: # is limited to a prefix' : 'Topic Rules: no # wildcard is configured',

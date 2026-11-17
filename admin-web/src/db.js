@@ -43,7 +43,7 @@ if (!sqlite.prepare('SELECT id FROM state WHERE id=1').get()) {
     device.renewal.deviceLicenseAutoRenewEnabled = Boolean(device.renewal.deviceLicenseAutoRenewEnabled);
     device.renewal.gatewayCaTemplateConfigured = Boolean(device.renewal.gatewayCaTemplateConfigured);
     device.renewal.gatewayCaAutoRenewEnabled = Boolean(device.renewal.gatewayCaAutoRenewEnabled);
-    device.renewal.firmwareTemplateConfigured = Boolean(device.renewal.firmwareTemplateConfigured);
+    delete device.renewal.firmwareTemplateConfigured;
   }
   for (const cert of db.certificates) {
     cert.id ||= crypto.randomUUID();
@@ -65,6 +65,21 @@ if (!sqlite.prepare('SELECT id FROM state WHERE id=1').get()) {
   sqlite.prepare('INSERT INTO state VALUES(1,?)').run(JSON.stringify(db));
 }
 migrateDatabase(sqlite);
+// Firmware planning was never an active Gateway feature. Remove its obsolete
+// placeholder from persisted state without changing the database schema or
+// touching device identities, certificates, Rules, or Health Check history.
+{
+  const row = sqlite.prepare('SELECT value FROM state WHERE id=1').get();
+  const state = row && JSON.parse(row.value);
+  let changed = false;
+  for (const device of state?.devices ?? []) {
+    if (device.renewal && Object.hasOwn(device.renewal, 'firmwareTemplateConfigured')) {
+      delete device.renewal.firmwareTemplateConfigured;
+      changed = true;
+    }
+  }
+  if (changed) sqlite.prepare('UPDATE state SET value=? WHERE id=1').run(JSON.stringify(state));
+}
 export function loadDb() {
   const db = JSON.parse(sqlite.prepare('SELECT value FROM state WHERE id=1').get().value);
   db.trustedCas ||= [];
@@ -77,7 +92,7 @@ export function loadDb() {
     device.renewal.deviceLicenseAutoRenewEnabled = Boolean(device.renewal.deviceLicenseAutoRenewEnabled);
     device.renewal.gatewayCaTemplateConfigured = Boolean(device.renewal.gatewayCaTemplateConfigured);
     device.renewal.gatewayCaAutoRenewEnabled = Boolean(device.renewal.gatewayCaAutoRenewEnabled);
-    device.renewal.firmwareTemplateConfigured = Boolean(device.renewal.firmwareTemplateConfigured);
+    delete device.renewal.firmwareTemplateConfigured;
   }
   for (const cert of db.certificates) {
     cert.status ||= 'active';
