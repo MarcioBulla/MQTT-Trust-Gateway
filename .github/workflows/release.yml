@@ -10,6 +10,10 @@ on:
         description: Publish only after all acceptance checks pass
         default: false
         type: boolean
+      amend_existing:
+        description: Replace the existing release tag and signed assets for this version
+        default: false
+        type: boolean
 permissions:
   contents: read
 concurrency:
@@ -28,6 +32,7 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
       PUBLISH: ${{ inputs.publish }}
+      AMEND_EXISTING: ${{ inputs.amend_existing }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -48,6 +53,24 @@ jobs:
           assert channel=='beta' or os.environ['GITHUB_REF']=='refs/heads/main','Stable releases require main'
           with open(os.environ['GITHUB_ENV'],'a') as output: output.write('RELEASE_CHANNEL='+channel+'\n')
           PY
+          if [ "$PUBLISH" = true ]; then
+            if [ "$AMEND_EXISTING" = true ]; then
+              gh release view "v$VERSION" >/dev/null
+              git ls-remote --exit-code origin "refs/tags/v$VERSION" >/dev/null
+            else
+              if gh release view "v$VERSION" >/dev/null 2>&1; then
+                echo "Release v$VERSION already exists; set amend_existing only to intentionally replace it."
+                exit 1
+              fi
+              if git ls-remote --exit-code origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+                echo "Tag v$VERSION already exists; refusing to overwrite it without amend_existing."
+                exit 1
+              fi
+            fi
+          elif [ "$AMEND_EXISTING" = true ]; then
+            echo 'amend_existing requires publish=true.'
+            exit 1
+          fi
           test "$(id -u)" -ne 0
           sudo loginctl enable-linger "$USER"
           sudo systemctl start "user@$(id -u).service"
@@ -170,11 +193,18 @@ jobs:
             test "$(podman image inspect "$reference" --format '{{.Id}}')" = "$(podman image inspect "localhost/mqtt-update-test-$component:base" --format '{{.Id}}')"
           done
           python3 -m scripts.release_manifest --version "$VERSION" --admin "ghcr.io/marciobulla/mqtt-trust-admin@$(cat "$RUNNER_TEMP/gateway-admin.digest")" --broker "ghcr.io/marciobulla/mqtt-trust-broker@$(cat "$RUNNER_TEMP/gateway-broker.digest")" --output release-artifacts
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' tag -a "v$VERSION" -m "MQTT Trust Gateway $VERSION" "$GITHUB_SHA"
-          git push origin "refs/tags/v$VERSION"
           release_args=()
           if [ "$RELEASE_CHANNEL" = beta ]; then release_args+=(--prerelease --latest=false); else release_args+=(--latest); fi
-          gh release create "v$VERSION" --verify-tag --title "MQTT Trust Gateway $VERSION" --notes-file "docs/releases/$VERSION.md" "${release_args[@]}" release-artifacts/update-manifest.json release-artifacts/update-manifest.sig release-artifacts/update-public-key.der
+          if [ "$AMEND_EXISTING" = true ]; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' tag -fa "v$VERSION" -m "MQTT Trust Gateway $VERSION (amended)" "$GITHUB_SHA"
+            git push --force origin "refs/tags/v$VERSION"
+            gh release edit "v$VERSION" --title "MQTT Trust Gateway $VERSION" --notes-file "docs/releases/$VERSION.md" "${release_args[@]}"
+            gh release upload "v$VERSION" --clobber release-artifacts/update-manifest.json release-artifacts/update-manifest.sig release-artifacts/update-public-key.der
+          else
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' tag -a "v$VERSION" -m "MQTT Trust Gateway $VERSION" "$GITHUB_SHA"
+            git push origin "refs/tags/v$VERSION"
+            gh release create "v$VERSION" --verify-tag --title "MQTT Trust Gateway $VERSION" --notes-file "docs/releases/$VERSION.md" "${release_args[@]}" release-artifacts/update-manifest.json release-artifacts/update-manifest.sig release-artifacts/update-public-key.der
+          fi
       - name: Upload validation artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

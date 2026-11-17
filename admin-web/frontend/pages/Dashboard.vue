@@ -63,9 +63,9 @@ const steps = computed(() => [
       ><v-col
         v-for="[label, value, icon, color] in [
           ['Registered devices', status.registeredDevices, 'mdi-chip', 'primary'],
-          ['Valid certificates', status.validCertificates, 'mdi-shield-check-outline', 'success'],
-          ['Expiring within 30 days', status.expiringCertificates, 'mdi-clock-alert-outline', 'warning'],
-          ['Expired certificates', status.expiredCertificates, 'mdi-shield-off-outline', 'error'],
+          ['Active licenses', status.activeLicenses, 'mdi-shield-check-outline', 'success'],
+          ['Expiring soon', status.expiringLicenses, 'mdi-clock-alert-outline', 'warning'],
+          ['Expired or revoked', status.expiredOrRevokedLicenses, 'mdi-shield-off-outline', 'error'],
         ]"
         :key="label"
         cols="12"

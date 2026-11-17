@@ -27,21 +27,12 @@ import { archiveDeviceRecord, restoreDeviceRecord, permanentlyDeleteDevice } fro
 import { normalizeTopicRules, topicRulesForDevice } from '../services/topic-rules.js';
 import { healthTopicMatches } from '../services/device-health-config.js';
 import { allocateEntityId, reserveEntityId } from '../services/entity-ids.js';
+import { licenseStatus } from '../../shared/license-summary.js';
 const find = (db, id) => {
   const c = db.certificates.find((c) => c.id === id);
   if (!c) throw Object.assign(new Error('Certificate not found'), { status: 404 });
   return c;
 };
-const state = (c) =>
-  c.status !== 'active'
-    ? c.status
-    : c.status === 'revoked'
-    ? 'revoked'
-    : Date.parse(c.validTo) <= Date.now()
-      ? 'expired'
-      : Date.parse(c.validTo) < Date.now() + 30 * 86400000
-        ? 'expiring'
-        : 'active';
 // Explicit allowlist: list metadata remains available without revealing cryptographic identifiers.
 export function certificateListView(certificate, revealed) {
   const record = publicCertificate(certificate);
@@ -53,7 +44,7 @@ export function certificateListView(certificate, revealed) {
 }
 export function publicCertificate(c) {
   const { csr, certificate, oneTimeKeyToken, privateKey, publicKey, ...publicData } = c;
-  return { ...publicData, status: c.status === 'active' && c.brokerTrusted === false ? 'untrusted' : state(c), canDownload: Boolean(certificate) };
+  return { ...publicData, status: licenseStatus(c), canDownload: Boolean(certificate) };
 }
 const deviceRecord = (db, id) => db.devices.find((device) => device.id === id);
 const publicDevice = ({ topicRules, healthCheck, ...device }) => device;

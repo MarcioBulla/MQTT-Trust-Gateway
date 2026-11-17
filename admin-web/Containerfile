@@ -20,7 +20,7 @@ COPY package.json LICENSE NOTICE ./
 COPY src ./src
 COPY shared ./shared
 COPY --from=build /app/dist ./dist
-ARG GATEWAY_VERSION=1.4.4
+ARG GATEWAY_VERSION=1.4.5
 LABEL org.opencontainers.image.version=$GATEWAY_VERSION
 LABEL org.opencontainers.image.source="https://github.com/MarcioBulla/MQTT-Trust-Gateway"
 ARG GATEWAY_COMMIT=unknown

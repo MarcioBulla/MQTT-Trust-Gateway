@@ -1,4 +1,5 @@
 import { trafficMetrics } from '../services/traffic-metrics.js';
+import { licenseSummary } from '../../shared/license-summary.js';
 import fs from 'node:fs/promises';
 import { hasSensitiveGrant } from '../sensitive-access.js';
 import { pendingBrokerChanges } from '../services/pending-broker-changes.js';
@@ -25,8 +26,7 @@ export function registerStatusRoutes(app) {
   app.get(
     '/api/status',
     requireAuth(async (req, res) => {
-      const db = loadDb(),
-        now = Date.now();
+      const db = loadDb();
       const read = (n) => fs.readFile(path.join(env.brokerDir, n), 'utf8').catch(() => null);
       const [revision, appliedRevision, ca, server] = await Promise.all([
         read('revision'),
@@ -49,16 +49,14 @@ export function registerStatusRoutes(app) {
         serverCertificate: server ? { validTo: certificateMetadata(server).validTo } : null,
         traffic: trafficMetrics.snapshot(),
         registeredDevices: db.devices.length,
-        validCertificates: db.certificates.filter(
-          (c) => c.status !== 'revoked' && Date.parse(c.validTo) > now,
-        ).length,
-        expiringCertificates: db.certificates.filter(
-          (c) =>
-            c.status !== 'revoked' &&
-            Date.parse(c.validTo) > now &&
-            Date.parse(c.validTo) < now + 30 * 86400000,
-        ).length,
-        expiredCertificates: db.certificates.filter((c) => Date.parse(c.validTo) <= now).length,
+        ...(() => {
+          const licenses = licenseSummary(db.certificates);
+          return {
+            activeLicenses: licenses.active,
+            expiringLicenses: licenses.expiring,
+            expiredOrRevokedLicenses: licenses.expiredOrRevoked,
+          };
+        })(),
         enforcement: await brokerChangeStatus(req),
         defaultDays: env.certDays,
         maxDays: env.maxCertDays,

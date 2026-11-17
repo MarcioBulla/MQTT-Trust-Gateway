@@ -10,7 +10,7 @@ app.use('/api',(req,res)=>{
  if(req.path==='/me/preferences'){savedPresentation=req.body.presentation;return res.json({user:{id:'preview',username:'preview',hasPassword:true,totpEnabled:true,passkeys:[],timeZone:'auto',presentation:savedPresentation}});}
  if(req.path==='/bootstrap')return res.json({hasAdmin:true,user:{id:'preview',username:'preview',hasPassword:true,totpEnabled:true,passkeys:[],timeZone:'auto',presentation:savedPresentation}});
  if(req.path==='/broker/status')return res.json({pendingChanges:false});
- if(req.path==='/status')return res.json({registeredDevices:1,validCertificates:1,expiringCertificates:0,expiredCertificates:0,traffic,mqtt:{connected:true},ca:{validTo:'2027-01-01'},serverCertificate:{validTo:'2027-01-01'},enforcement:{applied:true},defaultDays:90});
+ if(req.path==='/status')return res.json({registeredDevices:1,activeLicenses:1,expiringLicenses:0,expiredOrRevokedLicenses:0,traffic,mqtt:{connected:true},ca:{validTo:'2027-01-01'},serverCertificate:{validTo:'2027-01-01'},enforcement:{applied:true},defaultDays:90});
  if(req.path==='/sensitive/reveal'){
   if(req.body.reauth?.password==='test-password'&&req.body.reauth?.totp==='123456'){verified=true;return res.json({expiresInMs:60000});}
   return res.status(403).json({error:'Additional authentication failed'});

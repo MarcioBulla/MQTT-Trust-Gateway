@@ -8,6 +8,7 @@ import DataList from '../components/DataList.vue';
 import DeviceUptime from '../components/DeviceUptime.vue';
 import HelpButton from '../components/HelpButton.vue';
 import { visibleLicenseRows, licenseStatusLabel, mergeLicenseLabels } from '../license-rows.js';
+import { licenseSummary } from '../../shared/license-summary.js';
 import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, action, state, copy, downloadApiFile } from '../api';
@@ -325,10 +326,10 @@ function searchRows(_value, query, item) {
     ...(device.certificates || []).map((entry) => [entry.serial, entry.provisioningMethod, entry.issuerName].filter(Boolean).join(' '))]
     .filter((value) => value != null).join(' ').toLocaleLowerCase().includes(String(query).trim().toLocaleLowerCase());
 }
-const licenseCounts = (status) =>
-  certs.value.filter((certificate) => !certificate.licenseArchivedAt && !certificate.licenseDeletedAt).filter((certificate) => status === 'inactive'
-    ? ['expired', 'revoked', 'blocked'].includes(certificate.status)
-    : certificate.status === status).length;
+const licenseCounts = (status) => {
+  const counts = licenseSummary(certs.value);
+  return status === 'inactive' ? counts.expiredOrRevoked : counts[status] || 0;
+};
 const deletedLicenseCount = computed(() => certs.value.filter((certificate) => certificate.licenseDeletedAt).length);
 const licenseRows = computed(() => visibleLicenseRows(certs.value, tab.value, filter.value));
 </script>
