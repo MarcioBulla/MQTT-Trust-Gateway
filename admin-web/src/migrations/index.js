@@ -1,6 +1,6 @@
 /** Explicit, transactional schema upgrades. Unknown versions always fail closed. */
 import { createDeviceHealthTables } from '../services/device-health-store.js';
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 const baseline = {
   id: '0001-state-audit-baseline', from: 0, to: 1,
   apply(database) {
@@ -39,7 +39,25 @@ const entityIdRegistry = {
   },
 };
 const deviceHealth = { id: '0003-device-health', from: 2, to: 3, apply: createDeviceHealthTables };
-export const migrations = [baseline, entityIdRegistry, deviceHealth];
+const renewalPlanning = {
+  id: '0004-device-renewal-planning', from: 3, to: 4,
+  apply(database) {
+    const row = database.prepare('SELECT value FROM state WHERE id=1').get();
+    const state = row && JSON.parse(row.value);
+    if (!state || !Array.isArray(state.devices))
+      throw new Error('Gateway state database failed renewal-planning migration validation.');
+    for (const device of state.devices) {
+      device.renewal ||= {};
+      device.renewal.deviceLicenseTemplateConfigured = Boolean(device.renewal.deviceLicenseTemplateConfigured);
+      device.renewal.deviceLicenseAutoRenewEnabled = Boolean(device.renewal.deviceLicenseAutoRenewEnabled);
+      device.renewal.gatewayCaTemplateConfigured = Boolean(device.renewal.gatewayCaTemplateConfigured);
+      device.renewal.gatewayCaAutoRenewEnabled = Boolean(device.renewal.gatewayCaAutoRenewEnabled);
+      device.renewal.firmwareTemplateConfigured = Boolean(device.renewal.firmwareTemplateConfigured);
+    }
+    database.prepare('UPDATE state SET value=? WHERE id=1').run(JSON.stringify(state));
+  },
+};
+export const migrations = [baseline, entityIdRegistry, deviceHealth, renewalPlanning];
 
 export function migrateDatabase(database, target = CURRENT_SCHEMA_VERSION, registry = migrations) {
   let current = database.prepare('PRAGMA user_version').get().user_version;

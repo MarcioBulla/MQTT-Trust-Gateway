@@ -285,7 +285,7 @@ def main():
             "--build-arg",
             f"GATEWAY_UPDATE_PUBLIC_KEY_B64={env.get('GATEWAY_UPDATE_PUBLIC_KEY_B64', '')}",
             "--build-arg",
-            "GATEWAY_SCHEMA_VERSION=3",
+            "GATEWAY_SCHEMA_VERSION=4",
             "-f",
             ROOT / "admin-web/Containerfile",
             ROOT / "admin-web",

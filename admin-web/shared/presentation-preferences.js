@@ -6,7 +6,27 @@ export const defaultPresentation = () => ({
     light: { primary: '#1867C0', background: '#F5F7FA', surface: '#FFFFFF', received: '#1867C0', sent: '#4CAF50' },
     dark: { primary: '#2196F3', background: '#0E131B', surface: '#212121', received: '#2196F3', sent: '#4CAF50' },
   },
+  tableColumns: {},
 });
+function normalizeTableColumns(value) {
+  if (value === undefined) return {};
+  if (!value || Array.isArray(value) || Object.keys(value).length > 32) throw new Error('Invalid table preferences');
+  const result = {};
+  for (const [tableId, configuration] of Object.entries(value)) {
+    if (!/^[a-z0-9-]{1,80}$/i.test(tableId) || !configuration || Array.isArray(configuration)) throw new Error('Invalid table preferences');
+    const validKeys = (keys) => Array.isArray(keys) && keys.length <= 32 && keys.every((key) => typeof key === 'string' && /^[A-Za-z0-9._-]{1,100}$/.test(key));
+    if (!validKeys(configuration.visible) || !validKeys(configuration.order) || (configuration.widths !== undefined && (!configuration.widths || Array.isArray(configuration.widths)))) throw new Error('Invalid table preferences');
+    const visible = [...new Set(configuration.visible)], order = [...new Set(configuration.order)];
+    if (visible.some((key) => !order.includes(key))) throw new Error('Invalid table preferences');
+    const widths = {};
+    for (const [key, width] of Object.entries(configuration.widths || {})) {
+      if (!/^[A-Za-z0-9._-]{1,100}$/.test(key) || !Number.isInteger(width) || width < 100 || width > 900) throw new Error('Invalid table preferences');
+      widths[key] = width;
+    }
+    result[tableId] = { visible, order, widths };
+  }
+  return result;
+}
 export function normalizePresentation(value) {
   const defaults = defaultPresentation();
   if (value === undefined) return defaults;
@@ -14,7 +34,7 @@ export function normalizePresentation(value) {
     throw new Error('Invalid chart preferences');
   const preset = value.preset ?? 'custom', oled = value.oled ?? false;
   if (!['custom', 'default', ...themePresets.map(item => item.id)].includes(preset) || typeof oled !== 'boolean') throw new Error('Invalid theme preset or OLED preference');
-  const result = { preset, oled, charts: { unit: value.charts.unit || 'minute', days: value.charts.days, refreshSeconds: value.charts.refreshSeconds, showFailures: value.charts.showFailures }, themes: {} };
+  const result = { preset, oled, charts: { unit: value.charts.unit || 'minute', days: value.charts.days, refreshSeconds: value.charts.refreshSeconds, showFailures: value.charts.showFailures }, themes: {}, tableColumns: normalizeTableColumns(value.tableColumns) };
   for (const name of ['light', 'dark']) {
     result.themes[name] = {};
     for (const field of Object.keys(defaults.themes[name])) {

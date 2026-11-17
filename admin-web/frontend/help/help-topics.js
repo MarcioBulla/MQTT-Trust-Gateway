@@ -3,7 +3,7 @@ export const helpTopics = [
     id: 'mqtt-manager', category: 'MQTT Manager', title: 'Observe, subscribe, publish, and inspect retained MQTT messages',
     shortSummary: 'Use MQTT Manager to watch broker messages, subscribe to topic filters, publish test messages, and inspect retained data. Topics and payloads are hidden until you reveal MQTT information.',
     caution: 'Publishing and removing retained messages affect the live broker. Verify the topic and payload before publishing, and confirm the exact topic before removing a retained message.',
-    overview: 'MQTT Manager is an authenticated server-side bridge to the configured broker. It provides a bounded live message view, a subscription filter, a publisher, a message-history limit, and a retained-message snapshot. Broker credentials remain on the Gateway server. Topic and payload values are protected by the MQTT sensitive-information reveal control; ordinary metadata such as receipt time, QoS, and retain status remains available. Publication QoS describes MQTT protocol delivery and acknowledgement behavior, not proof that every subscriber application consumed the message.',
+    overview: 'MQTT Manager is an authenticated server-side bridge to the configured broker. It provides a bounded live message view, a subscription filter, a publisher, a message-history limit, and a retained-message snapshot. Across the Gateway tables, use the column chooser to show or hide columns, change their order, and set their widths. At least one data column must remain visible; Reset restores that table’s defaults. Table preferences are stored per authenticated user when server storage is available, with a browser-local fallback. Hover over a column heading to see its tooltip. In Trusted devices, Device licenses, and certificate tables, click a device name to copy its immutable device ID; the tooltip tells you which ID will be copied. Broker credentials remain on the Gateway server. Topic and payload values are protected by the MQTT sensitive-information reveal control; ordinary metadata such as receipt time, QoS, and retain status remains available. Publication QoS describes MQTT protocol delivery and acknowledgement behavior, not proof that every subscriber application consumed the message.',
     when: 'Use the page to troubleshoot or demonstrate MQTT traffic, test a topic publication, subscribe to an additional filter, or inspect the broker’s retained snapshot. It is an administrative tool and publishes through the Gateway’s broker connection.',
     prerequisites: ['Sign in to the Gateway administration interface.', 'Reveal MQTT information if you need to read topic names or payloads. The default view masks those values.', 'Use a test topic and synthetic payload when validating behavior; publishing and retained-message removal act on the connected broker.'],
     steps: [
@@ -15,7 +15,8 @@ export const helpTopics = [
       'In Publish a message, enter a topic and payload, choose text or base64 encoding, select QoS 0, 1, or 2, and optionally enable Retain message. QoS 0 is at most once, QoS 1 is at least once and may duplicate, and QoS 2 completes the MQTT exactly-once exchange. These acknowledgements do not prove that every subscriber application processed the message. Choose Publish to send through the Gateway broker connection. Retain stores the latest retained payload for that topic.',
       'Under History retention, set Maximum messages from 10 to 2000 and choose Save limit to change the server-side observed-message buffer limit.',
       'Observed retained messages shows the retained snapshot available to the Gateway. Refresh reloads it; search matches retained topics or payload text. For a row, the actions menu offers Details, Copy topic, and Remove retained. Removal requires typing the exact topic and publishes the MQTT retained-message deletion (an empty retained payload).',
-      'The retained table columns are Topic, Payload, QoS, Size in bytes, Received, and row actions. Use its footer to change page size or move between pages.'
+      'The retained table columns are Topic, Payload, QoS, Size in bytes, Received, and row actions. Use its footer to change page size or move between pages.',
+      'Select the view-columns icon at the top right of any table to customize its layout. Toggle data columns, use the left/right controls to change their order, and enter a width in pixels for a selected column. Widths range from 100 to 900 pixels. At least one data column must remain visible. Preferences persist per authenticated user when server storage is available, with a browser-local fallback. Reset restores that table’s default visibility, order, and widths. Hover over column headings for their tooltips.'
     ],
     artifacts: [
       'Live message history and retained snapshot are held by the Gateway MQTT service; the observed message buffer is bounded and cleared when the Admin service restarts.',
@@ -159,12 +160,12 @@ export const helpTopics = [
   },
   {
     id: 'register-device', category: 'Devices', title: 'Register a device',
-    shortSummary: 'Register a device and let the Gateway generate its immutable device ID. Registration alone does not grant broker access.',
+    shortSummary: 'Register a device, choose or create color-coded labels, and let the Gateway generate its immutable device ID. Registration alone does not grant broker access.',
     caution: 'A new identity is not authorized until it has a usable trusted certificate and you explicitly enable it.',
-    overview: 'A device identity is the MQTT username and ACL scope used by the broker. When you register a device, the Gateway generates a unique, immutable device ID such as dev_… and stores it with the identity metadata; the form no longer asks you to invent an ID. The generated ID is used as the identity value for new certificates and can be copied from the device row. Registration does not issue a certificate or enable MQTT access. Labels assigned to a device in Trusted devices appear as inherited labels in Device licenses and the Device Certificates table. The Device Certificates table also shows labels assigned to each individual certificate: device labels have a border, while certificate-only labels do not. Removing a certificate label affects only that certificate; it does not change the device labels. Labels assigned from Device licenses belong only to that license and do not change the device labels. Use Add certificate to choose a provisioning method and select the registered device. Import also supports an existing certificate identity/CN for compatibility. Device IDs do not define MQTT topic names or filters: topic permissions are configured separately in Rules. The Trusted devices row menu is for identity-level actions such as authorization, archiving, or deleting the identity. For certificate-specific actions such as download, renewal, or revocation, select the exact certificate row in Device Licenses or Device Certificates.',
+    overview: 'A device identity is the MQTT username and ACL scope used by the broker. When you register a device, the Gateway generates a unique, immutable device ID such as dev_… and stores it with the identity metadata; the form no longer asks you to invent an ID. The generated ID is used as the identity value for new certificates and can be copied from the device row. Registration does not issue a certificate or enable MQTT access. The Labels control in Register device lets you search and attach labels already used in the Gateway, or create a new label with a selected color; remove a selected chip before submitting to detach it. These labels belong to the device identity and are inherited by its certificates in Device licenses and Device Certificates. In Device Certificates, use the plus button in a certificate row to search and attach an existing label, or create a label with a selected color. Labels with a colored border come from the device; they cannot be removed from the certificate row. Labels without that border belong to the certificate and can be removed with the chip close button. Adding or removing a certificate label never changes device labels. Archived and deleted certificates have read-only labels. The Device Certificates table also shows the issue date alongside the expiration date. Labels assigned from Device licenses belong only to that license and do not change the device labels. Use Add certificate to choose a provisioning method and select the registered device. Import also supports an existing certificate identity/CN for compatibility. Device IDs do not define MQTT topic names or filters: topic permissions are configured separately in Rules. The Trusted devices row menu is for identity-level actions such as authorization, archiving, or deleting the identity. For certificate-specific actions such as download, renewal, or revocation, select the exact certificate row in Device Licenses or Device Certificates.',
     when: 'Register first to create the device identity, then select it when provisioning one or more certificates.',
     prerequisites: ['No device ID needs to be chosen; the Gateway generates a unique ID when you register.', 'For certificate issuance, use the registered device identity so the certificate common name (CN) matches it.'],
-    steps: ['Open Devices & certificates and select Register device.', 'Optionally add a display name, labels, and description; the Gateway assigns the device ID.', 'Register the identity, then copy its generated ID if the device provisioning workflow needs it.', 'Open Add certificate and select this device for Generate complete certificate, Sign an existing CSR, or Generate CSR for external signing.', 'For an imported existing certificate, select the matching registered identity or enter the certificate’s existing CN when compatibility requires it.', 'After a valid certificate is registered, explicitly authorize the identity and apply pending broker changes.'],
+    steps: ['Open Devices & certificates and select Register device.', 'Optionally add a display name and description.', 'Under Labels, select the plus button to search for and attach an existing label, or enter a new label name and choose its color before selecting Create. Remove any selected label with its chip close button.', 'Register the identity; the Gateway saves its selected labels and generates the device ID.', 'Copy the generated ID if the device provisioning workflow needs it.', 'Open Add certificate and select this device for Generate complete certificate, Sign an existing CSR, or Generate CSR for external signing.', 'For an imported existing certificate, select the matching registered identity or enter the certificate’s existing CN when compatibility requires it.', 'After a valid certificate is registered, explicitly authorize the identity and apply pending broker changes.', 'The Trusted devices table shows the Features column by default. Use the column chooser to hide or show it. License renewal and License auto-renewal tags indicate configured future renewal conditions; Gateway CA renewal and Gateway CA auto-renewal indicate configured future CA renewal conditions; Firmware indicates a configured firmware template. These renewal and firmware conditions belong to WIP workflows and have no user configuration yet, so their tags do not mean those workflows are active. Restricted Rules is a live tag: it appears only for a device with custom Rules when neither the publish nor subscribe filters contains # at any level. For example, devices/# suppresses the tag.'],
     artifacts: ['Generated device ID and metadata: Gateway database; the ID is immutable.', 'Certificate records: separate Gateway metadata with generated cert_… record IDs; X.509 serial numbers and fingerprints remain distinct.', 'Device private key: remains with its creator except where a selected Gateway-generated-key workflow exports it once; registering an identity never creates or stores a key.'],
     sequence: ['Administrator → Gateway: optional identity metadata, without a manually entered ID', 'Gateway → Registry: generate a unique device ID and create a disabled identity', 'Administrator → Gateway: select the identity and provision a certificate separately', 'Administrator → Broker configuration: authorize identity and apply changes'],
     workflowMermaid: "flowchart LR\n  A[Register device] --> B[Gateway generates immutable ID]\n  B --> C[Copy ID if needed]\n  C --> D[Select device in Add certificate]\n  D --> E{Valid trusted certificate?}\n  E -- No --> F[Access stays disabled]\n  E -- Yes --> G[Authorize identity]\n  G --> H[Apply broker changes]" ,
@@ -429,6 +430,90 @@ export const helpTopics = [
       { label: 'Linux host (OpenSSL) · compare the certificate and existing key public-key hashes', code: 'openssl x509 -in device-renewed.crt -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256\nopenssl pkey -in device.key -pubout -outform DER | openssl dgst -sha256' }
     ],
     relatedTopicIds: ['first-device-to-first-message', 'sign-existing-csr', 'import-certificate', 'register-device'],
+  },
+  {
+    id: 'gateway-service-health', category: 'Gateway', title: 'Understand Gateway service health',
+    shortSummary: 'See whether the Admin service can reach the broker, whether the local CA certificate is available, and whether broker configuration changes have been applied.',
+    caution: 'Broker connected describes the Gateway’s own broker connection; it does not show whether individual devices are connected.',
+    overview: 'The Dashboard Service health card summarizes the Gateway’s administrative and broker state. “Broker connected” reports the Admin service MQTT client connection to the configured broker. “Local CA ready” means the Gateway can read and parse its local CA certificate. The enforcement status compares the broker configuration revision with the last applied revision and also checks for pending changes. These are service and configuration indicators, not a device connectivity monitor. Use the per-device Health Check and Uptime view for observed MQTT device status when enabled.',
+    when: 'Use Service health to check the Gateway’s own broker connection, local CA availability, and whether saved broker authorization changes have reached Mosquitto.',
+    prerequisites: ['Sign in to the Gateway Dashboard. The card reads the authenticated /api/status response.'],
+    steps: [
+      'Read Broker: connected means the Gateway Admin MQTT client currently has a broker connection; unavailable means that backend connection is not available.',
+      'Read Local CA: ready means the local CA certificate file is available and readable as an X.509 certificate; unavailable means the Dashboard could not find it.',
+      'Read Broker authorization revision: Applied means the current revision matches the applied revision and there are no pending changes. Pending means broker changes still need to be applied; the applying state may appear while a revision is being submitted.',
+      'Use the Dashboard refresh control to request an updated status snapshot.',
+      'For device connectivity, open the device Health Check and Uptime view. A valid certificate alone does not prove the device is connected.'
+    ],
+    artifacts: [
+      'The Admin service’s MQTT connection status is runtime state; this card does not enumerate connected clients.',
+      'The CA and broker certificate expiry values come from the local public X.509 certificate files.',
+      'The revision and applied-revision files describe broker configuration application; a pending revision means the saved broker policy is not yet confirmed as applied.'
+    ],
+    sequenceTitle: 'What the Dashboard checks',
+    sequence: [
+      'Dashboard → Admin API: request the current status snapshot',
+      'Admin API → MQTT service: read the Admin client’s broker connection state',
+      'Admin API → broker files: read CA/server certificate dates and broker revision markers',
+      'Dashboard: display service connection, CA availability, and enforcement status',
+      'Device monitoring: use the separate per-device Health Check when configured'
+    ],
+    relatedTopicIds: ['device-health-check', 'system-updates']
+  },
+  {
+    id: 'download-gateway-ca', category: 'Certificates', title: 'Download and use the Gateway CA certificate',
+    shortSummary: 'Download the public CA certificate so clients can verify the Gateway broker certificate. The CA expiry date helps plan trust-material replacement before it expires.',
+    caution: 'This file is public trust material. It is not the broker server certificate, a device certificate, or the CA private key.',
+    overview: 'Download CA retrieves the Gateway’s public local CA certificate as gateway-ca.crt. MQTT clients use this CA certificate as a trust anchor when validating the broker’s server certificate during TLS; they must also verify that the broker hostname matches a subject alternative name (SAN). The local CA expiry date is shown separately from the broker server certificate expiry. Plan a CA replacement and client trust-material rollout before the displayed CA validity ends. The exact CA replacement process depends on the Gateway’s certificate lifecycle; this screen does not rotate the CA or renew it automatically.',
+    when: 'Download the CA when provisioning a client that must validate the Gateway broker, or when checking which public trust certificate and expiry date apply to the current Gateway installation.',
+    prerequisites: ['The Gateway local CA certificate is available; the Dashboard shows its expiry under Service health.'],
+    steps: [
+      'On Gateway Overview, read CA expires and compare it with the separate Broker certificate expires date. These are different certificates with different roles.',
+      'Select Download CA. The browser receives the public gateway-ca.crt certificate from the Gateway API.',
+      'Install gateway-ca.crt in the MQTT client’s trust store as the CA used to verify the broker server certificate. Keep TLS peer verification enabled.',
+      'Connect using the broker hostname that appears in the server certificate SAN. Trusting the CA does not replace hostname verification.',
+      'Before the CA expires, plan a supported CA lifecycle transition and distribute the replacement trust material to clients. Do not assume downloading the current CA renews or replaces it.'
+    ],
+    artifactsTitle: 'Certificate roles',
+    artifacts: [
+      'gateway-ca.crt: public local CA certificate downloaded from the Gateway; used by clients to validate the broker/server certificate.',
+      'Broker server certificate: presented by Mosquitto during TLS and validated by the client using gateway-ca.crt plus hostname/SAN verification.',
+      'device.crt and device.key: the client identity credentials used by the device for mTLS; they do not replace the broker trust anchor.',
+      'CA private key: secret signing material held by the Gateway; it is never included in Download CA.'
+    ],
+    linux: [
+      { label: 'Linux host (OpenSSL) · inspect the downloaded public CA certificate', code: 'openssl x509 -in gateway-ca.crt -noout -subject -issuer -dates -fingerprint -sha256' }
+    ],
+    relatedTopicIds: ['first-device-to-first-message', 'generate-complete-certificate', 'import-certificate']
+  },
+  {
+    id: 'device-renewal-planning', category: 'Certificates', title: 'Renew tab planning preview',
+    shortSummary: 'The Renew tab previews automatic device-certificate renewal and Gateway CA renewal, with a separate days-before-expiry setting for each. Its disabled controls do not configure or start either process.',
+    caution: 'No settings are saved and no automatic attempt, certificate issuance, CA rotation, or MQTT message is performed from this tab. The existing certificate action remains available for manual renewal.',
+    overview: 'The Renew tab is a planning preview with two independent sections. Device license renewal shows an automatic-renewal switch and a days-before-expiry threshold, plus planned MQTT request, response, and activation-acknowledgment topics, a public-key source, and a message template. Gateway CA renewal has its own automatic-renewal switch and days-before-expiry threshold, a CA renewal announcement topic, and a CA renewal message template. These planned MQTT fields would support distributing replacement trust material and tracking device reconnections. Features in the Trusted devices table can indicate configured future conditions with License renewal, License auto-renewal, Gateway CA renewal, and Gateway CA auto-renewal. These renewal conditions belong to WIP workflows and have no user configuration yet; a tag is not evidence that renewal is active. All Renew controls are disabled placeholders: they do not save settings, schedule attempts, issue certificates, rotate the CA, publish MQTT messages, or deliver trust material. The yellow WIP label marks these planned workflows as unavailable.',
+    when: 'Use this article to understand the two planned automatic-renewal settings and the existing certificate-specific renewal action.',
+    prerequisites: ['No prerequisites apply to viewing this planning preview. Its controls are disabled.'],
+    steps: [
+      'The Device license renewal section is intended to configure whether an eligible device certificate is renewed automatically and how many days before its expiry the Gateway should attempt renewal. Its MQTT topics, key source, and message template are also planned settings.',
+      'The Gateway CA renewal section is intended to configure CA replacement independently, including whether to automate it and how many days before the current CA expires to begin. It also shows placeholders for the CA announcement topic and message template. Planned migration tracking would identify devices that did not receive or activate the replacement trust material.',
+      'These settings are not active. The switches, threshold fields, topic, and message template are disabled placeholders; they cannot be saved and do not publish MQTT messages.',
+      'For an available manual renewal, use Renew from the action menu for the specific eligible certificate in Device Licenses or the Licenses page. That action issues a new certificate using the selected certificate’s public key; it does not install the certificate on the device or revoke the previous certificate.'
+    ],
+    relatedTopicIds: ['certificate-renewal', 'sign-existing-csr']
+  },
+  {
+    id: 'device-firmware-planning', category: 'Devices', title: 'Firmware tab planning preview',
+    shortSummary: 'The Firmware tab is a planning preview. Upload, version, delivery, and device-report controls are disabled and do not manage firmware.',
+    caution: 'No firmware is uploaded, stored, signed, downloaded, or sent to a device from this tab.',
+    overview: 'The Firmware tab currently displays a planned upload control, an empty firmware table, and disabled MQTT delivery and version-report template fields. These are visual placeholders only: they do not accept or retain files, configure MQTT, create download links, or send messages to an MCU. The yellow WIP label marks the workflow as unavailable.',
+    when: 'Use this article to understand what the Firmware tab currently represents and what it does not do.',
+    prerequisites: ['No prerequisites apply to viewing this planning preview. Its controls are disabled.'],
+    steps: [
+      'Treat the upload control, table, and MQTT templates as a preview of planned firmware-management settings.',
+      'Do not expect the tab to upload or store firmware, generate a device download link, or deliver a firmware notification.',
+      'Firmware signing, authenticity verification, device-side download, installation, and version reporting are not implemented by these placeholder controls.'
+    ],
+    relatedTopicIds: ['register-device', 'device-topic-rules', 'first-device-to-first-message']
   },
 ];
 

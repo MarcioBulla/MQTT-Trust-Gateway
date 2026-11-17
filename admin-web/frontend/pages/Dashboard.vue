@@ -80,7 +80,7 @@ const steps = computed(() => [
     <v-row class="mt-2"
       ><v-col cols="12" md="6"
         ><v-card class="pa-6 h-100"
-          ><h2 class="text-h6 mb-4">Service health</h2>
+          ><div class="d-flex align-center ga-2 mb-4"><h2 class="text-h6">Service health</h2><HelpButton topic-id="gateway-service-health" /></div>
           <v-chip :color="status.mqtt.connected ? 'success' : 'error'" class="mb-4"
             >Broker {{ status.mqtt.connected ? 'connected' : 'unavailable' }}</v-chip
           ><v-chip class="mb-4 ml-2" :color="status.ca ? 'success' : 'error'"
@@ -98,11 +98,9 @@ const steps = computed(() => [
             {{ status.enforcement.revision }}
           </p>
           <v-divider class="my-4" />
-          <div>CA expires: {{ formatDateTime(status.ca?.validTo) }}</div>
+          <div class="d-flex align-center ga-2">CA expires: {{ formatDateTime(status.ca?.validTo) }} <HelpButton topic-id="download-gateway-ca" /></div>
           <div>Broker certificate expires: {{ formatDateTime(status.serverCertificate?.validTo) }}</div>
-          <v-btn class="mt-4" href="/api/certificates/ca" prepend-icon="mdi-download"
-            >Download CA</v-btn
-          ></v-card
+          <v-btn class="mt-4" href="/api/certificates/ca" prepend-icon="mdi-download">Download CA</v-btn></v-card
         ></v-col
       >
       <v-col cols="12" md="6"

@@ -38,6 +38,12 @@ if (!sqlite.prepare('SELECT id FROM state WHERE id=1').get()) {
   for (const device of db.devices) {
     device.status ||= 'active';
     device.trusted ??= device.enabled !== false;
+    device.renewal ||= {};
+    device.renewal.deviceLicenseTemplateConfigured = Boolean(device.renewal.deviceLicenseTemplateConfigured);
+    device.renewal.deviceLicenseAutoRenewEnabled = Boolean(device.renewal.deviceLicenseAutoRenewEnabled);
+    device.renewal.gatewayCaTemplateConfigured = Boolean(device.renewal.gatewayCaTemplateConfigured);
+    device.renewal.gatewayCaAutoRenewEnabled = Boolean(device.renewal.gatewayCaAutoRenewEnabled);
+    device.renewal.firmwareTemplateConfigured = Boolean(device.renewal.firmwareTemplateConfigured);
   }
   for (const cert of db.certificates) {
     cert.id ||= crypto.randomUUID();
@@ -66,6 +72,12 @@ export function loadDb() {
   for (const device of db.devices) {
     device.status ||= 'active';
     device.trusted ??= device.enabled !== false;
+    device.renewal ||= {};
+    device.renewal.deviceLicenseTemplateConfigured = Boolean(device.renewal.deviceLicenseTemplateConfigured);
+    device.renewal.deviceLicenseAutoRenewEnabled = Boolean(device.renewal.deviceLicenseAutoRenewEnabled);
+    device.renewal.gatewayCaTemplateConfigured = Boolean(device.renewal.gatewayCaTemplateConfigured);
+    device.renewal.gatewayCaAutoRenewEnabled = Boolean(device.renewal.gatewayCaAutoRenewEnabled);
+    device.renewal.firmwareTemplateConfigured = Boolean(device.renewal.firmwareTemplateConfigured);
   }
   for (const cert of db.certificates) {
     cert.status ||= 'active';

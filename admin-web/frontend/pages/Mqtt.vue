@@ -137,6 +137,7 @@ function removeRetained() {
           />
         </div>
         <DataList
+          table-id="mqtt-live-messages"
           :headers="headers"
           :items="filtered"
           :items-per-page="10"
@@ -240,6 +241,7 @@ function removeRetained() {
       <v-chip size="small" variant="tonal">{{ retained.length }} topics</v-chip>
     </div>
     <DataList
+      table-id="mqtt-retained-messages"
       :headers="retainedHeaders"
       :items="retained"
       item-value="topic"

@@ -84,6 +84,7 @@ test('time zone preferences require authentication, affect only the current user
     const { defaultPresentation } = await import('../shared/presentation-preferences.js');
     const presentation = defaultPresentation();
     presentation.preset = 'catppuccin'; presentation.oled = true; presentation.charts.unit = 'hour'; presentation.charts.days = 3; presentation.charts.refreshSeconds = 30;
+    presentation.tableColumns = { 'trusted-devices': { visible: ['name', 'gatewayTags'], order: ['gatewayTags', 'name'], widths: {} } };
     presentation.themes.dark.primary = '#AB12CD';
     const invalid = JSON.parse(JSON.stringify(presentation)); invalid.themes.dark.primary = 'url(javascript:test)';
     assert.equal((await preferences({ timeZone: 'UTC', presentation: invalid })).status, 400);

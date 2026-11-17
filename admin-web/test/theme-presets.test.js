@@ -27,3 +27,10 @@ test('legacy preferences preserve custom colors and reject unsupported preset/OL
  assert.throws(()=>normalizePresentation({...value,preset:'unknown'}));
  assert.throws(()=>normalizePresentation({...value,oled:'true'}));
 });
+test('table preferences persist a bounded visible-column order per table', () => {
+ const value=defaultPresentation();
+ value.tableColumns={'trusted-devices':{visible:['name','gatewayTags'],order:['gatewayTags','name','labels'],widths:{name:220,gatewayTags:260}}};
+ assert.deepEqual(normalizePresentation(value).tableColumns,value.tableColumns);
+ const invalid=defaultPresentation();invalid.tableColumns={'trusted-devices':{visible:['name'],order:[],widths:{name:50}}};
+ assert.throws(()=>normalizePresentation(invalid),/table preferences/);
+});

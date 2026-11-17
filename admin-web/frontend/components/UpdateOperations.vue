@@ -90,7 +90,7 @@ onUnmounted(() => { clearInterval(timer); password.value = ''; totp.value = ''; 
   </v-card>
   <v-card class="pa-6 mt-4">
     <h3 class="text-h6 mb-3">Version history</h3>
-    <DataList :headers="headers" :items="history" item-value="id" no-data-text="No update operations have been recorded.">
+    <DataList table-id="system-update-history" :headers="headers" :items="history" item-value="id" no-data-text="No update operations have been recorded.">
       <template #item.version="{ item }"><span>{{ item.previousVersion }} → {{ item.version }}</span><div class="text-caption text-medium-emphasis">{{ item.kind }}</div></template>
       <template #item.state="{ item }"><v-chip size="small" :color="stateColor(item.state)">{{ item.state.replaceAll('_', ' ') }}</v-chip></template>
       <template #item.startedAt="{ item }"><DateTime :value="item.startedAt" /></template>

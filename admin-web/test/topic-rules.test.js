@@ -98,6 +98,13 @@ test('saved rules survive reload and broker synchronization, and remain staged u
     assert.deepEqual(loadDb().devices[0].topicRules.subscribe, ['other/#']);
     const list = await (await fetch(`http://127.0.0.1:${server.address().port}/api/devices`, { headers: { Cookie: cookie } })).json();
     assert.equal('topicRules' in list.devices[0], false);
+    assert.equal(list.devices[0].restrictedTopicAccess, true, 'a prefix-scoped other/# filter limits access');
+    assert.equal((await fetch(url, { method: 'PUT', headers, body: JSON.stringify({ mode: 'custom', publish: ['#'], subscribe: [] }) })).status, 200);
+    const unrestricted = await (await fetch(`http://127.0.0.1:${server.address().port}/api/devices`, { headers: { Cookie: cookie } })).json();
+    assert.equal(unrestricted.devices[0].restrictedTopicAccess, false);
+    assert.equal((await fetch(url, { method: 'PUT', headers, body: JSON.stringify({ mode: 'custom', publish: ['example/command/+'], subscribe: ['example/state'] }) })).status, 200);
+    const restricted = await (await fetch(`http://127.0.0.1:${server.address().port}/api/devices`, { headers: { Cookie: cookie } })).json();
+    assert.equal(restricted.devices[0].restrictedTopicAccess, true);
     const extra = loadDb();
     extra.devices.push({ id: 'archive-rules', status: 'active', enabled: false, topicRules: { mode: 'custom', publish: ['private/topic'], subscribe: [] } });
     saveDb(extra);

@@ -147,10 +147,10 @@ export function registerAuthRoutes(app) {
   );
   app.patch('/api/me/preferences', requireAuth((req, res) => {
     let timeZone;
-    try { timeZone = normalizeTimeZone(req.body?.timeZone); }
-    catch (error) { return res.status(400).json({ error: error.message }); }
     const db = loadDb();
     const user = db.users.find((entry) => entry.id === req.user.id);
+    try { timeZone = normalizeTimeZone(req.body?.timeZone === undefined ? (user.timeZone || 'auto') : req.body.timeZone); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
     if (req.body.presentation !== undefined) {
       try { user.presentation = normalizePresentation(req.body.presentation); }
       catch (error) { return res.status(400).json({ error: error.message }); }

@@ -11,9 +11,9 @@ test('versioned baseline preserves state and is never applied twice', () => {
   const database = fixture();
   try {
     const before = database.prepare('SELECT value FROM state').get().value;
-    assert.equal(migrateDatabase(database).applied.length, 3);
+    assert.equal(migrateDatabase(database).applied.length, 4);
     assert.equal(migrateDatabase(database).applied.length, 0);
-    assert.equal(database.prepare('SELECT count(*) AS n FROM schema_migrations').get().n, 3);
+    assert.equal(database.prepare('SELECT count(*) AS n FROM schema_migrations').get().n, 4);
     assert.equal(database.prepare('SELECT value FROM state').get().value, before);
   } finally { database.close(); }
 });
@@ -21,20 +21,20 @@ test('a failed additive migration rolls back schema, data and migration ledger',
   const database = fixture();
   try {
     migrateDatabase(database);
-    const bad = [{id:'0004-failing-test',from:3,to:4,apply(db){db.exec('CREATE TABLE temporary_data(value TEXT)');throw new Error('Injected migration failure');}}];
-    assert.throws(() => migrateDatabase(database,4,bad), /Injected/);
-    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 3);
+    const bad = [{id:'0005-failing-test',from:4,to:5,apply(db){db.exec('CREATE TABLE temporary_data(value TEXT)');throw new Error('Injected migration failure');}}];
+    assert.throws(() => migrateDatabase(database,5,bad), /Injected/);
+    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 4);
     assert.equal(database.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='temporary_data'").get().n, 0);
-    assert.equal(database.prepare('SELECT count(*) AS n FROM schema_migrations').get().n, 3);
+    assert.equal(database.prepare('SELECT count(*) AS n FROM schema_migrations').get().n, 4);
   } finally { database.close(); }
 });
 test('unknown and downgrade schema transitions are refused without mutation', () => {
   const database = fixture();
   try {
     migrateDatabase(database);
-    assert.throws(() => migrateDatabase(database,4), /not supported/);
+    assert.throws(() => migrateDatabase(database,5), /not supported/);
     assert.throws(() => migrateDatabase(database,0), /newer/);
-    assert.equal(database.prepare('PRAGMA user_version').get().user_version,3);
+    assert.equal(database.prepare('PRAGMA user_version').get().user_version,4);
   } finally { database.close(); }
 });
 
@@ -66,11 +66,11 @@ test('schema v1 installations migrate only the additive entity-ID registry and k
       deletedIdentities: [],
     }));
     database.exec("CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, from_version INTEGER NOT NULL, to_version INTEGER NOT NULL, applied_at TEXT NOT NULL); INSERT INTO schema_migrations VALUES('0001-state-audit-baseline',0,1,'2026-01-01T00:00:00.000Z'); PRAGMA user_version=1;");
-    assert.deepEqual(migrateDatabase(database).applied, ['0002-entity-id-registry', '0003-device-health']);
+    assert.deepEqual(migrateDatabase(database).applied, ['0002-entity-id-registry', '0003-device-health', '0004-device-renewal-planning']);
     const state = JSON.parse(database.prepare('SELECT value FROM state WHERE id=1').get().value);
     assert.equal(state.devices[0].id, 'legacy-device');
     assert.equal(state.certificates[0].id, 'legacy-certificate');
-    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 3);
+    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 4);
   } finally { database.close(); }
 });
 
@@ -90,12 +90,20 @@ test('schema v2 migrates to health tables while preserving state and entity IDs'
       INSERT INTO schema_migrations VALUES('0001-state-audit-baseline',0,1,'2026-01-01T00:00:00.000Z');
       INSERT INTO schema_migrations VALUES('0002-entity-id-registry',1,2,'2026-01-01T00:00:00.000Z');
       PRAGMA user_version=2;`);
-    assert.deepEqual(migrateDatabase(database).applied, ['0003-device-health']);
-    assert.deepEqual(JSON.parse(database.prepare('SELECT value FROM state WHERE id=1').get().value), stateBefore);
+    assert.deepEqual(migrateDatabase(database).applied, ['0003-device-health', '0004-device-renewal-planning']);
+    const migrated = JSON.parse(database.prepare('SELECT value FROM state WHERE id=1').get().value);
+    assert.equal(migrated.devices[0].id, stateBefore.devices[0].id);
+    assert.deepEqual(migrated.devices[0].renewal, {
+      deviceLicenseTemplateConfigured: false,
+      deviceLicenseAutoRenewEnabled: false,
+      gatewayCaTemplateConfigured: false,
+      gatewayCaAutoRenewEnabled: false,
+      firmwareTemplateConfigured: false,
+    });
     assert.deepEqual(database.prepare('SELECT kind,id FROM entity_ids ORDER BY kind,id').all().map(row => ({ ...row })), [
       { kind: 'certificate', id: 'certificate-v2' }, { kind: 'device', id: 'device-v2' },
     ]);
     assert.ok(database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='device_health_events'").get());
-    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 3);
+    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 4);
   } finally { database.close(); }
 });

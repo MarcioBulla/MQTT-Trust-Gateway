@@ -468,7 +468,7 @@ watch([() => revealScopes.audit, accountTab], () => {
   <v-card v-if="accountTab === 'audit'" class="pa-5"
     ><h2 class="text-h6 mb-3">Recent audit events</h2>
     <div class="d-flex align-center ga-3 mb-4"><v-text-field v-model="auditSearch" label="Search audit events" prepend-inner-icon="mdi-magnify" hide-details /><v-btn icon="mdi-refresh" aria-label="Refresh audit events" @click="loadAudit" /></div>
-    <DataList :headers="headers" :items="entries" :search="auditSearch" :loading="!!state.busy" :items-per-page="15"><template #item.at="{ item }"><DateTime :value="item.at" /></template></DataList></v-card>
+    <DataList table-id="audit-events" :headers="headers" :items="entries" :search="auditSearch" :loading="!!state.busy" :items-per-page="15"><template #item.at="{ item }"><DateTime :value="item.at" /></template></DataList></v-card>
   <RuntimeLogs v-if="accountTab === 'logs'" />
 
   <v-dialog

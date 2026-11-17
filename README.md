@@ -16,7 +16,7 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 ## ✨ Features
 
 - 🔄 System Updates: discover and verify signed releases, then install or roll back Gateway/container updates through the independently running host updater. Includes verified snapshots, functional health checks, interruption recovery, guarded rollback, progress history, configurable checks and snapshot retention (2–100, default 5), plus optional GnuPG-encrypted snapshot export. Automatic installation remains disabled. See the [operations guide](docs/system-updates-operations.md) and [architecture](docs/system-updates-architecture.md).
-- ❔ Contextual Help: searchable guides for certificate workflows, release discovery, MQTT Manager, and the Dashboard first-message walkthrough, with contextual previews, numbered references, interactive Mermaid diagrams, and theme-matched visual guides.
+- ❔ Contextual Help: searchable guides for certificate workflows, release discovery, MQTT Manager, Gateway service health, CA trust, and the Dashboard first-message walkthrough, with contextual previews, numbered references, interactive Mermaid diagrams, and theme-matched visual guides.
 - 🪪 Four certificate enrollment methods: sign a device CSR, create a CSR for an external CA, generate a complete device credential bundle, or import an existing certificate.
 - 🧩 **Per-device MQTT rules:** use the default `#` access or configure separate publish and subscribe topic filters for each identity; apply saved changes through the broker controls. The default grants broad access to ordinary topics.
 - 🧰 Central device and certificate lifecycle: renew a selected certificate using its existing public key, revoke, trust external CAs, archive, restore, or delete identities. Use **Add certificate → Sign an existing CSR** for key rotation.
@@ -26,6 +26,8 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 - 🗃️ License history: deleted license records remain visible and labeled Deleted; device labels flow to licenses, while license labels stay local to that certificate.
 - 🛡️ Admin security: Argon2id passwords, TOTP, WebAuthn passkeys, expiring sessions, rate limiting, and step-up verification for sensitive data.
 - 📡 MQTT tools: live subscriptions, wildcard filters, pause/resume, retained-message management, and publishing at QoS 0/1/2.
+- 📋 Customizable tables: choose, reorder, and resize columns per table. Preferences are saved to the signed-in administrator account, with browser storage as a fallback; widths range from 100 to 900 pixels. Device identity cells copy the immutable device ID, with tooltips describing the action.
+- 🏷️ **Features** column in Trusted devices: visible by default and configurable with the table column chooser. **Restricted Rules** is a live tag for identities whose custom filters contain no `#` wildcard. License renewal, License auto-renewal, Gateway CA renewal, Gateway CA auto-renewal, and Firmware tags describe WIP conditions; their configuration is not available yet.
 - 📊 Overview: broker and CA status, certificate counts, and seven days of hourly message traffic.
 - 🎨 Responsive UI: dark/light mode, editable palettes, 14 theme presets, and OLED mode.
 - 🧩 Optional integration: user-managed HTTPS proxy and raw TCP forwarding; gateway services do not install or manage a proxy.
@@ -33,7 +35,7 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 
 ## 🚧 Work in progress
 
-1. 🔐 **MCU certificate renewal:** improve the renewal workflow for MCU devices.
+1. 🔐 **Automatic device-license renewal and Gateway CA rotation:** configure separate automatic-renewal switches and days-before-expiry thresholds. Device-license renewal will also use configurable MQTT topics/templates; CA rotation will track device delivery, acknowledgments, and verified reconnections. Manual device-certificate renewal is already available from certificate actions.
 2. ✉️ **SMTP settings:** initially email administrators when licenses are near expiry.
 3. 📦 **Signed firmware OTA:** verify and deliver signed firmware updates to devices.
 4. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
@@ -206,7 +208,7 @@ The Gateway automatically generates IDs for new devices and certificate records;
 
 See the [provisioning guide](docs/identity-provisioning.md) for detailed validation rules, trust behavior, and key delivery. Zephyr firmware notes and a C example are in [Zephyr compatibility](docs/zephyr-compatibility.md).
 
-Labels set on a trusted device are inherited by its **Device licenses**. Labels added to an individual license apply only to that certificate and do not change the trusted device.
+When registering a device, use the **Labels** picker to search and attach existing labels or create new color-coded labels. Labels set on a trusted device are inherited by **Device licenses** and **Device Certificates**. Add or create certificate labels from either table; those labels stay on that certificate and do not change the trusted device. Inherited device labels are marked with a colored border and cannot be removed from a certificate row.
 
 Deleted license records remain available in the **Deleted licenses** tab for review and are labeled **Deleted**. Deleting a license does not remove its certificate-history record.
 Sensitive certificate actions request step-up authorization before opening confirmations or details. Actions are available on the specific certificate row. **Copy CRT** opens a dialog with the public PEM certificate and a Copy button; device private keys are not included.

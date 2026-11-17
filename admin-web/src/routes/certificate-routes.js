@@ -339,6 +339,14 @@ export function registerCertificateRoutes(app) {
       res.json({
         devices: db.devices.filter((d) => archived ? d.status === 'archived' : d.status !== 'archived' && d.status !== 'deleted').map(({ topicRules, healthCheck, ...d }) => ({
           ...d,
+          restrictedTopicAccess: (() => {
+            const rules = topicRulesForDevice({ topicRules });
+            return rules.mode === 'custom' && ![...rules.publish, ...rules.subscribe].includes('#');
+          })(),
+          topicRulesUseWildcard: (() => {
+            const rules = topicRulesForDevice({ topicRules });
+            return rules.mode === 'custom' && [...rules.publish, ...rules.subscribe].some((filter) => filter.includes('#'));
+          })(),
           connectionStatus: 'unknown',
           lastActivity: null,
           certificates: db.certificates.filter((c) => c.deviceId === d.id).map(c => certificateListView(c, hasSensitiveGrant(_req, 'devices'))),
@@ -392,6 +400,13 @@ export function registerCertificateRoutes(app) {
         enabled: false,
         trusted: false,
         status: 'active',
+        renewal: {
+          deviceLicenseTemplateConfigured: false,
+          deviceLicenseAutoRenewEnabled: false,
+          gatewayCaTemplateConfigured: false,
+          gatewayCaAutoRenewEnabled: false,
+          firmwareTemplateConfigured: false,
+        },
         createdAt: new Date().toISOString(),
       };
       db.devices.push(device);

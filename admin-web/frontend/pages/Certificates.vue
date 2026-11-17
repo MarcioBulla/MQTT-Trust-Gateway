@@ -7,7 +7,7 @@ import RowActions from '../components/RowActions.vue';
 import DataList from '../components/DataList.vue';
 import { computed, watch, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, action, state, markBrokerMutation, downloadApiFile } from '../api';
+import { api, action, state, copy, markBrokerMutation, downloadApiFile } from '../api';
 import FileDrop from '../components/FileDrop.vue';
 import HelpButton from '../components/HelpButton.vue';
 import { licenseStatusLabel, mergeLicenseLabels } from '../license-rows.js';
@@ -35,20 +35,44 @@ let deviceRequest = 0;
 const method = ref('generate'), dialog = ref(false), certificates = ref([]), devices = ref([]), trustedCas = ref([]),
   search = ref(''), form = ref({ deviceId: '', name: '', algorithm: 'ecdsa-p256', days: 90, csr: '', certificate: '', chain: '', privateKey: '', pendingId: '', previousId: '' }),
   details = ref(null),
-  preview = ref(null), generatedPending = ref(null), caPem = ref(''), caConfirmation = ref('');
+  preview = ref(null), generatedPending = ref(null), caPem = ref(''), caConfirmation = ref(''),
+  labelSearch = ref(''), labelColor = ref('blue'), labelMenuCertificate = ref(null);
 const pending = computed(() => certificates.value.filter((item) => item.status === 'pending_external_signature' && (!props.deviceId || item.deviceId === props.deviceId)));
 const displayedCertificates = computed(() => certificates.value.filter((item) => !props.deviceId || item.deviceId === props.deviceId));
 const deviceOptions = computed(() => devices.value.map((device) => ({ title: `${device.name || device.id} · ${device.id}`, value: device.id })));
 const currentDevice = computed(() => devices.value.find((item) => item.id === props.deviceId) || null);
+const labelColors = [
+  { title: 'Blue', value: 'blue' }, { title: 'Teal', value: 'teal' },
+  { title: 'Green', value: 'green' }, { title: 'Amber', value: 'amber' },
+  { title: 'Orange', value: 'orange' }, { title: 'Red', value: 'red' },
+  { title: 'Purple', value: 'purple' }, { title: 'Grey', value: 'grey' },
+];
 function displayDeviceName(id) { return devices.value.find((item) => item.id === id)?.name || id; }
 const headers = computed(() => [
   ...(!props.deviceId ? [{ title: 'Device', key: 'deviceId', width: '150px' }] : []), { title: 'Labels', key: 'labels', width: '190px', maxWidth: '210px' },
   { title: 'Provisioning', key: 'provisioningMethod', width: '150px' },
   { title: 'Issuer', key: 'issuerName', width: '180px' }, { title: 'Algorithm', key: 'algorithm', width: '140px' },
-  { title: 'Expires', key: 'validTo', width: '160px' }, { title: 'Status', key: 'status', width: '135px' },
+  { title: 'Issued', key: 'issuedAt', width: '160px' }, { title: 'Expires', key: 'validTo', width: '160px' }, { title: 'Status', key: 'status', width: '135px', align: 'center' },
   { title: '', key: 'actions', width: '64px', sortable: false },
 ]);
 const labelValue = (label) => typeof label === 'string' ? { name: label, color: 'primary' } : { name: label.name, color: label.color || 'primary' };
+const allLabels = computed(() => {
+  const labels = new Map();
+  for (const device of devices.value) {
+    for (const rawLabel of device.labels || []) {
+      const label = labelValue(rawLabel);
+      if (label.name && !labels.has(label.name.toLocaleLowerCase())) labels.set(label.name.toLocaleLowerCase(), label);
+    }
+  }
+  for (const certificate of certificates.value) {
+    for (const rawLabel of certificate.labels || []) {
+      const label = labelValue(rawLabel);
+      if (label.name && !labels.has(label.name.toLocaleLowerCase())) labels.set(label.name.toLocaleLowerCase(), label);
+    }
+  }
+  return [...labels.values()].sort((a, b) => a.name.localeCompare(b.name));
+});
+function certificateOwnLabels(certificate) { return (certificate.labels || []).map(labelValue).filter((label) => label.name); }
 function certificateLabels(certificate) {
   const device = devices.value.find((item) => item.id === certificate.deviceId);
   return mergeLicenseLabels(device?.labels || [], certificate.labels || []).map(labelValue).filter((label) => label.name);
@@ -56,6 +80,42 @@ function certificateLabels(certificate) {
 function isDeviceLabel(certificate, name) {
   const device = devices.value.find((item) => item.id === certificate.deviceId);
   return (device?.labels || []).some((label) => labelValue(label).name.toLocaleLowerCase() === name.toLocaleLowerCase());
+}
+function hasOwnCertificateLabel(certificate, name) {
+  return certificateOwnLabels(certificate).some((label) => label.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+}
+function filteredCertificateLabels(certificate) {
+  const attached = new Set(certificateLabels(certificate).map((label) => label.name.toLocaleLowerCase()));
+  return allLabels.value.filter((label) => !attached.has(label.name.toLocaleLowerCase()) && label.name.toLocaleLowerCase().includes(labelSearch.value.trim().toLocaleLowerCase()));
+}
+function canCreateCertificateLabel() {
+  const name = labelSearch.value.trim();
+  return name && !allLabels.value.some((label) => label.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+}
+function openCertificateLabelMenu(certificate, open) {
+  if (open) { labelMenuCertificate.value = certificate; labelSearch.value = ''; labelColor.value = 'blue'; }
+  else if (labelMenuCertificate.value?.id === certificate.id) labelMenuCertificate.value = null;
+}
+function saveCertificateLabels(certificate, labels) {
+  action(async () => {
+    const result = await api(`/certificates/${certificate.id}/labels`, 'PATCH', { labels });
+    certificates.value = certificates.value.map((item) => item.id === certificate.id ? result.certificate : item);
+    return 'Certificate labels updated.';
+  });
+}
+function attachCertificateLabel(certificate, label) {
+  const current = certificateOwnLabels(certificate);
+  if (certificateLabels(certificate).some((item) => item.name.toLocaleLowerCase() === label.name.toLocaleLowerCase())) return;
+  saveCertificateLabels(certificate, [...current, label]);
+  labelSearch.value = '';
+}
+function createCertificateLabel(certificate) {
+  const name = labelSearch.value.trim().slice(0, 40);
+  if (!name || !canCreateCertificateLabel()) return;
+  attachCertificateLabel(certificate, { name, color: labelColor.value });
+}
+function removeCertificateLabel(certificate, name) {
+  saveCertificateLabels(certificate, certificateOwnLabels(certificate).filter((label) => label.name !== name));
 }
 async function reloadDeviceOptions() {
   const request = ++deviceRequest, grant = revealScopes.devices;
@@ -201,20 +261,62 @@ defineExpose({ open });
     <div><div class="text-overline text-primary">IDENTITY & CRYPTOGRAPHIC CREDENTIALS</div><h1 class="text-h4 font-weight-bold">Certificates and identities</h1><p class="text-medium-emphasis mt-2">Four enrollment methods share one device registry. Private keys are never recoverable after delivery.</p></div>
     <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" color="primary" prepend-icon="mdi-plus">Add certificate</v-btn></template><v-list><v-list-item v-for="method in certificateMethods" :key="method.value" :title="method.title" @click="open(method.value)" /></v-list></v-menu>
   </div>
-  <v-tabs v-if="props.deviceId" v-model="editTab" class="mb-5"><v-tab value="licenses">Licenses</v-tab><v-tab value="rules">Rules</v-tab><v-tab value="health">Health Check</v-tab></v-tabs>
+  <v-tabs v-if="props.deviceId" v-model="editTab" class="mb-5">
+    <v-tab value="licenses">Licenses</v-tab>
+    <v-tab value="rules">Rules</v-tab>
+    <v-tab value="health">Health Check</v-tab>
+    <v-tab value="renew">Renew <v-chip size="x-small" class="ml-2" color="warning" variant="tonal">WIP</v-chip></v-tab>
+    <v-tab value="firmware">Firmware <v-chip size="x-small" class="ml-2" color="warning" variant="tonal">WIP</v-chip></v-tab>
+  </v-tabs>
   <DeviceRules v-if="props.deviceId && editTab === 'rules'" :device-id="props.deviceId" />
   <DeviceHealth v-if="props.deviceId && editTab === 'health'" :device-id="props.deviceId" />
+  <v-card v-if="props.deviceId && editTab === 'renew'" class="pa-6">
+    <div class="d-flex align-center ga-2 mb-5">
+      <h2 class="text-h6">Renewal</h2>
+      <v-chip size="small" color="warning" variant="tonal">Work in progress</v-chip>
+      <HelpButton topic-id="device-renewal-planning" />
+    </div>
+    <v-card variant="outlined" class="pa-4 mb-4">
+      <div class="d-flex align-center justify-space-between ga-3">
+        <h3 class="text-subtitle-1">Device license renewal</h3>
+        <v-switch disabled label="Enable automatic renewal" color="primary" hide-details />
+      </div>
+      <p class="text-body-2 text-medium-emphasis mt-3 mb-4">Request an MQTT renewal before a device license expires. Manual renewal is already available from a certificate action.</p>
+      <v-row>
+        <v-col cols="12" md="6"><v-text-field disabled type="number" min="1" label="Attempt renewal before expiry (days)" placeholder="30" /></v-col>
+        <v-col cols="12" md="6"><v-select disabled label="Public key source" :items="['Existing public key', 'New CSR']" /></v-col>
+        <v-col cols="12" md="6"><v-text-field disabled label="Renewal request topic" placeholder="devices/{device_id}/certificate/request" /></v-col>
+        <v-col cols="12" md="6"><v-text-field disabled label="Certificate response topic" placeholder="devices/{device_id}/certificate/response" /></v-col>
+        <v-col cols="12" md="6"><v-text-field disabled label="Activation acknowledgment topic" placeholder="devices/{device_id}/certificate/ack" /></v-col>
+        <v-col cols="12"><v-textarea disabled label="Renewal message template" rows="4" placeholder="Request ID, certificate reference, and renewal options" /></v-col>
+      </v-row>
+    </v-card>
+    <v-card variant="outlined" class="pa-4">
+      <div class="d-flex align-center justify-space-between ga-3">
+        <h3 class="text-subtitle-1">Gateway CA renewal</h3>
+        <v-switch disabled label="Enable automatic CA renewal" color="primary" hide-details />
+      </div>
+      <p class="text-body-2 text-medium-emphasis mt-3 mb-4">Create and migrate to a new Gateway CA before the current CA expires. The future workflow will track delivery, acknowledgment, and verified reconnection for every device.</p>
+      <v-row>
+        <v-col cols="12" md="5"><v-text-field disabled type="number" min="1" label="Attempt CA renewal before expiry (days)" placeholder="180" /></v-col>
+        <v-col cols="12" md="7"><v-text-field disabled label="CA renewal announcement topic" placeholder="gateway/certificate/ca/renewal" /></v-col>
+        <v-col cols="12"><v-textarea disabled label="CA renewal message template" rows="4" placeholder="Request ID, current CA reference, new CA certificate, and delivery instructions" /></v-col>
+      </v-row>
+    </v-card>
+  </v-card>
+  <v-card v-if="props.deviceId && editTab === 'firmware'" class="pa-6"><div class="d-flex align-center justify-space-between ga-3 mb-5"><div class="d-flex align-center ga-2"><h2 class="text-h6">Firmware</h2><v-chip size="small" color="warning" variant="tonal">Work in progress</v-chip><HelpButton topic-id="device-firmware-planning" /></div><v-btn disabled color="primary" prepend-icon="mdi-upload">Upload firmware</v-btn></div><v-table density="comfortable" class="mb-6"><thead><tr><th>Version</th><th>Name</th><th>Signature</th><th>Download</th><th>Copy link</th><th>Send to device</th></tr></thead><tbody><tr><td colspan="6" class="text-center text-medium-emphasis py-8">No firmware uploaded.</td></tr></tbody></v-table><v-card variant="outlined" class="pa-4"><h3 class="text-subtitle-1 mb-4">MQTT delivery template</h3><v-row><v-col cols="12" md="6"><v-text-field disabled label="Firmware announcement topic" placeholder="devices/{device_id}/firmware/update" /></v-col><v-col cols="12" md="6"><v-text-field disabled label="Installed-version report topic" placeholder="devices/{device_id}/firmware/status" /></v-col><v-col cols="12"><v-textarea disabled label="Update message template" rows="4" placeholder="Version, download URL, checksum, and release notes" /></v-col><v-col cols="12"><v-textarea disabled label="Installed-version message template" rows="3" placeholder="Device version and update result" /></v-col></v-row></v-card></v-card>
   <v-alert v-if="!props.embedded && (!props.deviceId || editTab === 'licenses')" type="info" variant="tonal" class="mb-5">Importing a certificate does not automatically trust its issuer. External CAs must be added and explicitly approved below. Apply pending broker changes to enforce access and trust changes.</v-alert>
   <div v-if="props.embedded" class="d-flex flex-wrap align-center justify-space-between ga-3 mb-4">
     <div><h2 class="text-h6">Certificate provisioning</h2><p class="text-body-2 text-medium-emphasis mb-0">Manage credentials from the same device registry. Use Add certificate above to choose a method.</p></div>
   </div>
-  <v-card v-if="!props.embedded && (!props.deviceId || editTab === 'licenses')" class="pa-4 mb-6"><v-text-field v-if="!props.deviceId" v-model="search" label="Search certificates" prepend-inner-icon="mdi-magnify" hide-details /><DataList :headers="headers" :items="displayedCertificates" :search="search" :loading="!!state.busy" class="mt-4 certificate-table">
-    <template #item.deviceId="{ item }"><v-tooltip :text="`Device ID: ${item.deviceId}`" location="top" :open-delay="500"><template #activator="{ props: tooltipProps }"><span v-bind="tooltipProps">{{ displayDeviceName(item.deviceId) }}</span></template></v-tooltip></template>
-    <template #item.labels="{ item }"><div class="d-flex flex-wrap ga-1"><v-chip v-for="label in certificateLabels(item)" :key="label.name" size="small" :style="isDeviceLabel(item, label.name) ? { border: '1.5px solid currentColor' } : undefined" :color="label.color" variant="tonal">{{ label.name }}</v-chip></div></template>
+  <v-card v-if="!props.embedded && (!props.deviceId || editTab === 'licenses')" class="pa-4 mb-6"><v-text-field v-if="!props.deviceId" v-model="search" label="Search certificates" prepend-inner-icon="mdi-magnify" hide-details /><DataList :table-id="props.deviceId ? 'device-certificates' : 'certificates'" :headers="headers" :items="displayedCertificates" :search="search" :loading="!!state.busy" class="mt-4 certificate-table">
+    <template #item.deviceId="{ item }"><v-tooltip :text="`Copy device ID: ${item.deviceId}`" location="top" :open-delay="500"><template #activator="{ props: tooltipProps }"><v-btn v-bind="tooltipProps" class="list-copy text-none" variant="text" density="compact" :aria-label="`Copy device ID ${item.deviceId}`" @click="copy(item.deviceId)">{{ displayDeviceName(item.deviceId) }}</v-btn></template></v-tooltip></template>
+    <template #item.labels="{ item }"><div class="d-flex flex-wrap align-center ga-1"><v-chip v-for="label in certificateLabels(item)" :key="label.name" size="small" :closable="hasOwnCertificateLabel(item, label.name)" :style="isDeviceLabel(item, label.name) ? { border: '1.5px solid currentColor' } : undefined" :color="label.color" variant="tonal" @click:close="removeCertificateLabel(item, label.name)">{{ label.name }}</v-chip><v-menu v-if="!item.licenseArchivedAt && !item.licenseDeletedAt" location="bottom start" :close-on-content-click="false" @update:model-value="openCertificateLabelMenu(item, $event)"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-plus" size="x-small" variant="text" color="medium-emphasis" class="label-add-btn" :aria-label="`Add label to certificate ${item.id}`" /></template><v-card width="300" class="pa-3"><v-text-field v-model="labelSearch" label="Search labels" prepend-inner-icon="mdi-magnify" density="compact" hide-details autofocus /><v-list v-if="filteredCertificateLabels(item).length" density="compact" max-height="180" class="overflow-y-auto mt-2"><v-list-item v-for="label in filteredCertificateLabels(item)" :key="label.name" :title="label.name" @click="attachCertificateLabel(item, label)"><template #prepend><v-icon icon="mdi-circle" :color="label.color" size="small" /></template></v-list-item></v-list><p v-else-if="!canCreateCertificateLabel()" class="text-caption text-medium-emphasis mt-3 mb-0">No available matching labels.</p><div v-if="canCreateCertificateLabel()" class="mt-3"><v-select v-model="labelColor" :items="labelColors" label="Label color" density="compact" hide-details class="mb-3"><template #selection="{ item: colorItem }"><span class="d-flex align-center ga-2"><v-icon icon="mdi-circle" :color="colorItem.value" size="small" />{{ colorItem.title }}</span></template><template #item="{ props: colorProps, item: colorItem }"><v-list-item v-bind="colorProps"><template #prepend><v-icon icon="mdi-circle" :color="colorItem.value" size="small" /></template></v-list-item></template></v-select><v-btn block color="primary" prepend-icon="mdi-plus" @click="createCertificateLabel(item)">Create “{{ labelSearch.trim().slice(0, 40) }}”</v-btn></div></v-card></v-menu></div></template>
+    <template #item.issuedAt="{ item }"><DateTime :value="item.issuedAt" /></template>
     <template #item.validTo="{ item }"><DateTime :value="item.validTo" /></template>
     <template #item.algorithm="{ item }">{{ item.algorithm || '—' }}</template>
     <template #item.issuerName="{ item }">{{ item.issuerName || item.issuer || '—' }} <span v-if="item.brokerTrusted === false" class="text-warning">(not trusted)</span></template>
-    <template #item.status="{ item }"><v-chip size="small" :color="item.licenseDeletedAt ? 'error' : statusColor(item.status)">{{ licenseStatusLabel(item) }}</v-chip></template>
+    <template #item.status="{ item }"><div class="d-flex justify-center"><v-chip size="small" :color="item.licenseDeletedAt ? 'error' : statusColor(item.status)">{{ licenseStatusLabel(item) }}</v-chip></div></template>
     <template #item.actions="{ item }"><RowActions label="Certificate actions" :disabled="!!state.busy">
       <v-list-item title="Details" prepend-icon="mdi-information-outline" @click="showDetails(item)" />
       <v-list-item v-if="item.canDownload" title="Download certificate" prepend-icon="mdi-download" @click="downloadCertificateFile(item, 'device.crt')" />
