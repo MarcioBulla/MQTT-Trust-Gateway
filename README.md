@@ -41,6 +41,14 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 4. 🤖 **Telegram bot alerts:** send device and license notifications through a Telegram bot.
 5. 🔄 **Offline release import:** install verified releases without an internet connection.
 
+### 💡 Ideas for future consideration
+
+These ideas are of interest for possible future development and are not currently planned for implementation.
+
+- **Visual Rules editor:** represent devices as blocks and topics as connections. Arrow direction would indicate publish, subscribe, or both; a bold line could indicate retained messages.
+- **Usage-aware certificate alerts:** let administrators define per-device usage frequency or seasonal access periods, then compare them with certificate expiration dates and email a renewal recommendation when automatic renewal is disabled.
+- **Dashboard timeline:** show upcoming dates and past events, including certificate expirations and renewals, deletions, revocations, device outages, and returns online.
+
 > [!NOTE]
 > System Updates installation requires enabling the host updater and configuring its pinned Ed25519 release key. Automatic installation is disabled; see the [operations guide](docs/system-updates-operations.md) for prerequisites and recovery-data handling.
 
