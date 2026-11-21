@@ -16,6 +16,41 @@ test('Help registry provides requested unique topics', () => {
   ]) assert.ok(helpTopicById[id], `Missing help topic: ${id}`);
 });
 
+test('device renewal Help documents the manual MQTT CSR exchange and WIP limits', () => {
+  const topic = helpTopicById['device-renewal-planning'];
+  assert.ok(topic);
+  assert.match(topic.shortSummary, /Request a renewal CSR/i);
+  assert.match(topic.overview, /device-17\/pki\/(?:request|csr|install|confirm|status)/);
+  assert.match(topic.overview, /Gateway publishes request, install, and confirm; the device publishes csr and status/i);
+  assert.match(topic.overview, /MQTT renewal messages use QoS 1 and must not be retained/i);
+  assert.match(topic.overview, /complete within 10 minutes.*confirmation must complete within 2 minutes/i);
+  assert.match(topic.overview, /subject CN matches the Device ID/i);
+  assert.match(topic.overview, /keeping its private key local/i);
+  assert.match(topic.prerequisites.join(' '), /Custom Rules/i);
+  assert.match(topic.prerequisites.join(' '), /device Publish rules.*device Subscribe rules/i);
+  assert.match(topic.prerequisites.join(' '), /Health Check topic must not equal any of the five reserved/i);
+  assert.match(topic.steps.join(' '), /Request CSR/i);
+  assert.match(topic.steps.join(' '), /Refresh status/i);
+  assert.match(topic.overview, /Gateway CA renewal and migration controls remain disabled WIP placeholders/i);
+  assert.match(topic.workflowMermaid, /Device ID\/pki\/request/);
+  assert.match(topic.workflowMermaid, /Device ID\/pki\/csr/);
+  assert.match(topic.mermaid, /SUBSCRIBE/i);
+  assert.match(topic.mermaid, /signed CSR/i);
+  assert.deepEqual(topic.relatedTopicIds, ['certificate-renewal', 'sign-existing-csr']);
+});
+
+test('certificate renewal Help documents the per-device Copy certificate PEM dialog', () => {
+  const topic = helpTopicById['certificate-renewal'];
+  assert.ok(topic);
+  assert.match(topic.shortSummary, /Copy certificate/i);
+  assert.match(topic.overview, /Devices & certificates → edit the device → Licenses/i);
+  assert.match(topic.overview, /Copy certificate next to Download certificate/i);
+  assert.match(topic.overview, /same Devices and certificates reveal grant/i);
+  assert.match(topic.overview, /read-only Certificate \(PEM\) dialog/i);
+  assert.match(topic.overview, /Click Copy in the dialog/i);
+  assert.match(topic.artifacts.join(' '), /copies only this certificate text.*does not reveal or export the private key/i);
+});
+
 test('Device Health Check help matches the passive LWT implementation and its limitations', () => {
   const topic = helpTopicById['device-health-check'];
   assert.ok(topic);

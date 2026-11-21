@@ -1,3 +1,6 @@
+import { startClientRenewal, stopClientRenewal, beginClientRenewal, clientRenewalStatus } from './services/client-renewal-service.js';
+import { requireAuth } from './auth.js';
+import { requireSensitive } from './sensitive-access.js';
 import { updatePreferences } from './services/update-preferences.js';
 import express from 'express';
 import helmet from 'helmet';
@@ -68,6 +71,16 @@ app.use('/api', (req, res, next) => {
     return res.status(503).json({ error: 'Gateway update maintenance is active', maintenance: true });
   next();
 });
+app.post('/api/devices/:deviceId/mqtt-renewals', requireAuth(async (req, res) => {
+  if (!requireSensitive(req, res, 'devices')) return;
+  const id = await beginClientRenewal(req.params.deviceId, req.body?.certificateId, req.body?.topics);
+  res.status(202).json({ id });
+}));
+app.get('/api/devices/:deviceId/mqtt-renewals/:id', requireAuth((req, res) => {
+  const operation = clientRenewalStatus(req.params.deviceId, req.params.id);
+  if (!operation) return res.status(404).json({ error: 'Renewal not found' });
+  res.json(operation);
+}));
 app.use('/api', (req, res, next) => {
   if (req.path === '/mqtt/events' || req.path === '/logs/events' || req.path === '/system-updates/status' || req.path === '/system-updates/check') return next();
   exclusive(
@@ -101,6 +114,7 @@ await exclusive(async () => {
 });
 startMqtt();
 startDeviceHealthMonitor();
+startClientRenewal();
 const aclTimer = setInterval(
   () => exclusive(() => updateMaintenance() ? undefined : syncBroker()).catch((e) => console.error(e.message)),
   30000,
@@ -153,6 +167,7 @@ for (const signal of ['SIGTERM', 'SIGINT'])
     clearInterval(archiveTimer);
     clearInterval(updateTimer);
     listener.close();
+    await stopClientRenewal();
     await exclusive(stopMqtt);
     process.exit(0);
   });
