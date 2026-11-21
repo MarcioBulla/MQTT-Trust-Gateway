@@ -392,9 +392,9 @@ export const helpTopics = [
   },
   {
     id: 'certificate-renewal', category: 'Certificates', title: 'Renew and replace a device certificate',
-    shortSummary: 'Renew reissues the selected certificate with its existing public key; it does not install or revoke certificates. Copy CRT shows the public PEM certificate in a copy-ready dialog.',
+    shortSummary: 'Renew reissues the selected certificate with its existing public key. In a device’s Licenses tab, Copy certificate opens its public PEM in a read-only dialog with a Copy button.',
     caution: 'Renewal does not install the new certificate or revoke the old one. Install the new certificate with its matching private key before retiring the previous credential.',
-    overview: 'A certificate cannot have its validity dates or serial changed in place. Renew creates another X.509 certificate record for the same device identity, with a new serial and validity period, using the public key from the specifically selected certificate. The device keeps using its matching private key; the Gateway never receives or stores it. If you need a new key pair or a certificate for a different public key, use Add certificate → Sign an existing CSR. Before opening sensitive certificate dialogs or confirmations, the interface requests Devices and certificates reveal authorization; after authorization, the action opens without another prompt while the grant remains valid. Copy CRT opens the public PEM certificate with a Copy button.',
+    overview: 'A certificate cannot have its validity dates or serial changed in place. Renew creates another X.509 certificate record for the same device identity, with a new serial and validity period, using the public key from the specifically selected certificate. The device keeps using its matching private key; the Gateway never receives or stores it. If you need a new key pair or a certificate for a different public key, use Add certificate → Sign an existing CSR. Before opening sensitive certificate dialogs or confirmations, the interface requests Devices and certificates reveal authorization; after authorization, the action opens without another prompt while the grant remains valid. In Devices & certificates → edit the device → Licenses, the row menu offers Copy certificate next to Download certificate. Copy certificate uses the same Devices and certificates reveal grant, fetches the public PEM without caching it, and opens a read-only Certificate (PEM) dialog. Click Copy in the dialog to copy the PEM; no private key is included.',
     when: 'Renew an active Gateway-issued certificate before it expires when its matching private key remains installed and usable. For key rotation or a different public key, create a CSR on the device and use Add certificate → Sign an existing CSR. External CA certificates must be renewed by their issuer and then imported.',
     prerequisites: ['The identity is registered and active.', 'Select a specific active certificate issued by the Gateway local CA; external CA certificates must be renewed by their issuer and then imported.', 'The device must retain the private key matching the selected certificate’s public key.'],
     steps: [
@@ -406,9 +406,11 @@ export const helpTopics = [
       'Verify the new certificate and reconnect to the broker with mTLS before changing the device configuration further.',
       'The previous certificate remains in the registry and is not revoked automatically. Revoking a device certificate also disables the associated identity; apply the broker change and reauthorize the identity if you choose to revoke an old certificate.'
     ],
+    artifactsTitle: 'Certificate copy and renewal files',
     artifacts: [
       'device.key: stays on the device and remains unchanged during renewal.',
       'New device.crt: public certificate signed by the Gateway CA with a new serial and validity period.',
+      'Copy certificate: opens the selected public device certificate as PEM in a read-only dialog. The Copy button copies only this certificate text; it does not reveal or export the private key.',
       'Previous certificate: remains in certificate history unless an administrator separately revokes or deletes its license record.'
     ],
     lifecycleTitle: 'Renewal, activation, and revocation',
@@ -416,6 +418,7 @@ export const helpTopics = [
     sequenceTitle: 'Manual renewal file exchange',
     sequence: [
       'Administrator → Gateway: select a specific eligible certificate and request renewal',
+      'Administrator → Devices & certificates → Licenses: choose Copy certificate beside Download certificate, then use Copy in the read-only public PEM dialog',
       'Gateway: read the selected certificate public key; the device private key remains on the device',
       'Gateway CA → Administrator: return the new signed device.crt with its new serial',
       'Administrator → Device: install new device.crt and keep the matching existing device.key',
@@ -498,27 +501,36 @@ export const helpTopics = [
     relatedTopicIds: ['first-device-to-first-message', 'generate-complete-certificate', 'import-certificate']
   },
   {
-    id: 'device-renewal-planning', category: 'Certificates', title: 'Renew tab planning preview',
-    shortSummary: 'The Renew tab previews automatic device-certificate renewal and Gateway CA renewal, with a separate days-before-expiry setting for each. Its disabled controls do not configure or start either process.',
-    caution: 'No settings are saved and no automatic attempt, certificate issuance, CA rotation, or MQTT message is performed from this tab. The existing certificate action remains available for manual renewal.',
-    overview: 'The Renew tab is a planning preview with two independent sections. Device license renewal shows an automatic-renewal switch and a days-before-expiry threshold, plus planned MQTT request, response, and activation-acknowledgment topics, a public-key source, and a message template. Gateway CA renewal has its own automatic-renewal switch and days-before-expiry threshold, a CA renewal announcement topic, and a CA renewal message template. These planned MQTT fields would support distributing replacement trust material and tracking device reconnections. Features in the Trusted devices table can indicate configured future conditions with License renewal, License auto-renewal, Gateway CA renewal, and Gateway CA auto-renewal. These renewal conditions belong to WIP workflows and have no user configuration yet; a tag is not evidence that renewal is active. All Renew controls are disabled placeholders: they do not save settings, schedule attempts, issue certificates, rotate the CA, publish MQTT messages, or deliver trust material. The yellow WIP label marks these planned workflows as unavailable.',
-    when: 'Use this article to understand the two planned automatic-renewal settings and the existing certificate-specific renewal action.',
-    prerequisites: ['No prerequisites apply to viewing this planning preview. Its controls are disabled.'],
+    id: 'device-renewal-planning', category: 'Certificates', title: 'Request a certificate renewal CSR',
+    shortSummary: 'Request a renewal CSR from an authorized device over MQTT. The device keeps its private key; automatic renewal and Gateway CA rotation remain WIP.',
+    caution: 'The device must be online, authorized, and able to process the PKI MQTT topics. Use custom directional Rules without conflicting wildcard grants. The Gateway signs only a CSR whose subject matches the exact Device ID; its private key never leaves the device.',
+    overview: 'Edit Device → Renew provides a manual Request CSR workflow for a selected active Gateway-issued device certificate. The device must be active and authorized, and its Rules must use Custom mode with no conflicting directional filters: do not include the Gateway-to-device topics in the device Publish rules, and do not include the device-to-Gateway topics in the device Subscribe rules. The Health Check topic must not overlap the PKI topics. For a Device ID such as device-17, the exact case-sensitive topics are device-17/pki/request, device-17/pki/csr, device-17/pki/install, device-17/pki/confirm, and device-17/pki/status. The Gateway publishes request, install, and confirm; the device publishes csr and status. The device subscribes to request, install, and confirm. The MQTT renewal messages use QoS 1 and must not be retained. A request carries a unique request ID. The device creates and returns a CSR while keeping its private key local. The Gateway validates the CSR signature and that its subject CN matches the Device ID, signs it with the Gateway client CA, then sends the public certificate to the device for installation and testing. The initial exchange must complete within 10 minutes; once the device reports testing, confirmation must complete within 2 minutes. The UI shows the request ID and operation status; use Refresh status to retrieve the latest state. The Request CSR workflow does not enable automatic renewal. The Gateway CA renewal and migration controls remain disabled WIP placeholders.',
+    when: 'Use Request CSR to renew a Gateway-issued device certificate through a compatible device firmware flow, especially when the device must generate or retain its own private key.',
+    prerequisites: [
+      'The device identity must be active, trusted, and authorized, with a usable active Gateway-issued certificate selected for renewal.',
+      'Configure the device with Custom Rules. Device Publish rules must not match {deviceId}/pki/request, /pki/install, or /pki/confirm; device Subscribe rules must not match {deviceId}/pki/csr or /pki/status. Broad wildcards such as # conflict with the required directional access.',
+      'The configured Health Check topic must not equal any of the five reserved {deviceId}/pki topics.',
+      'The device must be connected and its MQTT client must implement the request → CSR → certificate install/testing → status/confirmation exchange. Only the CSR and public certificate are exchanged; the private key remains on the device.'
+    ],
     steps: [
-      'The Device license renewal section is intended to configure whether an eligible device certificate is renewed automatically and how many days before its expiry the Gateway should attempt renewal. Its MQTT topics, key source, and message template are also planned settings.',
-      'The Gateway CA renewal section is intended to configure CA replacement independently, including whether to automate it and how many days before the current CA expires to begin. It also shows placeholders for the CA announcement topic and message template. Planned migration tracking would identify devices that did not receive or activate the replacement trust material.',
-      'These settings are not active. The switches, threshold fields, topic, and message template are disabled placeholders; they cannot be saved and do not publish MQTT messages.',
-      'For an available manual renewal, use Renew from the action menu for the specific eligible certificate in Device Licenses or the Licenses page. That action issues a new certificate using the selected certificate’s public key; it does not install the certificate on the device or revoke the previous certificate.'
+      'Open the device editor and select Renew. Verify the device identity is active and authorized, and configure Custom directional Rules as described above. Apply pending broker changes if Rules were modified.',
+      'Select the active Gateway-issued certificate to renew, then choose Request CSR. The Gateway creates a request ID and sends a request on {deviceId}/pki/request.',
+      'The device generates or selects its local private key and publishes a signed CSR containing the exact Device ID as its subject CN on {deviceId}/pki/csr. Never publish the private key.',
+      'The Gateway validates the CSR, signs it with its client CA, and sends the public certificate on {deviceId}/pki/install. The device installs and tests the new certificate, then reports progress on {deviceId}/pki/status; the Gateway may send confirmation on {deviceId}/pki/confirm.',
+      'Use Refresh status to check the operation. Complete the device exchange within its time limit; a timeout or device rejection ends that attempt. Inspect the certificate list to confirm a newly issued record.',
+      'The automatic device-renewal settings and Gateway CA rotation/migration are still WIP; the manual Request CSR control does not activate them.'
     ],
     sequence: [
-      'Administrator → Renew tab: review the separate device-certificate and Gateway CA planning sections',
-      'Administrator: inspect the disabled automatic-renewal switches and days-before-expiry fields',
-      'Renew tab: display planned MQTT topics and message-template fields only',
-      'Gateway: do not save settings, schedule renewals, issue certificates, rotate the CA, or publish messages',
-      'For current manual renewal: use the existing certificate-specific Renew action'
+      'Administrator → Edit Device → Renew: select an active Gateway-issued certificate and choose Request CSR',
+      'Gateway → device-17/pki/request: send a request ID to the authorized device',
+      'Device → device-17/pki/csr: publish its signed CSR; the private key stays local',
+      'Gateway: verify the CSR signature and exact Device ID subject CN, then sign with the client CA',
+      'Gateway → device-17/pki/install: deliver the public certificate; device installs and tests it',
+      'Device ↔ Gateway via device-17/pki/status and /pki/confirm: complete activation and show operation status',
+      'Gateway CA rotation and automatic renewal: remain WIP'
     ],
-    workflowMermaid: 'flowchart LR\n  A[Open Edit Device → Renew] --> B[Review device certificate renewal preview]\n  A --> C[Review Gateway CA renewal preview]\n  B --> D[Controls are disabled WIP placeholders]\n  C --> D\n  D --> E[No settings or MQTT messages are produced]\n  F[Need current manual renewal?] --> G[Use the selected certificate Renew action]',
-    mermaid: 'sequenceDiagram\n  actor Admin as Administrator\n  participant UI as Device Renew tab\n  participant API as Gateway API\n  Admin->>UI: Open the Renew planning tab\n  UI-->>Admin: Show disabled device and CA renewal controls\n  Note over UI,API: Preview fields are not saved or submitted\n  Note over UI,API: No certificate is issued and no CA is rotated\n  Note over UI,API: No MQTT renewal message is published\n  Admin->>UI: Choose current certificate-specific Renew action\n  UI->>API: Submit the existing manual renewal request',
+    workflowMermaid: 'flowchart LR\n  A[Edit Device → Renew] --> B{Authorized device and compatible Custom Rules?}\n  B -- No --> C[Fix trust, authorization, or directional Rules]\n  B -- Yes --> D[Select active local certificate]\n  D --> E[Request CSR]\n  E --> F[Gateway sends request on Device ID/pki/request]\n  F --> G[Device publishes CSR on Device ID/pki/csr]\n  G --> H[Gateway validates CN and signs CSR]\n  H --> I[Gateway sends certificate on Device ID/pki/install]\n  I --> J[Device installs and tests certificate]\n  J --> K[Status and confirmation complete renewal]\n  L[CA rotation] -. remains WIP .-> M[No CA change is made]',
+    mermaid: 'sequenceDiagram\n  actor Admin as Administrator\n  participant UI as Edit Device Renew tab\n  participant API as Gateway API\n  participant Broker as MQTT broker\n  participant Device as Device firmware\n  Admin->>UI: Select active certificate and choose Request CSR\n  UI->>API: Start renewal for Device ID and certificate record\n  API->>API: Validate device authorization and custom directional Rules\n  API->>Broker: Subscribe to Device ID/pki/csr and /pki/status\n  API->>Broker: Publish request ID on Device ID/pki/request\n  Broker-->>Device: Deliver CSR request\n  Note over Device: Generate or use private key locally, never send it to Gateway\n  Device->>Broker: Publish signed CSR on Device ID/pki/csr\n  Broker-->>API: Deliver CSR\n  API->>API: Verify CSR signature and subject CN equals Device ID\n  API->>Broker: Publish signed public certificate on Device ID/pki/install\n  Broker-->>Device: Deliver certificate for installation and test\n  Device->>Broker: Publish staged/testing/confirmed status on Device ID/pki/status\n  API->>Broker: Publish confirmation on Device ID/pki/confirm when testing succeeds\n  UI->>API: Refresh operation status\n  API-->>UI: Return request ID and current status',
     relatedTopicIds: ['certificate-renewal', 'sign-existing-csr']
   },
 ];

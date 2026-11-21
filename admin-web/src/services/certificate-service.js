@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { env } from '../config.js';
 import { loadDb, saveDb, sqlite } from '../db.js';
 import { deviceAcl } from './topic-rules.js';
+import { renewalAclForDevice } from './renewal-acl.js';
 const run = promisify(execFile);
 const ca = (name) => path.join(env.caDir, name);
 const broker = (name) => path.join(env.brokerDir, name);
@@ -138,7 +139,7 @@ async function work(fn) {
     await fs.rm(dir, { recursive: true, force: true });
   }
 }
-export async function signDeviceCsr({ deviceId, csr, days = env.certDays }) {
+export async function signDeviceCsr({ deviceId, csr, days = env.certDays, requireMatchingSubject = false }) {
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(deviceId) || deviceId === env.adminMqttClientId)
     throw new Error('Invalid or reserved device identifier');
   days = Number(days);
@@ -151,7 +152,15 @@ export async function signDeviceCsr({ deviceId, csr, days = env.certDays }) {
     const input = path.join(dir, 'request.csr'),
       output = path.join(dir, 'certificate.crt');
     await fs.writeFile(input, csr, { mode: 0o600 });
-    await openssl(['req', '-in', input, '-verify', '-noout']);
+    const verification = await openssl(['req', '-in', input, '-verify', '-noout']);
+    if (requireMatchingSubject) {
+      // Older OpenSSL versions can exit zero even when CSR verification fails.
+      if (!/^Certificate request self-signature verify OK$/m.test(verification.stderr))
+        throw new Error('Invalid renewal CSR signature');
+      const { stdout: subject } = await openssl(['req', '-in', input, '-subject', '-nameopt', 'RFC2253', '-noout']);
+      if (subject.trim() !== `subject=CN=${deviceId}`)
+        throw new Error('Renewal CSR subject must match the device ID');
+    }
     const { stdout } = await openssl(['req', '-in', input, '-pubkey', '-noout']);
     const publicKey = crypto.createPublicKey(stdout);
     const bits = publicKey.asymmetricKeyDetails;
@@ -528,6 +537,7 @@ export async function syncBroker(force = false, { defer = false } = {}) {
   const db = loadDb();
   const healthTopics = db.devices.filter((device) => device.healthCheck?.enabled && device.status === 'active')
     .map((device) => ({ deviceId: device.id, topic: device.healthCheck.topic, readers: device.healthCheck.readers || [] }));
+  const renewalOwners = db.devices.filter((device) => device.renewal?.mqttEnabled === true);
   let acl = `user ${env.adminMqttClientId}\ntopic readwrite #\ntopic read $SYS/#\n`;
   // Infrastructure probe identity contains ':' and cannot be registered as a device.
   if (await exists(path.join(env.dataDir, 'update-health-client.crt')))
@@ -550,6 +560,7 @@ export async function syncBroker(force = false, { defer = false } = {}) {
     )
       continue;
     acl += deviceAcl(device, healthTopics);
+    acl += renewalAclForDevice(device, renewalOwners, healthTopics);
   }
   const policy = JSON.stringify(
     db.certificates
