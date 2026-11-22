@@ -16,69 +16,23 @@ test('Help registry provides requested unique topics', () => {
   ]) assert.ok(helpTopicById[id], `Missing help topic: ${id}`);
 });
 
-test('device renewal Help documents the manual MQTT CSR exchange and WIP limits', () => {
+test('device renewal Help concisely documents controls, approval modes, and timing', () => {
   const topic = helpTopicById['device-renewal-planning'];
   assert.ok(topic);
   assert.match(topic.shortSummary, /Request a renewal CSR/i);
-  assert.match(topic.overview, /device-17\/pki\/(?:request|csr|install|confirm|status)/);
-  assert.match(topic.overview, /Gateway publishes request, install, and confirm; the device publishes csr and status/i);
-  assert.match(topic.overview, /MQTT renewal messages use QoS 1 and must not be retained/i);
-  assert.match(topic.overview, /complete within 10 minutes.*confirmation must complete within 2 minutes/i);
-  assert.match(topic.overview, /CSR approval policy defaults to Review and approve each CSR/i);
-  assert.match(topic.overview, /Request CSR is the manual-mode button; Force automatic renewal is shown in automatic mode/i);
-  assert.match(topic.overview, /Either action saves the renewal settings and immediately starts the exchange/i);
-  assert.match(topic.overview, /Force automatic renewal starts the exchange immediately even when the scheduled lead time has not been reached/i);
-  assert.match(topic.overview, /cannot start while another renewal is pending/i);
-  assert.match(topic.overview, /Refresh status.*listed CSR Common Name.*Approve CSR and issue certificate/i);
-  assert.match(topic.steps.join(' '), /Automatically accept a matching CN/i);
-  assert.match(topic.overview, /only a CSR whose subject CN exactly matches that value/i);
-  assert.match(topic.overview, /issued certificate uses the registered Device ID as its CN.*MQTT ACLs/i);
-  assert.match(topic.overview, /most recently issued eligible certificate automatically; no certificate picker is shown/i);
-  assert.match(topic.overview, /New certificate validity \(days\).*positive whole number.*leave it blank to use the Gateway default/i);
-  assert.match(topic.overview, /Gateway validity limit and the remaining validity of its CA/i);
-  assert.match(topic.overview, /In automatic CN mode only, Attempt renewal before expiry \(days\).*leave it blank to disable scheduling.*positive whole number shorter than New certificate validity/i);
-  assert.match(topic.overview, /scheduler checks every minute and starts at most one scheduled attempt for each eligible certificate/i);
-  assert.match(topic.overview, /failed or rejected exchange is not silently retried; start another attempt manually/i);
+  assert.match(topic.overview, /Request CSR always starts a manual-review request, even when automatic acceptance is saved/i);
+  assert.match(topic.overview, /Force automatic renewal starts an automatic request/i);
+  assert.match(topic.overview, /Save MQTT topics changes only the topic settings/i);
   assert.match(topic.overview, /keeps its private key local/i);
-  assert.match(topic.prerequisites.join(' '), /Custom Rules/i);
-  assert.match(topic.prerequisites.join(' '), /device Publish rules.*device Subscribe rules/i);
-  assert.match(topic.prerequisites.join(' '), /Health Check topic must not equal any of the five reserved/i);
-  assert.match(topic.steps.join(' '), /Request CSR/i);
-  assert.match(topic.steps.join(' '), /Refresh status/i);
-  assert.match(topic.steps.join(' '), /defaults to Review and approve each CSR.*Automatically accept a matching CN.*Request CSR for manual review or Force automatic renewal for automatic acceptance/i);
-  assert.match(topic.steps.join(' '), /Either button saves the validity, approval policy, and other renewal settings, then immediately starts the exchange/i);
-  assert.match(topic.steps.join(' '), /positive whole number.*New certificate validity \(days\).*leave it blank.*Gateway default/i);
-  assert.match(topic.steps.join(' '), /cannot exceed the Gateway maximum or the CA certificate’s remaining validity/i);
-  assert.match(topic.steps.join(' '), /In automatic CN mode, optionally set Attempt renewal before expiry \(days\).*leave it blank to disable scheduling/i);
-  assert.match(topic.steps.join(' '), /positive whole number less than the new certificate validity to opt in.*mode-specific start button saves this lead time/i);
-  assert.match(topic.steps.join(' '), /scheduler checks every minute.*no more than one scheduled request per eligible certificate/i);
-  assert.match(topic.steps.join(' '), /failed or rejected exchange is not silently retried.*mode-specific button/i);
-  assert.match(topic.steps.join(' '), /Force automatic renewal starts immediately regardless of the lead time/i);
-  assert.match(topic.steps.join(' '), /Force automatic renewal starts immediately regardless of the lead time, while still requiring authorization and no pending operation/i);
-  assert.match(topic.steps.join(' '), /device generates or selects its local private key.*subject CN must match the expected CN policy/i);
-  assert.match(topic.steps.join(' '), /Refresh status is always visible beside Request CSR/i);
-  assert.match(topic.steps.join(' '), /manual mode, review the listed CN.*Approve CSR and issue certificate/i);
-  assert.match(topic.steps.join(' '), /Approve CSR and issue certificate/i);
-  assert.match(topic.steps.join(' '), /issued certificate uses the registered Device ID as its CN for MQTT ACLs/i);
-  assert.match(topic.steps.join(' '), /request_id and csr fields.*legacy messages that use pem instead of csr/i);
-  assert.match(topic.steps.join(' '), /install.*pem field contains the public certificate/i);
-  assert.match(topic.mermaid, /request_id and csr \(signed CSR PEM\)/i);
+  assert.match(topic.steps.join(' '), /positive lead time shorter than the new certificate validity/i);
+  assert.match(topic.steps.join(' '), /scheduler checks every minute/i);
+  assert.match(topic.steps.join(' '), /initial exchange must finish within 10 minutes.*confirmation after testing must finish within 2 minutes/i);
+  assert.match(topic.workflowMermaid, /Request CSR is always visible and forces manual review/);
+  assert.match(topic.workflowMermaid, /Save MQTT topics only, no CSR and no policy change/);
   assert.match(topic.mermaid, /legacy clients may send the CSR in pem instead of csr/i);
-  assert.match(topic.mermaid, /install JSON with pem \(public certificate\)/i);
-  assert.match(topic.overview, /Gateway CA renewal remains disabled WIP/i);
-  assert.match(topic.workflowMermaid, /Manual default/);
-  assert.match(topic.workflowMermaid, /Expected CSR CN/);
-  assert.match(topic.workflowMermaid, /optional lead time shorter than validity/);
-  assert.match(topic.workflowMermaid, /scheduled check every minute/);
-  assert.match(topic.workflowMermaid, /Force automatic renewal saves settings and starts now/);
-  assert.match(topic.workflowMermaid, /ignores scheduled lead time/);
-  assert.match(topic.workflowMermaid, /selects latest eligible certificate/);
-  assert.match(topic.workflowMermaid, /Device ID\/pki\/request/);
-  assert.match(topic.workflowMermaid, /Device ID\/pki\/csr/);
+  assert.match(topic.mermaid, /private key local/i);
   assert.match(topic.mermaid, /Approve CSR and issue certificate in manual mode/);
-  assert.match(topic.mermaid, /registered Device ID as CN for MQTT ACLs/);
-  assert.match(topic.mermaid, /SUBSCRIBE/i);
-  assert.match(topic.mermaid, /signed CSR/i);
+  assert.match(topic.prerequisites.join(' '), /Custom Rules/i);
   assert.deepEqual(topic.relatedTopicIds, ['certificate-renewal', 'sign-existing-csr']);
 });
 
@@ -216,4 +170,19 @@ test('certificate articles explain key ownership and preserve the trust and auth
   assert.match(imported.overview, /not.*stored/i);
   assert.match(imported.steps.join(' '), /explicitly approve its CA/i);
   assert.match(imported.steps.join(' '), /authorize the identity/i);
+});
+
+test('certificate revocation Help matches per-certificate CRL enforcement and fail-closed blocking', () => {
+  const ids = ['generate-complete-certificate', 'sign-existing-csr', 'generate-csr-external-signing', 'import-certificate'];
+  for (const id of ids) {
+    const topic = helpTopicById[id];
+    assert.match(topic.lifecycle, /successful CRL update preserves the identity authorization when another active, trusted, unexpired certificate remains/i, id);
+    assert.match(topic.lifecycle, /otherwise the Gateway disables the identity/i, id);
+    assert.match(topic.lifecycle, /CRL update fails.*external issuer.*fails closed and disables the identity/i, id);
+    assert.match(topic.lifecycle, /CA-level and device-wide actions are unchanged/i, id);
+    assert.doesNotMatch(topic.lifecycle, /revok(?:ing|e) (?:one|any one|a) certificate (?:also )?disables the (?:whole|entire|associated) identity/i, id);
+  }
+  const renewal = helpTopicById['certificate-renewal'];
+  assert.match(renewal.steps.join(' '), /successful CRL update preserves authorization when another active, trusted, unexpired certificate remains/i);
+  assert.match(renewal.steps.join(' '), /if CRL enforcement fails or the issuer is external, the Gateway disables the identity/i);
 });

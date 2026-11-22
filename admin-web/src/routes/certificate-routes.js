@@ -303,22 +303,30 @@ export function registerCertificateRoutes(app) {
         c = find(db, req.params.id);
       if (c.status === 'revoked')
         return res.status(409).json({ error: 'Certificate already revoked' });
-      let crlUpdated = true;
-      if (c.issuer === 'local' || c.issuer === 'legacy') {
-        try { await revokeCertificate(c); } catch { crlUpdated = false; }
+      const localIssuer = c.issuer === 'local' || c.issuer === 'legacy';
+      let crlUpdated = false;
+      if (localIssuer) {
+        try { await revokeCertificate(c); crlUpdated = true; } catch { /* Fail closed if revocation cannot be enforced. */ }
       }
       c.status = 'revoked';
       c.revokedAt = new Date().toISOString();
       c.revokedBy = req.user.username;
       const device = deviceRecord(db, c.deviceId);
-      if (device) { device.enabled = false; device.trusted = false; }
+      const hasOtherCredential = db.certificates.some((other) =>
+        other.deviceId === c.deviceId && other.status === 'active' && other.brokerTrusted !== false &&
+        !other.licenseArchivedAt && !other.licenseDeletedAt && Date.parse(other.validTo) > Date.now(),
+      );
+      if (device && (!crlUpdated || !hasOtherCredential)) {
+        device.enabled = false;
+        device.trusted = false;
+      }
       saveDb(db);
       await syncBroker(true);
       audit(req.user.username, 'certificate.revoked', `${c.deviceId}:${c.serial}`);
-      if (!crlUpdated) audit(req.user.username, 'certificate.crl_update_failed', `${c.deviceId}:${c.serial}`);
+      if (localIssuer && !crlUpdated) audit(req.user.username, 'certificate.crl_update_failed', `${c.deviceId}:${c.serial}`);
       res.json({
         certificate: publicCertificate(c),
-        enforcement: crlUpdated ? 'Revocation saved; apply pending broker changes.' : 'CRL update failed. Device-wide ACL blocking is staged; apply pending broker changes.',
+        enforcement: crlUpdated ? 'Revocation saved; apply pending broker changes.' : 'Individual revocation could not be enforced. Device-wide ACL blocking is staged; apply pending broker changes.',
       });
     }),
   );

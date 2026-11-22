@@ -246,4 +246,14 @@ test('manual changes batch into one apply and license removal preserves the devi
   assert.deepEqual((await request('/broker/status')).changes, []);
   assert.equal((await request('/broker/apply', 'POST', {})).changed, false);
   assert.equal(await fs.readFile(revisionFile, 'utf8'), applied);
+  await request(`/certificates/${second.record.id}/revoke`, 'POST', {});
+  const getDevice = () => loadDb().devices.find((device) => device.id === 'batch-device');
+  assert.equal(getDevice().enabled, true);
+  assert.equal(getDevice().trusted, true);
+  assert.match(await fs.readFile(path.join(dir, 'broker/acl'), 'utf8'), /^user batch-device$/m);
+  await request(`/certificates/${renewed.record.id}/revoke`, 'POST', {});
+  assert.equal(getDevice().enabled, false);
+  assert.equal(getDevice().trusted, false);
+  assert.doesNotMatch(await fs.readFile(path.join(dir, 'broker/acl'), 'utf8'), /^user batch-device$/m);
+
 });
