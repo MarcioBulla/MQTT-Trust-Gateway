@@ -27,9 +27,11 @@ export function decodeRenewalMessage(payload, packet, kind) {
     const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(payload));
     if (typeof value?.request_id !== 'string' || !uuidV4.test(value.request_id)) return null;
     if (kind === 'csr') {
-      if (typeof value.pem !== 'string' || !value.pem || Buffer.byteLength(value.pem) > renewalLimits.pemBytes)
+      if (value.csr !== undefined && value.pem !== undefined && value.csr !== value.pem) return null;
+      const pem = value.csr === undefined ? value.pem : value.csr;
+      if (typeof pem !== 'string' || !pem || Buffer.byteLength(pem) > renewalLimits.pemBytes)
         return null;
-      return { request_id: value.request_id, pem: value.pem };
+      return { request_id: value.request_id, pem };
     }
     if (kind === 'status' && statuses.has(value.status))
       return { request_id: value.request_id, status: value.status };
