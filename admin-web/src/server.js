@@ -74,8 +74,13 @@ app.use('/api', (req, res, next) => {
 });
 app.post('/api/devices/:deviceId/mqtt-renewals', requireAuth(async (req, res) => {
   if (!requireSensitive(req, res, 'devices')) return;
-  const id = await beginClientRenewal(req.params.deviceId, req.body?.topics, req.body?.cnPolicy, req.body?.validityDays);
+  const id = await beginClientRenewal(req.params.deviceId, req.body?.topics, req.body?.cnPolicy, req.body?.validityDays, false, false, req.body?.manualApproval === true);
   res.status(202).json({ id });
+}));
+app.put('/api/devices/:deviceId/mqtt-renewals', requireAuth(async (req, res) => {
+  if (!requireSensitive(req, res, 'devices')) return;
+  await beginClientRenewal(req.params.deviceId, req.body?.topics, req.body?.cnPolicy, req.body?.validityDays, false, true);
+  res.json({ saved: true });
 }));
 app.post('/api/devices/:deviceId/mqtt-renewals/:id/approve', requireAuth(async (req, res) => {
   if (!requireSensitive(req, res, 'devices')) return;
