@@ -66,8 +66,8 @@ test('device health API requires step-up, validates rules and stages isolated he
     const result = await response.json();
     assert.deepEqual(result.config, { enabled: true, topic: 'gateway/health/device-a/status', onlinePayload: 'online', offlinePayload: 'offline', readers: ['device-reader'], offlineGrace: 30, recoveryStability: 5 });
     assert.deepEqual(result.readerCandidates, [
-      { id: 'device-b', label: 'Synthetic B (device-b)' },
-      { id: 'device-reader', label: 'Synthetic reader (device-reader)' },
+      { id: 'device-b', label: 'Synthetic B (device-b)', labels: [] },
+      { id: 'device-reader', label: 'Synthetic reader (device-reader)', labels: [] },
     ]);
     assert.equal(result.status, 'unknown');
     assert.match(result.message, /Apply pending broker changes/);
