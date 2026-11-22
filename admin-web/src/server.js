@@ -41,6 +41,7 @@ app.use(
 );
 registerHealthRoutes(app, {
   sqlite,
+  enqueue: exclusive,
   updateReady: () => !hasPendingProvisioningDelivery(),
 });
 app.use((req, res, next) => {

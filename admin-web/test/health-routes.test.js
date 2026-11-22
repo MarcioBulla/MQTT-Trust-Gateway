@@ -6,6 +6,8 @@ import { registerHealthRoutes } from '../src/routes/health-routes.js';
 let server;
 let baseUrl;
 let sqliteAvailable = true;
+let readinessGate;
+let onReadinessQueued;
 
 before(async () => {
   const app = express();
@@ -19,6 +21,11 @@ before(async () => {
           return { id: 1 };
         } };
       },
+    },
+    async enqueue(check) {
+      onReadinessQueued?.();
+      await readinessGate;
+      return check();
     },
     trustedProxies: ['127.0.0.1'],
     updateReady: () => true,
@@ -78,4 +85,25 @@ test('GET /healthz preserves the updater readiness response with no caching', as
   assert.equal(response.status, 200);
   assert.match(response.headers.get('cache-control'), /no-store/);
   assert.deepEqual(await response.json(), { ok: true, updateReady: true });
+});
+
+test('readiness waits for the API queue while liveness remains responsive', async () => {
+  sqliteAvailable = true;
+  let release;
+  readinessGate = new Promise((resolve) => { release = resolve; });
+  const queued = new Promise((resolve) => { onReadinessQueued = resolve; });
+  const controller = new AbortController();
+  const ready = fetch(`${baseUrl}/ready`, { signal: controller.signal });
+  try {
+    await queued;
+    const live = await fetch(`${baseUrl}/health`);
+    assert.equal(live.status, 200);
+    controller.abort();
+    await assert.rejects(ready, { name: 'AbortError' });
+  } finally {
+    release();
+    readinessGate = undefined;
+    onReadinessQueued = undefined;
+  }
+  assert.equal((await fetch(`${baseUrl}/ready`)).status, 200);
 });

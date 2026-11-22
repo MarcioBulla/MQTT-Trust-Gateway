@@ -28,8 +28,9 @@ function eligible(db, deviceId, targetId) {
 async function subscribe(operation) {
   const { csr, status } = configuredRenewalTopics(operation.deviceId, operation.topics);
   const grants = await transport.subscribeAsync([csr, status], { qos: 1, rap: true, rh: 2 });
-  if (grants.length !== 2 || grants.some((grant) => grant.qos !== 1))
-    throw new Error('Broker did not grant PKI subscriptions');
+  const refused = grants.filter((grant) => grant.qos !== 1).map((grant) => grant.topic);
+  if (grants.length !== 2 || refused.length)
+    throw new Error(`Broker denied PKI subscription at: ${refused.join(', ') || 'incomplete grant response'}`);
 }
 
 export function startClientRenewal() {

@@ -9,7 +9,7 @@ import { calculateDeviceUptime } from '../services/device-uptime.js';
 const defaultConfig = (device) => ({ enabled: false, topic: `gateway/health/${device.id}/status`, onlinePayload: 'online', offlinePayload: 'offline', readers: [], offlineGrace: 30, recoveryStability: 5 });
 const configFor = (device) => ({ ...defaultConfig(device), ...(device.healthCheck || {}) });
 const readerCandidates = (db, ownerId) => db.devices.filter((device) => device.id !== ownerId && device.status === 'active' && device.enabled && device.trusted !== false)
-  .map((device) => ({ id: device.id, label: `${device.name || device.id} (${device.id})` })).sort((a, b) => a.label.localeCompare(b.label));
+  .map((device) => ({ id: device.id, label: `${device.name || device.id} (${device.id})`, labels: device.labels || [] })).sort((a, b) => a.label.localeCompare(b.label));
 function summary(device, now) {
   if (!device.healthCheck?.enabled) return { status: 'disabled', uptime: null, days: [] };
   const store = getDeviceHealthStore(), from = Math.floor(now / 86400000) * 86400000 - 29 * 86400000;

@@ -26,7 +26,20 @@ function save() {
       <v-text-field v-model="config.onlinePayload" label="Online Payload" hint="Exact UTF-8 value published when the device is connected." persistent-hint />
       <v-text-field v-model="config.offlinePayload" label="Offline Payload / LWT" hint="Exact UTF-8 value used by the Last Will and graceful disconnect." persistent-hint />
     </div>
-    <v-autocomplete v-model="config.readers" :items="readerCandidates" item-title="label" item-value="id" label="Allow other identities to read this status topic" multiple chips closable-chips clearable hint="Readers need a matching Subscribe Rule and cannot have a Publish Rule for this topic." persistent-hint />
+    <v-autocomplete v-model="config.readers" :items="readerCandidates" item-title="label" item-value="id" label="Allow other identities to read this status topic" multiple chips closable-chips clearable hint="Readers need a matching Subscribe Rule and cannot have a Publish Rule for this topic." persistent-hint>
+      <template #item="{ props: optionProps, item: option }">
+        <v-list-item v-bind="optionProps">
+          <template #subtitle>
+            <div class="d-flex flex-wrap ga-1 mt-1">
+              <v-chip v-for="label in option.raw.labels || []" :key="typeof label === 'string' ? label : label.name"
+                size="x-small" variant="tonal" :color="typeof label === 'string' ? 'primary' : (label.color || 'primary')">
+                {{ typeof label === 'string' ? label : label.name }}
+              </v-chip>
+            </div>
+          </template>
+        </v-list-item>
+      </template>
+    </v-autocomplete>
     <v-alert type="info" variant="tonal" class="mb-4">The selected topic is reserved for this device. Its publish Rules must allow the topic. Selected readers can subscribe only when their own Subscribe Rules allow it. Apply broker changes after saving.</v-alert>
     <p>Monitoring Strategy: <strong>MQTT LWT + Retain + QoS 1</strong></p>
     <p>Current Status: <strong>{{ status }}</strong></p>
