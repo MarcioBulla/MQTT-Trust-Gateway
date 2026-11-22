@@ -25,12 +25,17 @@ test('device renewal Help documents the manual MQTT CSR exchange and WIP limits'
   assert.match(topic.overview, /MQTT renewal messages use QoS 1 and must not be retained/i);
   assert.match(topic.overview, /complete within 10 minutes.*confirmation must complete within 2 minutes/i);
   assert.match(topic.overview, /subject CN matches the Device ID/i);
-  assert.match(topic.overview, /keeping its private key local/i);
+  assert.match(topic.overview, /keeps its private key local/i);
   assert.match(topic.prerequisites.join(' '), /Custom Rules/i);
   assert.match(topic.prerequisites.join(' '), /device Publish rules.*device Subscribe rules/i);
   assert.match(topic.prerequisites.join(' '), /Health Check topic must not equal any of the five reserved/i);
   assert.match(topic.steps.join(' '), /Request CSR/i);
   assert.match(topic.steps.join(' '), /Refresh status/i);
+  assert.match(topic.steps.join(' '), /request_id and csr fields.*legacy messages that use pem instead of csr/i);
+  assert.match(topic.steps.join(' '), /install.*pem field contains the public certificate/i);
+  assert.match(topic.mermaid, /request_id and csr \(signed CSR PEM\)/i);
+  assert.match(topic.mermaid, /legacy clients may send the CSR in pem instead of csr/i);
+  assert.match(topic.mermaid, /install JSON with pem \(public certificate\)/i);
   assert.match(topic.overview, /Gateway CA renewal and migration controls remain disabled WIP placeholders/i);
   assert.match(topic.workflowMermaid, /Device ID\/pki\/request/);
   assert.match(topic.workflowMermaid, /Device ID\/pki\/csr/);
