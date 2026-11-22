@@ -119,8 +119,13 @@ async function configureAndBegin(deviceId, targetId, configured, policy) {
     throw Object.assign(new Error('Renewal transport unavailable'), { status: 503 });
   await exclusive(async () => {
     const db = loadDb();
+    if (!targetId) {
+      targetId = db.certificates
+        .filter((item) => item.deviceId === deviceId && eligible(db, deviceId, item.id))
+        .sort((a, b) => (Date.parse(b.issuedAt ?? b.validFrom) || 0) - (Date.parse(a.issuedAt ?? a.validFrom) || 0))[0]?.id;
+    }
     const device = eligible(db, deviceId, targetId);
-    if (!device) throw Object.assign(new Error('Select an active local certificate for an authorized device'), { status: 409 });
+    if (!device) throw Object.assign(new Error('Renewal requires an authorized device with an active local certificate'), { status: 409 });
     if (store.pendingForDevice(deviceId)) throw Object.assign(new Error('Renewal already pending'), { status: 409 });
     try { topics = configuredRenewalTopics(deviceId, configured ?? device.renewal?.mqttTopics); }
     catch (error) { throw Object.assign(error, { status: 400 }); }

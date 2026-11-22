@@ -155,7 +155,7 @@ export async function signDeviceCsr({ deviceId, csr, days = env.certDays, requir
     const verification = await openssl(['req', '-in', input, '-verify', '-noout']);
     if (requireMatchingSubject) {
       // Older OpenSSL versions can exit zero even when CSR verification fails.
-      if (!/^Certificate request self-signature verify OK$/m.test(verification.stderr))
+      if (!/^Certificate request self-signature verify OK$/m.test(verification.stderr + "\n" + verification.stdout))
         throw new Error('Invalid renewal CSR signature');
       const { stdout: subject } = await openssl(['req', '-in', input, '-subject', '-nameopt', 'RFC2253', '-noout']);
       if (subject.trim() !== `subject=CN=${expectedCn}`)
@@ -224,7 +224,7 @@ export async function inspectCsr(csr, { verifySignature = false } = {}) {
     const file = path.join(dir, 'request.csr');
     await fs.writeFile(file, csr, { mode: 0o600 });
     const verification = await openssl(['req', '-in', file, '-verify', '-noout']);
-    if (verifySignature && !/^Certificate request self-signature verify OK$/m.test(verification.stderr))
+    if (verifySignature && !/^Certificate request self-signature verify OK$/m.test(verification.stderr + "\n" + verification.stdout))
       throw new Error('Invalid renewal CSR signature');
     const { stdout: keyPem } = await openssl(['req', '-in', file, '-pubkey', '-noout']);
     const key = crypto.createPublicKey(keyPem);

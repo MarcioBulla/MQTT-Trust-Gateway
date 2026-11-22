@@ -51,7 +51,8 @@ test('CA lifecycle: idempotence, CSR constraints, issuance, renewal, CRL and ACL
   const csr = await fs.readFile(csrFile, 'utf8');
   await assert.rejects(signDeviceCsr({ deviceId: 'mqtt-trust-admin', csr }));
   await assert.rejects(signDeviceCsr({ deviceId: 'sensor', csr, days: 99999 }));
-  const pem = await signDeviceCsr({ deviceId: 'sensor', csr, days: 1 });
+  await assert.rejects(signDeviceCsr({ deviceId: 'sensor', csr, days: 1, requireMatchingSubject: true }), { code: 'csr_cn_mismatch' });
+  const pem = await signDeviceCsr({ deviceId: 'sensor', csr, days: 1, requireMatchingSubject: true, expectedCn: 'attacker' });
   const metadata = certificateMetadata(pem);
   assert.equal(metadata.subject, 'CN=sensor');
   const cert = path.join(dir, 'device.crt');

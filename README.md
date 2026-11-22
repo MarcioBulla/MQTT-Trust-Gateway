@@ -19,6 +19,7 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 - ❔ Contextual Help: searchable guides for certificate workflows, release discovery, MQTT Manager, Gateway service health, CA trust, and the Dashboard first-message walkthrough, with contextual previews, numbered references, interactive Mermaid diagrams, and theme-matched visual guides.
 - 🪪 Four certificate enrollment methods: sign a device CSR, create a CSR for an external CA, generate a complete device credential bundle, or import an existing certificate.
 - 🧩 **Per-device MQTT rules:** use the default `#` access or configure separate publish and subscribe topic filters for each identity; apply saved changes through the broker controls. The default grants broad access to ordinary topics.
+- 🔁 **MQTT CSR renewal:** request a CSR from an authorized device; each request uses its newest eligible local certificate by default. Review and approve each submitted CSR Common Name (CN), or automatically accept only a configured expected CN. Issued certificates retain the registered Device ID as their CN and MQTT identity.
 - 🧰 Central device and certificate lifecycle: renew a selected certificate using its existing public key, revoke, trust external CAs, archive, restore, or delete identities. Use **Add certificate → Sign an existing CSR** for key rotation.
 - 🆔 Stable IDs: the Gateway generates immutable device and certificate-record IDs. Device display names may repeat; the device ID remains the MQTT identity and certificate Common Name.
 - 🩺 Gateway health probes: lightweight liveness and private SQLite readiness endpoints for monitoring the Gateway itself; these do not monitor devices or MQTT connectivity.
@@ -34,7 +35,7 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 
 ## 🚧 Work in progress
 
-1. 🔐 **Automatic device-license renewal and Gateway CA rotation:** configure separate automatic-renewal switches and days-before-expiry thresholds. Device-license renewal will also use configurable MQTT topics/templates; CA rotation will track device delivery, acknowledgments, and verified reconnections. Manual device-certificate renewal is already available from certificate actions.
+1. 🔐 **Automatic renewal scheduling and Gateway CA rotation:** add automatic-renewal switches and days-before-expiry thresholds for device licenses. Manual MQTT CSR requests and per-device topic configuration are available; automatic CN approval only automates CSR checking, not renewal scheduling. CA rotation still needs delivery acknowledgments and verified device reconnections.
 2. ✉️ **SMTP settings:** send administrative notifications such as certificate-expiry, renewal, broker-security, device-connectivity, and Gateway-release events.
 3. 🤖 **Telegram bot alerts:** provide an additional channel for administrative, security, and connectivity notifications.
 4. 🔄 **Offline release import:** install verified Gateway releases without an internet connection.

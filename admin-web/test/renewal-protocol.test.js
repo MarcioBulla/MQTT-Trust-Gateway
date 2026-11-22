@@ -37,3 +37,27 @@ test('manual CSR approval binds the request to the reviewed CN', async () => {
   assert.deepEqual(sent, ['device-id/pki/request', 'device-id/pki/install']);
   assert.equal(operations.get(id).pendingCsr, undefined);
 });
+
+test('automatic CSR approval passes the configured CN and rejects a mismatch', async () => {
+  const { createRenewalCoordinator } = await import('../src/services/renewal-coordinator.js');
+  const operations = new Map();
+  const sent = [];
+  const coordinator = createRenewalCoordinator({
+    store: { save: (op) => operations.set(op.id, op), get: (id) => operations.get(id), pendingForDevice: () => null },
+    authorize: () => true,
+    issueClient: async (op, csr, cn) => {
+      assert.equal(cn, 'AutoBoot_Test');
+      if (csr !== cn) throw Object.assign(new Error('CN mismatch'), { code: 'csr_cn_mismatch' });
+      return 'signed certificate';
+    },
+    publish: async (topic) => sent.push(topic),
+  });
+  for (const csr of ['unexpected', 'AutoBoot_Test']) {
+    const id = await coordinator.begin('device-id', {
+      type: 'client', cnPolicy: { mode: 'automatic', expectedCn: 'AutoBoot_Test' },
+    });
+    await coordinator.receive('device-id', 'csr', Buffer.from(JSON.stringify({ request_id: id, csr })), { qos: 1, retain: false });
+    assert.equal(operations.get(id).status, csr === 'unexpected' ? 'rejected' : 'requested');
+  }
+  assert.deepEqual(sent, ['device-id/pki/request', 'device-id/pki/request', 'device-id/pki/install']);
+});
