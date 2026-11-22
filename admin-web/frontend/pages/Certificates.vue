@@ -51,6 +51,10 @@ const mqttTopicFields = {
 const mqttTopics = ref({});
 const mqttCnMode = ref('manual');
 const mqttExpectedCn = ref('');
+const mqttValidityDays = ref('');
+watch([() => props.deviceId, () => currentDevice.value?.renewal?.mqttValidityDays], ([, days]) => {
+  mqttValidityDays.value = days ?? '';
+}, { immediate: true });
 watch([() => props.deviceId, () => currentDevice.value?.renewal?.mqttCnPolicy], ([id, saved]) => {
   mqttCnMode.value = saved?.mode ?? 'manual';
   mqttExpectedCn.value = saved?.expectedCn ?? id ?? '';
@@ -76,7 +80,7 @@ watch(editTab, (tab) => {
 function startMqttRenewal() {
   action(async () => {
     await ensureSensitive('devices');
-    const result = await api(mqttRenewalPath(), 'POST', { topics: { ...mqttTopics.value }, cnPolicy: { mode: mqttCnMode.value, expectedCn: mqttExpectedCn.value.trim() } });
+    const result = await api(mqttRenewalPath(), 'POST', { topics: { ...mqttTopics.value }, validityDays: mqttValidityDays.value === '' ? null : Number(mqttValidityDays.value), cnPolicy: { mode: mqttCnMode.value, expectedCn: mqttExpectedCn.value.trim() } });
     mqttOperation.value = { id: result.id, status: 'requested' };
   });
 }
@@ -342,7 +346,8 @@ defineExpose({ open });
       <p class="mb-3">The device must be authorized, use compatible custom topic rules, and listen for CSR requests.</p>
       <v-select v-model="mqttCnMode" :items="[{ title: 'Review and approve each CSR', value: 'manual' }, { title: 'Automatically accept a matching CN', value: 'automatic' }]" label="CSR approval policy" />
       <v-text-field v-if="mqttCnMode === 'automatic'" v-model="mqttExpectedCn" label="Expected CSR Common Name (CN)" maxlength="64" />
-      <p class="text-body-2 mb-3">The approval policy is saved when you request a CSR. The issued certificate uses the registered Device ID for MQTT access.</p>
+      <v-text-field v-model="mqttValidityDays" type="number" min="1" step="1" label="New certificate validity (days)" placeholder="Gateway default" persistent-placeholder />
+      <p class="text-body-2 mb-3">The validity and approval policy are saved when you request a CSR. The issued certificate uses the registered Device ID for MQTT access.</p>
       <v-btn color="primary" :disabled="(mqttCnMode === 'automatic' && !mqttExpectedCn.trim()) || !currentDevice?.enabled || currentDevice?.trusted === false"
         :loading="!!state.busy" @click="startMqttRenewal">Request CSR</v-btn>
       <div v-if="mqttOperation" class="mt-4" role="status">
@@ -364,7 +369,10 @@ defineExpose({ open });
     </v-card>
     <v-card variant="outlined" class="pa-4">
       <div class="d-flex align-center justify-space-between ga-3">
-        <h3 class="text-subtitle-1">Gateway CA renewal <v-chip size="small" color="warning" variant="tonal">WIP</v-chip></h3>
+        <div class="d-flex flex-wrap align-center ga-2">
+          <h3 class="text-subtitle-1">Gateway CA renewal</h3>
+          <v-chip size="small" color="warning" variant="tonal">WIP</v-chip>
+        </div>
         <v-switch disabled label="Enable automatic CA renewal" color="primary" hide-details />
       </div>
       <p class="text-body-2 text-medium-emphasis mt-3 mb-4">Create and migrate to a new Gateway CA before the current CA expires. The future workflow will track delivery, acknowledgment, and verified reconnection for every device.</p>
