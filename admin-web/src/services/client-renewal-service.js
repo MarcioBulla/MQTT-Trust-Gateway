@@ -15,6 +15,8 @@ let transport;
 let coordinator;
 let store;
 let timer;
+let scheduleTimer;
+const dayMs = 86_400_000;
 
 function eligible(db, deviceId, targetId) {
   const device = db.devices.find((item) => item.id === deviceId && item.enabled &&
@@ -27,7 +29,10 @@ function eligible(db, deviceId, targetId) {
 
 async function subscribe(operation) {
   const { csr, status } = configuredRenewalTopics(operation.deviceId, operation.topics);
-  const grants = await transport.subscribeAsync([csr, status], { qos: 1, rap: true, rh: 2 });
+  // MQTT.js skips subscriptions it already tracks unless explicitly asked to resubscribe.
+  // Require a fresh broker acknowledgement after applying ACLs.
+  const options = { qos: 1, rap: true, rh: 2 };
+  const grants = await transport.subscribeAsync({ [csr]: options, [status]: options, resubscribe: true });
   const refused = grants.filter((grant) => grant.qos !== 1).map((grant) => grant.topic);
   if (grants.length !== 2 || refused.length)
     throw new Error(`Broker denied PKI subscription at: ${refused.join(', ') || 'incomplete grant response'}`);
@@ -98,32 +103,41 @@ export function startClientRenewal() {
   });
   timer = setInterval(() => coordinator.expirePending().catch(() => {}), 5000);
   timer.unref();
+  scheduleTimer = setInterval(() => checkScheduledRenewals().catch(() => console.error('Could not check MQTT renewal schedule')), 60_000);
+  scheduleTimer.unref();
 }
 
 export function stopClientRenewal() {
   clearInterval(timer);
+  clearInterval(scheduleTimer);
   return transport?.endAsync(true);
 }
 
 let startQueue = Promise.resolve();
 
-export function beginClientRenewal(deviceId, configured, policy, requestedDays) {
-  const result = startQueue.then(() => configureAndBegin(deviceId, configured, policy, requestedDays));
+export function beginClientRenewal(deviceId, configured, policy, requestedDays, scheduled = false) {
+  const result = startQueue.then(() => configureAndBegin(deviceId, configured, policy, requestedDays, scheduled));
   startQueue = result.catch(() => {});
   return result;
 }
 
-async function configureAndBegin(deviceId, configured, policy, requestedDays) {
+async function configureAndBegin(deviceId, configured, policy, requestedDays, scheduled) {
   let topics, cnPolicy, targetId, validityDays;
   if (!transport?.connected || updateMaintenance())
     throw Object.assign(new Error('Renewal transport unavailable'), { status: 503 });
   await exclusive(async () => {
     const db = loadDb();
-    targetId = db.certificates
-      .filter((item) => item.deviceId === deviceId && eligible(db, deviceId, item.id))
-      .sort((a, b) => (Date.parse(b.issuedAt ?? b.validFrom) || 0) - (Date.parse(a.issuedAt ?? a.validFrom) || 0))[0]?.id;
+    const target = db.certificates
+      .filter((item) => item.deviceId === deviceId && eligible(db, deviceId, item.id) &&
+        (!item.renewalOperationId || store.get(item.renewalOperationId)?.status === 'confirmed'))
+      .sort((a, b) => (Date.parse(b.issuedAt ?? b.validFrom) || 0) - (Date.parse(a.issuedAt ?? a.validFrom) || 0))[0];
+    targetId = target?.id;
     const device = eligible(db, deviceId, targetId);
     if (!device) throw Object.assign(new Error('Renewal requires an authorized device with an active local certificate'), { status: 409 });
+    if (scheduled && (device.renewal?.mqttCnPolicy?.mode !== 'automatic' ||
+        !device.renewal.mqttCnPolicy.beforeExpiryDays || store.pendingForDevice(deviceId) ||
+        store.hasScheduledAttempt(deviceId, targetId) ||
+        Date.parse(target.validTo) - Date.now() > device.renewal.mqttCnPolicy.beforeExpiryDays * dayMs)) return;
     if (store.pendingForDevice(deviceId)) throw Object.assign(new Error('Renewal already pending'), { status: 409 });
     try { topics = configuredRenewalTopics(deviceId, configured ?? device.renewal?.mqttTopics); }
     catch (error) { throw Object.assign(error, { status: 400 }); }
@@ -131,11 +145,14 @@ async function configureAndBegin(deviceId, configured, policy, requestedDays) {
     if (cnPolicy?.mode === 'manual') cnPolicy = { mode: 'manual' };
     else if (cnPolicy?.mode === 'automatic' && typeof cnPolicy.expectedCn === 'string' &&
              /^[A-Za-z0-9._-]{1,64}$/.test(cnPolicy.expectedCn))
-      cnPolicy = { mode: 'automatic', expectedCn: cnPolicy.expectedCn };
+      cnPolicy = { mode: 'automatic', expectedCn: cnPolicy.expectedCn, beforeExpiryDays: cnPolicy.beforeExpiryDays ?? null };
     else throw Object.assign(new Error('Enter a valid expected CSR CN'), { status: 400 });
     validityDays = requestedDays === null ? env.certDays : requestedDays ?? device.renewal?.mqttValidityDays ?? env.certDays;
     if (!Number.isInteger(validityDays) || validityDays < 1 || validityDays > env.maxCertDays)
       throw Object.assign(new Error(`Validity must be 1–${env.maxCertDays} days`), { status: 400 });
+    const beforeExpiryDays = cnPolicy.beforeExpiryDays;
+    if (beforeExpiryDays != null && (!Number.isInteger(beforeExpiryDays) || beforeExpiryDays < 1 || beforeExpiryDays >= validityDays))
+      throw Object.assign(new Error('Renewal lead time must be at least one day and shorter than the new certificate validity'), { status: 400 });
     const used = new Set(db.devices.filter((item) => item.id !== deviceId && item.renewal?.mqttEnabled)
       .flatMap((item) => Object.values(configuredRenewalTopics(item.id, item.renewal.mqttTopics))));
     if (Object.values(topics).some((topic) => used.has(topic)))
@@ -159,8 +176,24 @@ async function configureAndBegin(deviceId, configured, policy, requestedDays) {
       throw error;
     }
   });
+  if (!topics) return;
   await subscribe({ deviceId, topics });
-  return coordinator.begin(deviceId, { type: 'client', targetId, topics, cnPolicy, validityDays });
+  return coordinator.begin(deviceId, { type: 'client', targetId, topics, cnPolicy, validityDays, scheduled });
+}
+
+let checkingSchedule = false;
+async function checkScheduledRenewals() {
+  if (checkingSchedule || !transport?.connected || updateMaintenance()) return;
+  checkingSchedule = true;
+  try {
+    for (const device of loadDb().devices) {
+      if (device.renewal?.mqttCnPolicy?.mode !== 'automatic' || !device.renewal.mqttCnPolicy.beforeExpiryDays) continue;
+      if (!device.enabled || device.status !== 'active' || device.trusted === false) continue;
+      await beginClientRenewal(device.id, undefined, undefined, undefined, true).catch((error) => {
+        if (error.status !== 409) console.error('Could not start scheduled MQTT certificate renewal');
+      });
+    }
+  } finally { checkingSchedule = false; }
 }
 
 export function clientRenewalStatus(deviceId, id) {

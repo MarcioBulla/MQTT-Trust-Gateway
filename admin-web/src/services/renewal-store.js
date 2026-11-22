@@ -13,6 +13,7 @@ export function createRenewalStore(db) {
       WHERE status IN ('requested', 'staged', 'testing');
   `);
   const select = db.prepare('SELECT operation FROM mqtt_renewals WHERE id = ?');
+  const attempted = db.prepare("SELECT 1 FROM mqtt_renewals WHERE device_id = ? AND json_extract(operation, '$.targetId') = ? AND json_extract(operation, '$.scheduled') = 1 LIMIT 1");
   const pending = db.prepare(`
     SELECT operation FROM mqtt_renewals
     WHERE device_id = ? AND status IN ('requested', 'staged', 'testing')
@@ -27,6 +28,7 @@ export function createRenewalStore(db) {
   `);
   const decode = (row) => row ? JSON.parse(row.operation) : undefined;
   return {
+    hasScheduledAttempt: (deviceId, targetId) => Boolean(attempted.get(deviceId, targetId)),
     listPending: () => allPending.all().map(decode),
     get: (id) => decode(select.get(id)),
     pendingForDevice: (deviceId) => decode(pending.get(deviceId)),

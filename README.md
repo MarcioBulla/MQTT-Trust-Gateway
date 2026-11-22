@@ -19,7 +19,7 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 - ❔ Contextual Help: searchable guides for certificate workflows, release discovery, MQTT Manager, Gateway service health, CA trust, and the Dashboard first-message walkthrough, with contextual previews, numbered references, interactive Mermaid diagrams, and theme-matched visual guides.
 - 🪪 Four certificate enrollment methods: sign a device CSR, create a CSR for an external CA, generate a complete device credential bundle, or import an existing certificate.
 - 🧩 **Per-device MQTT rules:** use the default `#` access or configure separate publish and subscribe topic filters for each identity; apply saved changes through the broker controls. The default grants broad access to ordinary topics.
-- 🔁 **MQTT CSR renewal:** request a CSR from an authorized device; the Gateway uses its newest eligible local certificate automatically, without a certificate picker. Validity days are saved per device; a blank value uses the Gateway default and remains subject to its configured limit and the CA's remaining validity. Review each submitted CSR Common Name (CN), or automatically accept only a configured expected CN. Issued certificates retain the registered Device ID as their CN and MQTT identity.
+- 🔁 **MQTT CSR renewal:** request a CSR from an authorized device; the Gateway uses its newest eligible local certificate automatically, without a certificate picker. Validity days are saved per device; a blank value uses the Gateway default and remains subject to its configured limit and the CA's remaining validity. In Manual CN mode, **Request CSR** starts a request for review; in Automatic CN mode, **Force automatic renewal** starts one immediately using the configured expected CN. Both actions save the renewal settings and apply the same eligibility, validity, and certificate checks. In Automatic CN mode, set **Attempt renewal before expiry (days)** to opt into one scheduled attempt per eligible certificate; leave it blank to disable scheduling. The lead time must be a positive integer shorter than the new certificate validity. If the certificate remains eligible after a failed or missed scheduled attempt, you can retry manually with the mode's action button. Issued certificates retain the registered Device ID as their CN and MQTT identity.
 - 🧰 Central device and certificate lifecycle: renew a selected certificate using its existing public key, revoke, trust external CAs, archive, restore, or delete identities. Use **Add certificate → Sign an existing CSR** for key rotation.
 - 🆔 Stable IDs: the Gateway generates immutable device and certificate-record IDs. Device display names may repeat; the device ID remains the MQTT identity and certificate Common Name.
 - 🩺 Gateway health probes: lightweight liveness and private SQLite readiness endpoints for monitoring the Gateway itself; these do not monitor devices or MQTT connectivity.
@@ -35,7 +35,7 @@ A lightweight, self-hosted MQTT gateway for trusted device identities. It combin
 
 ## 🚧 Work in progress
 
-1. 🔐 **Automatic renewal scheduling and Gateway CA rotation:** add automatic-renewal switches and days-before-expiry thresholds for device licenses. Manual MQTT CSR requests and per-device topic configuration are available; automatic CN approval only automates CSR checking, not renewal scheduling. CA rotation still needs delivery acknowledgments and verified device reconnections.
+1. 🔐 **Gateway CA rotation:** coordinate CA rotation with delivery acknowledgments and verified device reconnections. MQTT device-certificate renewal can be scheduled separately as described above.
 2. ✉️ **SMTP settings:** send administrative notifications such as certificate-expiry, renewal, broker-security, device-connectivity, and Gateway-release events.
 3. 🤖 **Telegram bot alerts:** provide an additional channel for administrative, security, and connectivity notifications.
 4. 🔄 **Offline release import:** install verified Gateway releases without an internet connection.
@@ -388,14 +388,14 @@ MQTT_TEST_TLS_PORT=8883 bun run test:public-tls
 
 - Set **Settings → General → Date and time** to Automatic (browser zone), UTC, or an IANA zone such as `America/Argentina/Buenos_Aires`.
 - The preference is per admin account and persists across logins/restarts.
-- Received, issued, expiry, and audit timestamps share this display zone; hover to inspect the original UTC instant.
+- Received, issued, expiry, audit, and displayed service-log timestamps share this display zone; hover to inspect the original UTC instant where available.
 - Certificate validity, MQTT timestamps, and audit storage remain UTC. This does not change server time or access policy.
 - Old `#/account` bookmarks redirect to `#/settings`. SMTP (WIP) is grouped under General.
 
 ### Logs
 
 - **Settings → Logs** contains separate Admin and MQTT broker tabs with independent Follow/Pause and Auto-scroll controls.
-- Authenticated SSE refreshes once per second and shows the latest 500 lines, capped at 64 KiB. Pausing stops the stream; resume fetches the latest tail.
+- Authenticated SSE refreshes once per second and shows the latest 500 lines, capped at 64 KiB. Timestamps in the displayed logs use the selected time zone. Pausing stops the stream; resume fetches the latest tail.
 - Admin log: `admin/logs/admin.log` (1 MiB plus one rotated file).
 - Broker log: `broker/logs/mosquitto.log` (trimmed in place above 1 MiB).
 - The web container does not access the Podman socket or host journal. Logs are plain text from these two files; streams stop when the admin session expires.

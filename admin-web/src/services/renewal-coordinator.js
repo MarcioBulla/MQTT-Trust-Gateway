@@ -85,7 +85,7 @@ export function createRenewalCoordinator({ store, publish, issueClient, inspectC
       });
     },
 
-    begin(deviceId, { type, pem, targetId, topics, cnPolicy, validityDays } = {}) {
+    begin(deviceId, { type, pem, targetId, topics, cnPolicy, validityDays, scheduled } = {}) {
       return serialize(async () => {
         if (!['client', 'ca'].includes(type)) throw new Error('Invalid renewal type');
         topics = configuredRenewalTopics(deviceId, topics);
@@ -98,7 +98,7 @@ export function createRenewalCoordinator({ store, publish, issueClient, inspectC
           encodeRenewalMessage({ request_id: id, type, pem });
         }
         const operation = {
-          id, deviceId, type, targetId, topics, cnPolicy, validityDays, pem: type === 'ca' ? pem : undefined,
+          id, deviceId, type, targetId, topics, cnPolicy, validityDays, scheduled, pem: type === 'ca' ? pem : undefined,
           status: 'requested', createdAt: now(), deadline: now() + renewalLimits.installMs,
         };
         store.save(operation);

@@ -3,6 +3,7 @@ import SensitiveValue from './SensitiveValue.vue';
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
 import { revealScopes, isRevealed } from '../sensitive';
 import { copy } from '../api';
+import { displayTimeZone, formatDateTime } from '../date-time';
 
 const source = ref('admin'), connected = ref(false), logView = ref(null), error = ref('');
 const following = reactive({ admin: true, broker: true }), scrolling = reactive({ admin: true, broker: true });
@@ -10,7 +11,14 @@ const follow = computed({ get: () => following[source.value], set: (value) => { 
 const autoScroll = computed({ get: () => scrolling[source.value], set: (value) => { scrolling[source.value] = value; } });
 const logs = reactive({ admin: '', broker: '' });
 const available = reactive({ admin: false, broker: false });
-const text = computed(() => logs[source.value]);
+const text = computed(() => logs[source.value].replace(
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z|\d{10})(?=[: ])/gm,
+  (timestamp) => {
+    const value = /^\d+$/.test(timestamp) ? Number(timestamp) * 1000 : timestamp;
+    const formatted = formatDateTime(value);
+    return formatted === '—' ? timestamp : formatted;
+  },
+));
 let stream;
 function close() { stream?.close(); stream = null; connected.value = false; }
 function connect() {
@@ -43,7 +51,7 @@ onUnmounted(close);
   <v-card class="pa-4">
     <v-tabs v-model="source" density="compact" class="mb-4" aria-label="Service log sources"><v-tab value="admin">Admin</v-tab><v-tab value="broker">MQTT broker</v-tab></v-tabs>
     <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-3">
-      <div class="d-flex align-center ga-2"><v-chip size="small" :color="!follow ? 'default' : connected ? 'success' : 'warning'">{{ !follow ? 'Paused' : connected ? 'Following' : 'Connecting' }}</v-chip><span class="text-caption text-medium-emphasis">Latest 500 lines · updates every second</span></div>
+      <div class="d-flex align-center ga-2"><v-chip size="small" :color="!follow ? 'default' : connected ? 'success' : 'warning'">{{ !follow ? 'Paused' : connected ? 'Following' : 'Connecting' }}</v-chip><span class="text-caption text-medium-emphasis">Latest 500 lines · updates every second · {{ displayTimeZone }}</span></div>
       <div class="d-flex flex-wrap align-center ga-2"><v-switch v-model="autoScroll" label="Auto-scroll" density="compact" hide-details color="primary" /><v-btn size="small" variant="tonal" :prepend-icon="follow ? 'mdi-pause' : 'mdi-play'" @click="follow = !follow">{{ follow ? 'Pause' : 'Follow' }}</v-btn><v-btn icon="mdi-content-copy" size="small" variant="text" :disabled="!text" aria-label="Copy visible logs" @click="copy(text)" /></div>
     </div>
     <v-alert v-if="error" type="warning" variant="tonal" density="compact" class="mb-3">{{ error }}</v-alert>
