@@ -6,7 +6,7 @@ const terminal = new Set(['confirmed', 'rejected', 'rolled_back']);
 
 // The transport must subscribe with retain-as-published and enforce directional
 // broker ACLs. The store must persist each operation before publication.
-export function createRenewalCoordinator({ store, publish, issueClient, authorize, now = Date.now }) {
+export function createRenewalCoordinator({ store, publish, issueClient, inspectClient, authorize, now = Date.now }) {
   let queue = Promise.resolve();
   function serialize(action) {
     const result = queue.then(action);
@@ -38,6 +38,23 @@ export function createRenewalCoordinator({ store, publish, issueClient, authoriz
     return true;
   }
 
+  async function issueAndInstall(operation, csr, expectedCn) {
+    let pem;
+    try {
+      pem = await issueClient(operation, csr, expectedCn);
+    } catch (error) {
+      if (error.code !== 'csr_cn_mismatch') throw error;
+      store.save({ ...operation, status: 'rejected', error: 'csr_cn_mismatch', finishedAt: now() });
+      return;
+    }
+    encodeRenewalMessage({ request_id: operation.id, type: 'client', pem });
+    const { pendingCsr, pendingCn, ...approved } = operation;
+    const next = { ...approved, pem };
+    if (expire(next)) return;
+    store.save(next);
+    await install(next);
+  }
+
   return {
     resume() {
       return serialize(async () => {
@@ -53,6 +70,7 @@ export function createRenewalCoordinator({ store, publish, issueClient, authoriz
               await send(operation, 'request');
               await install(operation);
             } else if (operation.pem) await install(operation);
+            else if (operation.pendingCsr) continue;
             else await send(operation, 'request');
           } catch {
             store.save({ ...operation, error: 'publish_failed' });
@@ -67,7 +85,7 @@ export function createRenewalCoordinator({ store, publish, issueClient, authoriz
       });
     },
 
-    begin(deviceId, { type, pem, targetId, topics } = {}) {
+    begin(deviceId, { type, pem, targetId, topics, cnPolicy } = {}) {
       return serialize(async () => {
         if (!['client', 'ca'].includes(type)) throw new Error('Invalid renewal type');
         topics = configuredRenewalTopics(deviceId, topics);
@@ -80,13 +98,24 @@ export function createRenewalCoordinator({ store, publish, issueClient, authoriz
           encodeRenewalMessage({ request_id: id, type, pem });
         }
         const operation = {
-          id, deviceId, type, targetId, topics, pem: type === 'ca' ? pem : undefined,
+          id, deviceId, type, targetId, topics, cnPolicy, pem: type === 'ca' ? pem : undefined,
           status: 'requested', createdAt: now(), deadline: now() + renewalLimits.installMs,
         };
         store.save(operation);
         await send(operation, 'request');
         if (type === 'ca') await install(operation);
         return id;
+      });
+    },
+
+    approve(deviceId, id, cn) {
+      return serialize(async () => {
+        const operation = store.get(id);
+        if (!operation || operation.deviceId !== deviceId || operation.status !== 'requested' ||
+            !operation.pendingCsr || operation.pendingCn !== cn || expire(operation) ||
+            !(await authorize(deviceId, operation)))
+          throw Object.assign(new Error('CSR approval is no longer available'), { status: 409 });
+        await issueAndInstall(operation, operation.pendingCsr, cn);
       });
     },
 
@@ -101,15 +130,14 @@ export function createRenewalCoordinator({ store, publish, issueClient, authoriz
         if (kind === 'csr') {
           if (operation.type !== 'client' || !['requested', 'staged'].includes(operation.status)) return;
           if (!operation.pem) {
-            // issueClient must validate the CSR signature and exact CN and
-            // return the same issuance for retries of this operation ID.
-            const pem = await issueClient(operation, message.pem);
-            encodeRenewalMessage({ request_id: operation.id, type: 'client', pem });
-            operation = { ...operation, pem };
-            if (expire(operation)) return;
-            store.save(operation);
-          }
-          await install(operation);
+            if (operation.cnPolicy?.mode === 'manual') {
+              if (operation.pendingCsr) return;
+              const cn = await inspectClient(message.pem);
+              if (!expire(operation)) store.save({ ...operation, pendingCsr: message.pem, pendingCn: cn });
+              return;
+            }
+            await issueAndInstall(operation, message.pem, operation.cnPolicy?.expectedCn ?? deviceId);
+          } else await install(operation);
           return;
         }
 

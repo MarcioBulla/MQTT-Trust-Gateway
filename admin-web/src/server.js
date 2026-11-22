@@ -1,4 +1,4 @@
-import { startClientRenewal, stopClientRenewal, beginClientRenewal, clientRenewalStatus } from './services/client-renewal-service.js';
+import { startClientRenewal, stopClientRenewal, beginClientRenewal, approveClientRenewal, clientRenewalStatus } from './services/client-renewal-service.js';
 import { requireAuth } from './auth.js';
 import { requireSensitive } from './sensitive-access.js';
 import { updatePreferences } from './services/update-preferences.js';
@@ -74,8 +74,15 @@ app.use('/api', (req, res, next) => {
 });
 app.post('/api/devices/:deviceId/mqtt-renewals', requireAuth(async (req, res) => {
   if (!requireSensitive(req, res, 'devices')) return;
-  const id = await beginClientRenewal(req.params.deviceId, req.body?.certificateId, req.body?.topics);
+  const id = await beginClientRenewal(req.params.deviceId, req.body?.certificateId, req.body?.topics, req.body?.cnPolicy);
   res.status(202).json({ id });
+}));
+app.post('/api/devices/:deviceId/mqtt-renewals/:id/approve', requireAuth(async (req, res) => {
+  if (!requireSensitive(req, res, 'devices')) return;
+  res.json(await approveClientRenewal(req.params.deviceId, req.params.id, req.body?.cn));
+}));
+app.get('/api/devices/:deviceId/mqtt-renewals', requireAuth((req, res) => {
+  res.json(clientRenewalStatus(req.params.deviceId));
 }));
 app.get('/api/devices/:deviceId/mqtt-renewals/:id', requireAuth((req, res) => {
   const operation = clientRenewalStatus(req.params.deviceId, req.params.id);

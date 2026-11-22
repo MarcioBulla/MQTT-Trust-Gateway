@@ -139,7 +139,7 @@ async function work(fn) {
     await fs.rm(dir, { recursive: true, force: true });
   }
 }
-export async function signDeviceCsr({ deviceId, csr, days = env.certDays, requireMatchingSubject = false }) {
+export async function signDeviceCsr({ deviceId, csr, days = env.certDays, requireMatchingSubject = false, expectedCn = deviceId }) {
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(deviceId) || deviceId === env.adminMqttClientId)
     throw new Error('Invalid or reserved device identifier');
   days = Number(days);
@@ -155,11 +155,11 @@ export async function signDeviceCsr({ deviceId, csr, days = env.certDays, requir
     const verification = await openssl(['req', '-in', input, '-verify', '-noout']);
     if (requireMatchingSubject) {
       // Older OpenSSL versions can exit zero even when CSR verification fails.
-      if (!/^Certificate request self-signature verify OK$/m.test(verification.stderr))
+      if (!/^Certificate request self-signature verify OK$/m.test(verification.stderr + "\n" + verification.stdout))
         throw new Error('Invalid renewal CSR signature');
       const { stdout: subject } = await openssl(['req', '-in', input, '-subject', '-nameopt', 'RFC2253', '-noout']);
-      if (subject.trim() !== `subject=CN=${deviceId}`)
-        throw new Error('Renewal CSR subject must match the device ID');
+      if (subject.trim() !== `subject=CN=${expectedCn}`)
+        throw Object.assign(new Error('Renewal CSR subject must match the approved CN'), { code: 'csr_cn_mismatch' });
     }
     const { stdout } = await openssl(['req', '-in', input, '-pubkey', '-noout']);
     const publicKey = crypto.createPublicKey(stdout);
@@ -219,11 +219,13 @@ async function createCsr(deviceId, privateKey) {
   });
 }
 
-export async function inspectCsr(csr) {
+export async function inspectCsr(csr, { verifySignature = false } = {}) {
   return work(async (dir) => {
     const file = path.join(dir, 'request.csr');
     await fs.writeFile(file, csr, { mode: 0o600 });
-    await openssl(['req', '-in', file, '-verify', '-noout']);
+    const verification = await openssl(['req', '-in', file, '-verify', '-noout']);
+    if (verifySignature && !/^Certificate request self-signature verify OK$/m.test(verification.stderr + "\n" + verification.stdout))
+      throw new Error('Invalid renewal CSR signature');
     const { stdout: keyPem } = await openssl(['req', '-in', file, '-pubkey', '-noout']);
     const key = crypto.createPublicKey(keyPem);
     const details = key.asymmetricKeyDetails;
