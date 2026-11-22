@@ -41,7 +41,7 @@ const method = ref('generate'), dialog = ref(false), certificates = ref([]), dev
   labelSearch = ref(''), labelColor = ref('blue'), labelMenuCertificate = ref(null);
 const pending = computed(() => certificates.value.filter((item) => item.status === 'pending_external_signature' && (!props.deviceId || item.deviceId === props.deviceId)));
 const displayedCertificates = computed(() => certificates.value.filter((item) => !props.deviceId || item.deviceId === props.deviceId));
-const deviceOptions = computed(() => devices.value.map((device) => ({ title: `${device.name || device.id} · ${device.id}`, value: device.id })));
+const deviceOptions = computed(() => devices.value.map((device) => ({ title: `${device.name || device.id} · ${device.id}`, value: device.id, labels: device.labels || [] })));
 const currentDevice = computed(() => devices.value.find((item) => item.id === props.deviceId) || null);
 const mqttCertificateId = ref(null);
 const mqttOperation = ref(null);
@@ -383,9 +383,33 @@ defineExpose({ open });
   <v-dialog v-model="dialog" max-width="820" scrollable><v-card class="pa-6"><div class="d-flex align-center justify-space-between mb-4"><h2 class="text-h5">{{ certificateMethods.find((item) => item.value === method)?.title }}</h2><HelpButton :topic-id="({ generate: 'generate-complete-certificate', sign: 'sign-existing-csr', external: 'generate-csr-external-signing', import: 'import-certificate' })[method]" /></div>
     <template v-if="!generatedPending">
       <v-select v-if="method !== 'import'" v-model="form.deviceId" :items="deviceOptions" item-title="title" item-value="value" :return-object="false" label="Registered device" hint="Register a device first; the generated ID is its MQTT identity and certificate CN." :disabled="!!props.deviceId" :loading="devicesLoading" required>
+        <template #item="{ props: optionProps, item: option }">
+          <v-list-item v-bind="optionProps">
+            <template #subtitle>
+              <div class="d-flex flex-wrap ga-1 mt-1">
+                <v-chip v-for="label in option.raw.labels || []" :key="typeof label === 'string' ? label : label.name"
+                  size="x-small" variant="tonal" :color="typeof label === 'string' ? 'primary' : (label.color || 'primary')">
+                  {{ typeof label === 'string' ? label : label.name }}
+                </v-chip>
+              </div>
+            </template>
+          </v-list-item>
+        </template>
         <template #append><v-tooltip text="Refresh devices" location="top" :open-delay="500"><template #activator="{ props: refreshProps }"><v-btn v-bind="refreshProps" icon="mdi-refresh" variant="text" size="small" aria-label="Refresh device identities" :loading="devicesLoading" :disabled="devicesLoading" @click="refreshDeviceOptions" /></template></v-tooltip></template>
       </v-select>
       <v-combobox v-else v-model="form.deviceId" :items="deviceOptions" item-title="title" item-value="value" :return-object="false" label="Device identity / certificate CN" hint="Select a registered device or enter the Common Name from the existing certificate." :disabled="!!props.deviceId" :loading="devicesLoading">
+        <template #item="{ props: optionProps, item: option }">
+          <v-list-item v-bind="optionProps">
+            <template #subtitle>
+              <div class="d-flex flex-wrap ga-1 mt-1">
+                <v-chip v-for="label in option.raw.labels || []" :key="typeof label === 'string' ? label : label.name"
+                  size="x-small" variant="tonal" :color="typeof label === 'string' ? 'primary' : (label.color || 'primary')">
+                  {{ typeof label === 'string' ? label : label.name }}
+                </v-chip>
+              </div>
+            </template>
+          </v-list-item>
+        </template>
         <template #append><v-tooltip text="Refresh devices" location="top" :open-delay="500"><template #activator="{ props: refreshProps }"><v-btn v-bind="refreshProps" icon="mdi-refresh" variant="text" size="small" aria-label="Refresh device identities" :loading="devicesLoading" :disabled="devicesLoading" @click="refreshDeviceOptions" /></template></v-tooltip></template>
       </v-combobox>
       <v-alert v-if="deviceOptionsError" type="error" variant="tonal" density="compact" class="mb-4">{{ deviceOptionsError }}. Use Refresh devices to try again.</v-alert>

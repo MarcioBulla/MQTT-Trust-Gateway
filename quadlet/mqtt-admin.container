@@ -16,6 +16,12 @@ Volume=@DATA@/admin:/data:rw,Z
 Volume=@DATA@/broker:/broker:rw,z
 PublishPort=@ADMIN_BIND@:@ADMIN_PORT@:@ADMIN_PORT@
 ReadOnly=true
+HealthCmd=node /app/src/healthcheck.js
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=4
+HealthStartPeriod=60s
+HealthOnFailure=kill
 Tmpfs=/tmp:rw,noexec,nosuid,size=32m
 [Service]
 Restart=on-failure

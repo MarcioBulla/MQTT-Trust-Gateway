@@ -28,7 +28,13 @@ export function createRenewalCoordinator({ store, publish, issueClient, authoriz
 
   function expire(operation) {
     if (now() < operation.deadline) return false;
-    store.save({ ...operation, status: 'rolled_back', error: 'deadline_exceeded', finishedAt: now() });
+    const installationExpired = ['requested', 'staged'].includes(operation.status);
+    store.save({
+      ...operation,
+      status: installationExpired ? 'rejected' : 'rolled_back',
+      error: installationExpired ? 'request_timeout' : 'confirmation_timeout',
+      finishedAt: now(),
+    });
     return true;
   }
 

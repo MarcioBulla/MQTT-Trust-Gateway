@@ -41,18 +41,25 @@ function noStore(res) {
   res.set('Expires', '0');
 }
 
-export function registerHealthRoutes(app, { sqlite, updateReady = () => true }) {
+export function registerHealthRoutes(app, { sqlite, updateReady = () => true, enqueue = (check) => check() }) {
   app.get('/health', (_req, res) => {
     noStore(res);
     res.status(200).json({ status: 'healthy' });
   });
 
-  app.get('/ready', (req, res) => {
+  let pendingReadiness;
+  app.get('/ready', async (req, res) => {
     noStore(res);
     if (!isTrustedMonitorRequest(req))
       return res.status(404).json({ status: 'unavailable' });
     try {
-      const row = sqlite.prepare('SELECT id FROM state WHERE id = 1').get();
+      // Exercise the same queue as the authenticated API and coalesce probes
+      // so a stalled operation cannot leave an unbounded queue of checks.
+      pendingReadiness ||= Promise.resolve()
+        .then(() => enqueue(() => sqlite.prepare('SELECT id FROM state WHERE id = 1').get()))
+        .finally(() => { pendingReadiness = undefined; });
+      const row = await pendingReadiness;
+      if (res.destroyed) return;
       if (!row) return res.status(503).json({ status: 'unavailable' });
       return res.status(200).json({ status: 'ready' });
     } catch {
