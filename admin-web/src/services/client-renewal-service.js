@@ -4,7 +4,7 @@ import mqtt from 'mqtt';
 import { env } from '../config.js';
 import { exclusive, loadDb, saveDb, sqlite } from '../db.js';
 import { allocateEntityId } from './entity-ids.js';
-import { certificateMetadata, signDeviceCsr, syncBroker } from './certificate-service.js';
+import { certificateMetadata, inspectCsr, signDeviceCsr, syncBroker } from './certificate-service.js';
 import { createRenewalCoordinator } from './renewal-coordinator.js';
 import { configuredRenewalTopics } from './renewal-protocol.js';
 import { createRenewalStore } from './renewal-store.js';
@@ -53,13 +53,19 @@ export function startClientRenewal() {
       return !updateMaintenance() && operation.type === 'client' &&
         eligible(loadDb(), deviceId, operation.targetId)?.renewal?.mqttEnabled === true;
     },
-    issueClient(operation, csr) {
+    async inspectClient(csr) {
+      const { subject } = await inspectCsr(csr, { verifySignature: true });
+      const cn = /^subject=CN=([A-Za-z0-9._-]{1,64})$/.exec(subject)?.[1];
+      if (!cn) throw new Error('Unsupported renewal CSR subject');
+      return cn;
+    },
+    issueClient(operation, csr, expectedCn) {
       return exclusive(async () => {
         const db = loadDb();
         if (!eligible(db, operation.deviceId, operation.targetId)) throw new Error('Device authorization changed');
         const existing = db.certificates.find((item) => item.renewalOperationId === operation.id);
         if (existing) return existing.certificate;
-        const certificate = await signDeviceCsr({ deviceId: operation.deviceId, csr, requireMatchingSubject: true });
+        const certificate = await signDeviceCsr({ deviceId: operation.deviceId, csr, expectedCn, requireMatchingSubject: true });
         const dbAfterSigning = loadDb();
         dbAfterSigning.certificates.unshift({
           id: allocateEntityId('certificate'), deviceId: operation.deviceId, ...certificateMetadata(certificate),
@@ -101,14 +107,14 @@ export function stopClientRenewal() {
 
 let startQueue = Promise.resolve();
 
-export function beginClientRenewal(deviceId, targetId, configured) {
-  const result = startQueue.then(() => configureAndBegin(deviceId, targetId, configured));
+export function beginClientRenewal(deviceId, targetId, configured, policy) {
+  const result = startQueue.then(() => configureAndBegin(deviceId, targetId, configured, policy));
   startQueue = result.catch(() => {});
   return result;
 }
 
-async function configureAndBegin(deviceId, targetId, configured) {
-  let topics;
+async function configureAndBegin(deviceId, targetId, configured, policy) {
+  let topics, cnPolicy;
   if (!transport?.connected || updateMaintenance())
     throw Object.assign(new Error('Renewal transport unavailable'), { status: 503 });
   await exclusive(async () => {
@@ -118,6 +124,12 @@ async function configureAndBegin(deviceId, targetId, configured) {
     if (store.pendingForDevice(deviceId)) throw Object.assign(new Error('Renewal already pending'), { status: 409 });
     try { topics = configuredRenewalTopics(deviceId, configured ?? device.renewal?.mqttTopics); }
     catch (error) { throw Object.assign(error, { status: 400 }); }
+    cnPolicy = policy ?? device.renewal?.mqttCnPolicy ?? { mode: 'automatic', expectedCn: deviceId };
+    if (cnPolicy?.mode === 'manual') cnPolicy = { mode: 'manual' };
+    else if (cnPolicy?.mode === 'automatic' && typeof cnPolicy.expectedCn === 'string' &&
+             /^[A-Za-z0-9._-]{1,64}$/.test(cnPolicy.expectedCn))
+      cnPolicy = { mode: 'automatic', expectedCn: cnPolicy.expectedCn };
+    else throw Object.assign(new Error('Enter a valid expected CSR CN'), { status: 400 });
     const used = new Set(db.devices.filter((item) => item.id !== deviceId && item.renewal?.mqttEnabled)
       .flatMap((item) => Object.values(configuredRenewalTopics(item.id, item.renewal.mqttTopics))));
     if (Object.values(topics).some((topic) => used.has(topic)))
@@ -130,6 +142,7 @@ async function configureAndBegin(deviceId, targetId, configured) {
     const previous = { ...device.renewal };
     device.renewal.mqttEnabled = true;
     device.renewal.mqttTopics = topics;
+    device.renewal.mqttCnPolicy = cnPolicy;
     saveDb(db);
     try { await syncBroker(); }
     catch (error) {
@@ -140,12 +153,19 @@ async function configureAndBegin(deviceId, targetId, configured) {
     }
   });
   await subscribe({ deviceId, topics });
-  return coordinator.begin(deviceId, { type: 'client', targetId, topics });
+  return coordinator.begin(deviceId, { type: 'client', targetId, topics, cnPolicy });
 }
 
 export function clientRenewalStatus(deviceId, id) {
-  const operation = store?.get(id);
+  const operation = id ? store?.get(id) : store?.pendingForDevice(deviceId);
   if (operation?.deviceId !== deviceId) return null;
-  const { pem, ...status } = operation;
+  const { pem, pendingCsr, ...status } = operation;
   return status;
+}
+
+export async function approveClientRenewal(deviceId, id, cn) {
+  if (!transport?.connected || updateMaintenance())
+    throw Object.assign(new Error('Renewal transport unavailable'), { status: 503 });
+  await coordinator.approve(deviceId, id, cn);
+  return clientRenewalStatus(deviceId, id);
 }
