@@ -51,6 +51,7 @@ const mqttTopicFields = {
 const mqttTopics = ref({});
 const mqttCnMode = ref('manual');
 const mqttExpectedCn = ref('');
+const mqttBeforeExpiry = ref('');
 const mqttValidityDays = ref('');
 watch([() => props.deviceId, () => currentDevice.value?.renewal?.mqttValidityDays], ([, days]) => {
   mqttValidityDays.value = days ?? '';
@@ -58,6 +59,7 @@ watch([() => props.deviceId, () => currentDevice.value?.renewal?.mqttValidityDay
 watch([() => props.deviceId, () => currentDevice.value?.renewal?.mqttCnPolicy], ([id, saved]) => {
   mqttCnMode.value = saved?.mode ?? 'manual';
   mqttExpectedCn.value = saved?.expectedCn ?? id ?? '';
+  mqttBeforeExpiry.value = saved?.beforeExpiryDays ?? '';
 }, { immediate: true });
 function restoreMqttTopics() {
   mqttTopics.value = Object.fromEntries(Object.keys(mqttTopicFields)
@@ -69,18 +71,13 @@ watch([() => props.deviceId, () => currentDevice.value?.renewal?.mqttTopics], ([
 }, { immediate: true });
 const mqttRenewalPath = () => `/devices/${encodeURIComponent(props.deviceId)}/mqtt-renewals`;
 watch(() => props.deviceId, () => { mqttOperation.value = null; });
-watch(editTab, (tab) => {
-  if (tab !== 'renew' || !props.deviceId) return;
-  const deviceId = props.deviceId;
-  action(async () => {
-    const operation = await api(mqttRenewalPath());
-    if (props.deviceId === deviceId && operation) mqttOperation.value = operation;
-  });
+watch([editTab, () => props.deviceId], ([tab, deviceId]) => {
+  if (tab === 'renew' && deviceId) refreshMqttRenewal();
 });
 function startMqttRenewal() {
   action(async () => {
     await ensureSensitive('devices');
-    const result = await api(mqttRenewalPath(), 'POST', { topics: { ...mqttTopics.value }, validityDays: mqttValidityDays.value === '' ? null : Number(mqttValidityDays.value), cnPolicy: { mode: mqttCnMode.value, expectedCn: mqttExpectedCn.value.trim() } });
+    const result = await api(mqttRenewalPath(), 'POST', { topics: { ...mqttTopics.value }, validityDays: mqttValidityDays.value === '' ? null : Number(mqttValidityDays.value), cnPolicy: { mode: mqttCnMode.value, expectedCn: mqttExpectedCn.value.trim(), beforeExpiryDays: mqttBeforeExpiry.value === '' ? null : Number(mqttBeforeExpiry.value) } });
     mqttOperation.value = { id: result.id, status: 'requested' };
   });
 }
@@ -93,7 +90,11 @@ function approveMqttRenewal() {
 }
 function refreshMqttRenewal() {
   action(async () => {
-    mqttOperation.value = await api(`${mqttRenewalPath()}/${mqttOperation.value.id}`);
+    const deviceId = props.deviceId;
+    const id = mqttOperation.value?.id;
+    const path = mqttRenewalPath();
+    const operation = await api(id ? `${path}/${id}` : path);
+    if (props.deviceId === deviceId) mqttOperation.value = operation;
   });
 }
 const labelColors = [
@@ -346,10 +347,13 @@ defineExpose({ open });
       <p class="mb-3">The device must be authorized, use compatible custom topic rules, and listen for CSR requests.</p>
       <v-select v-model="mqttCnMode" :items="[{ title: 'Review and approve each CSR', value: 'manual' }, { title: 'Automatically accept a matching CN', value: 'automatic' }]" label="CSR approval policy" />
       <v-text-field v-if="mqttCnMode === 'automatic'" v-model="mqttExpectedCn" label="Expected CSR Common Name (CN)" maxlength="64" />
+      <v-text-field v-if="mqttCnMode === 'automatic'" v-model="mqttBeforeExpiry" type="number" min="1" step="1"
+        label="Attempt renewal before expiry (days)" hint="Leave blank to disable scheduled renewal." persistent-hint />
       <v-text-field v-model="mqttValidityDays" type="number" min="1" step="1" label="New certificate validity (days)" placeholder="Gateway default" persistent-placeholder />
-      <p class="text-body-2 mb-3">The validity and approval policy are saved when you request a CSR. The issued certificate uses the registered Device ID for MQTT access.</p>
+      <p class="text-body-2 mb-3">Renewal settings are saved when you start a request. The issued certificate uses the registered Device ID for MQTT access.</p>
       <v-btn color="primary" :disabled="(mqttCnMode === 'automatic' && !mqttExpectedCn.trim()) || !currentDevice?.enabled || currentDevice?.trusted === false"
-        :loading="!!state.busy" @click="startMqttRenewal">Request CSR</v-btn>
+        :loading="!!state.busy" @click="startMqttRenewal">{{ mqttCnMode === 'automatic' ? 'Force automatic renewal' : 'Request CSR' }}</v-btn>
+      <v-btn class="ml-2" variant="tonal" prepend-icon="mdi-refresh" :loading="!!state.busy" @click="refreshMqttRenewal">Refresh status</v-btn>
       <div v-if="mqttOperation" class="mt-4" role="status">
         <div>Request ID <code>{{ mqttOperation.id }}</code></div>
         <div>Status <strong>{{ mqttOperation.status }}</strong></div>
@@ -358,7 +362,6 @@ defineExpose({ open });
           <p>CSR awaiting approval. Common Name: <code>{{ mqttOperation.pendingCn }}</code></p>
           <v-btn color="primary" :loading="!!state.busy" @click="approveMqttRenewal">Approve CSR and issue certificate</v-btn>
         </div>
-        <v-btn variant="text" @click="refreshMqttRenewal">Refresh status</v-btn>
       </div>
       <v-row class="mt-4">
         <v-col v-for="(label, kind) in mqttTopicFields" :key="kind" cols="12" md="6">

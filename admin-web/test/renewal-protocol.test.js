@@ -62,3 +62,20 @@ test('automatic CSR approval passes the configured CN and rejects a mismatch', a
   }
   assert.deepEqual(sent, ['device-id/pki/request', 'device-id/pki/request', 'device-id/pki/install']);
 });
+
+test('scheduled attempts remain deduplicated after the operation ends and the store reopens', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { createRenewalStore } = await import('../src/services/renewal-store.js');
+  const db = new DatabaseSync(':memory:');
+  try {
+    const store = createRenewalStore(db);
+    const operation = { id: newRenewalId(), deviceId: 'device-id', targetId: 'cert-old', status: 'rejected' };
+    store.save(operation);
+    assert.equal(store.hasScheduledAttempt('device-id', 'cert-old'), false);
+    store.save({ ...operation, scheduled: true });
+    const reopened = createRenewalStore(db);
+    assert.equal(reopened.hasScheduledAttempt('device-id', 'cert-old'), true);
+    assert.equal(reopened.hasScheduledAttempt('device-id', 'cert-new'), false);
+    assert.equal(reopened.hasScheduledAttempt('other-device', 'cert-old'), false);
+  } finally { db.close(); }
+});

@@ -25,7 +25,10 @@ test('device renewal Help documents the manual MQTT CSR exchange and WIP limits'
   assert.match(topic.overview, /MQTT renewal messages use QoS 1 and must not be retained/i);
   assert.match(topic.overview, /complete within 10 minutes.*confirmation must complete within 2 minutes/i);
   assert.match(topic.overview, /CSR approval policy defaults to Review and approve each CSR/i);
-  assert.match(topic.overview, /policy is saved when you choose Request CSR/i);
+  assert.match(topic.overview, /Request CSR is the manual-mode button; Force automatic renewal is shown in automatic mode/i);
+  assert.match(topic.overview, /Either action saves the renewal settings and immediately starts the exchange/i);
+  assert.match(topic.overview, /Force automatic renewal starts the exchange immediately even when the scheduled lead time has not been reached/i);
+  assert.match(topic.overview, /cannot start while another renewal is pending/i);
   assert.match(topic.overview, /Refresh status.*listed CSR Common Name.*Approve CSR and issue certificate/i);
   assert.match(topic.steps.join(' '), /Automatically accept a matching CN/i);
   assert.match(topic.overview, /only a CSR whose subject CN exactly matches that value/i);
@@ -33,16 +36,28 @@ test('device renewal Help documents the manual MQTT CSR exchange and WIP limits'
   assert.match(topic.overview, /most recently issued eligible certificate automatically; no certificate picker is shown/i);
   assert.match(topic.overview, /New certificate validity \(days\).*positive whole number.*leave it blank to use the Gateway default/i);
   assert.match(topic.overview, /Gateway validity limit and the remaining validity of its CA/i);
+  assert.match(topic.overview, /In automatic CN mode only, Attempt renewal before expiry \(days\).*leave it blank to disable scheduling.*positive whole number shorter than New certificate validity/i);
+  assert.match(topic.overview, /scheduler checks every minute and starts at most one scheduled attempt for each eligible certificate/i);
+  assert.match(topic.overview, /failed or rejected exchange is not silently retried; start another attempt manually/i);
   assert.match(topic.overview, /keeps its private key local/i);
   assert.match(topic.prerequisites.join(' '), /Custom Rules/i);
   assert.match(topic.prerequisites.join(' '), /device Publish rules.*device Subscribe rules/i);
   assert.match(topic.prerequisites.join(' '), /Health Check topic must not equal any of the five reserved/i);
   assert.match(topic.steps.join(' '), /Request CSR/i);
   assert.match(topic.steps.join(' '), /Refresh status/i);
-  assert.match(topic.steps.join(' '), /defaults to Review and approve each CSR.*Automatically accept a matching CN.*Request CSR to save the validity and approval policy/i);
+  assert.match(topic.steps.join(' '), /defaults to Review and approve each CSR.*Automatically accept a matching CN.*Request CSR for manual review or Force automatic renewal for automatic acceptance/i);
+  assert.match(topic.steps.join(' '), /Either button saves the validity, approval policy, and other renewal settings, then immediately starts the exchange/i);
   assert.match(topic.steps.join(' '), /positive whole number.*New certificate validity \(days\).*leave it blank.*Gateway default/i);
   assert.match(topic.steps.join(' '), /cannot exceed the Gateway maximum or the CA certificate’s remaining validity/i);
-  assert.match(topic.steps.join(' '), /Request CSR to save the validity and approval policy/i);
+  assert.match(topic.steps.join(' '), /In automatic CN mode, optionally set Attempt renewal before expiry \(days\).*leave it blank to disable scheduling/i);
+  assert.match(topic.steps.join(' '), /positive whole number less than the new certificate validity to opt in.*mode-specific start button saves this lead time/i);
+  assert.match(topic.steps.join(' '), /scheduler checks every minute.*no more than one scheduled request per eligible certificate/i);
+  assert.match(topic.steps.join(' '), /failed or rejected exchange is not silently retried.*mode-specific button/i);
+  assert.match(topic.steps.join(' '), /Force automatic renewal starts immediately regardless of the lead time/i);
+  assert.match(topic.steps.join(' '), /Force automatic renewal starts immediately regardless of the lead time, while still requiring authorization and no pending operation/i);
+  assert.match(topic.steps.join(' '), /device generates or selects its local private key.*subject CN must match the expected CN policy/i);
+  assert.match(topic.steps.join(' '), /Refresh status is always visible beside Request CSR/i);
+  assert.match(topic.steps.join(' '), /manual mode, review the listed CN.*Approve CSR and issue certificate/i);
   assert.match(topic.steps.join(' '), /Approve CSR and issue certificate/i);
   assert.match(topic.steps.join(' '), /issued certificate uses the registered Device ID as its CN for MQTT ACLs/i);
   assert.match(topic.steps.join(' '), /request_id and csr fields.*legacy messages that use pem instead of csr/i);
@@ -53,6 +68,10 @@ test('device renewal Help documents the manual MQTT CSR exchange and WIP limits'
   assert.match(topic.overview, /Gateway CA renewal remains disabled WIP/i);
   assert.match(topic.workflowMermaid, /Manual default/);
   assert.match(topic.workflowMermaid, /Expected CSR CN/);
+  assert.match(topic.workflowMermaid, /optional lead time shorter than validity/);
+  assert.match(topic.workflowMermaid, /scheduled check every minute/);
+  assert.match(topic.workflowMermaid, /Force automatic renewal saves settings and starts now/);
+  assert.match(topic.workflowMermaid, /ignores scheduled lead time/);
   assert.match(topic.workflowMermaid, /selects latest eligible certificate/);
   assert.match(topic.workflowMermaid, /Device ID\/pki\/request/);
   assert.match(topic.workflowMermaid, /Device ID\/pki\/csr/);
@@ -73,6 +92,15 @@ test('certificate renewal Help documents the per-device Copy certificate PEM dia
   assert.match(topic.overview, /read-only Certificate \(PEM\) dialog/i);
   assert.match(topic.overview, /Click Copy in the dialog/i);
   assert.match(topic.artifacts.join(' '), /copies only this certificate text.*does not reveal or export the private key/i);
+});
+
+test('Settings Help explains log timestamp formatting and copied visible text', () => {
+  const topic = helpTopicById['sensitive-information-visibility'];
+  assert.ok(topic);
+  assert.match(topic.overview, /Settings → Logs.*timestamps are displayed in the account’s configured Display time zone/i);
+  assert.match(topic.overview, /Copy visible logs copies the displayed text, including those formatted timestamps/i);
+  assert.match(topic.steps.join(' '), /Settings → Logs.*Copy visible logs copies the displayed log text/i);
+  assert.match(topic.steps.join(' '), /timestamps in the display and copied text use the account’s Display time zone from Settings → General/i);
 });
 
 test('Device Health Check help matches the passive LWT implementation and its limitations', () => {
