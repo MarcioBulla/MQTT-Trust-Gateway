@@ -24,12 +24,13 @@ test('manual CSR approval binds the request to the reviewed CN', async () => {
     inspectClient: async () => 'AutoBoot_Test',
     issueClient: async (op, csr, cn) => {
       assert.equal(op.deviceId, 'device-id');
+      assert.equal(op.validityDays, 45);
       assert.equal(cn, 'AutoBoot_Test');
       return 'signed certificate';
     },
     publish: async (topic) => sent.push(topic),
   });
-  const id = await coordinator.begin('device-id', { type: 'client', cnPolicy: { mode: 'manual' } });
+  const id = await coordinator.begin('device-id', { type: 'client', cnPolicy: { mode: 'manual' }, validityDays: 45 });
   await coordinator.receive('device-id', 'csr', Buffer.from(JSON.stringify({request_id: id, csr: 'signed request'})), { qos: 1, retain: false });
   assert.deepEqual(sent, ['device-id/pki/request']);
   await assert.rejects(coordinator.approve('device-id', id, 'different'), { status: 409 });

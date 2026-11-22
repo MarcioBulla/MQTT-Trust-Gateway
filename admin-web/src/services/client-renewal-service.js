@@ -65,7 +65,7 @@ export function startClientRenewal() {
         if (!eligible(db, operation.deviceId, operation.targetId)) throw new Error('Device authorization changed');
         const existing = db.certificates.find((item) => item.renewalOperationId === operation.id);
         if (existing) return existing.certificate;
-        const certificate = await signDeviceCsr({ deviceId: operation.deviceId, csr, expectedCn, requireMatchingSubject: true });
+        const certificate = await signDeviceCsr({ deviceId: operation.deviceId, csr, expectedCn, days: operation.validityDays, requireMatchingSubject: true });
         const dbAfterSigning = loadDb();
         dbAfterSigning.certificates.unshift({
           id: allocateEntityId('certificate'), deviceId: operation.deviceId, ...certificateMetadata(certificate),
@@ -107,23 +107,21 @@ export function stopClientRenewal() {
 
 let startQueue = Promise.resolve();
 
-export function beginClientRenewal(deviceId, targetId, configured, policy) {
-  const result = startQueue.then(() => configureAndBegin(deviceId, targetId, configured, policy));
+export function beginClientRenewal(deviceId, configured, policy, requestedDays) {
+  const result = startQueue.then(() => configureAndBegin(deviceId, configured, policy, requestedDays));
   startQueue = result.catch(() => {});
   return result;
 }
 
-async function configureAndBegin(deviceId, targetId, configured, policy) {
-  let topics, cnPolicy;
+async function configureAndBegin(deviceId, configured, policy, requestedDays) {
+  let topics, cnPolicy, targetId, validityDays;
   if (!transport?.connected || updateMaintenance())
     throw Object.assign(new Error('Renewal transport unavailable'), { status: 503 });
   await exclusive(async () => {
     const db = loadDb();
-    if (!targetId) {
-      targetId = db.certificates
-        .filter((item) => item.deviceId === deviceId && eligible(db, deviceId, item.id))
-        .sort((a, b) => (Date.parse(b.issuedAt ?? b.validFrom) || 0) - (Date.parse(a.issuedAt ?? a.validFrom) || 0))[0]?.id;
-    }
+    targetId = db.certificates
+      .filter((item) => item.deviceId === deviceId && eligible(db, deviceId, item.id))
+      .sort((a, b) => (Date.parse(b.issuedAt ?? b.validFrom) || 0) - (Date.parse(a.issuedAt ?? a.validFrom) || 0))[0]?.id;
     const device = eligible(db, deviceId, targetId);
     if (!device) throw Object.assign(new Error('Renewal requires an authorized device with an active local certificate'), { status: 409 });
     if (store.pendingForDevice(deviceId)) throw Object.assign(new Error('Renewal already pending'), { status: 409 });
@@ -135,6 +133,9 @@ async function configureAndBegin(deviceId, targetId, configured, policy) {
              /^[A-Za-z0-9._-]{1,64}$/.test(cnPolicy.expectedCn))
       cnPolicy = { mode: 'automatic', expectedCn: cnPolicy.expectedCn };
     else throw Object.assign(new Error('Enter a valid expected CSR CN'), { status: 400 });
+    validityDays = requestedDays === null ? env.certDays : requestedDays ?? device.renewal?.mqttValidityDays ?? env.certDays;
+    if (!Number.isInteger(validityDays) || validityDays < 1 || validityDays > env.maxCertDays)
+      throw Object.assign(new Error(`Validity must be 1–${env.maxCertDays} days`), { status: 400 });
     const used = new Set(db.devices.filter((item) => item.id !== deviceId && item.renewal?.mqttEnabled)
       .flatMap((item) => Object.values(configuredRenewalTopics(item.id, item.renewal.mqttTopics))));
     if (Object.values(topics).some((topic) => used.has(topic)))
@@ -148,6 +149,7 @@ async function configureAndBegin(deviceId, targetId, configured, policy) {
     device.renewal.mqttEnabled = true;
     device.renewal.mqttTopics = topics;
     device.renewal.mqttCnPolicy = cnPolicy;
+    device.renewal.mqttValidityDays = validityDays;
     saveDb(db);
     try { await syncBroker(); }
     catch (error) {
@@ -158,7 +160,7 @@ async function configureAndBegin(deviceId, targetId, configured, policy) {
     }
   });
   await subscribe({ deviceId, topics });
-  return coordinator.begin(deviceId, { type: 'client', targetId, topics, cnPolicy });
+  return coordinator.begin(deviceId, { type: 'client', targetId, topics, cnPolicy, validityDays });
 }
 
 export function clientRenewalStatus(deviceId, id) {
